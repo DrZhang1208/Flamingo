@@ -214,7 +214,7 @@ object MusicLibrary {
     fun YosMediaItem.toMediaItem(): MediaItem {
         return MediaItem.Builder()
             .setUri(this.uri)
-            .setMediaId(this.mediaId!!)
+            .setMediaId(this.mediaId ?: this.uri?.toString() ?: "unknown")
             .setMimeType(this.mimeType)
             .setMediaMetadata(
                 MediaMetadata.Builder()

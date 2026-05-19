@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import yos.music.player.code.MediaController.mediaControl
+import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.playingMusicList
 import yos.music.player.code.YosPlaybackService
 import yos.music.player.data.libraries.Folder
@@ -93,21 +94,22 @@ class YosBasicApplication : Application() {
                         val playStatusData = MusicLibrary.loadPlayStatus()
 
                         println("prepare 读取历史")
-                        if (playListData.mainMusicList != null) {
-                            println("prepare 准备调用")
-                            /*launch {
-                                runCatching {
-                                    // 无论设置与否，先还原
-                                    val thisMainMusicList = playListData.mainMusicList
-                                    mainMusicList.value = thisMainMusicList
-                                    println("prepare 恢复主歌单")
-                                }
-                            }*/
+                        val savedMusic = playStatusData.music
+                        val savedPlayingMusicList = playListData.playingMusicList
+                        println("prepare savedMusic=$savedMusic, savedPlayingMusicList size=${savedPlayingMusicList?.size}")
 
-                            if (playStatusData.music != null) {
+                        if (savedMusic != null) {
+                            musicPlaying.value = savedMusic
+                            println("prepare 直接恢复 musicPlaying: ${savedMusic.title}")
+                        }
+
+                        if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
+                            println("prepare 准备调用")
+
+                            if (savedMusic != null) {
                                 yos.music.player.code.MediaController.prepare(
-                                    playStatusData.music,
-                                    playListData.playingMusicList!!,
+                                    savedMusic,
+                                    savedPlayingMusicList,
                                     playStatusData.position,
                                     playStatusData.shuffleModeEnabled,
                                     playStatusData.repeatMode,
@@ -115,9 +117,9 @@ class YosBasicApplication : Application() {
                                 )
                             }
 
-                            if (playListData.playingMusicList != null) {
-                                playingMusicList.value = playListData.playingMusicList
-                            }
+                            playingMusicList.value = savedPlayingMusicList
+                        } else {
+                            println("prepare 无历史播放列表，跳过恢复")
                         }
                     } catch (e:Exception) {
                         e.printStackTrace()

@@ -52,6 +52,7 @@ import yos.music.player.code.MediaController.mediaControl
 import yos.music.player.code.MediaController.mediaSession
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.onServiceRunning
+import yos.music.player.code.MediaController.playingMusicList
 import yos.music.player.code.utils.lrc.YosLrcFactory
 import yos.music.player.code.utils.player.FadeExo
 import yos.music.player.code.utils.player.FadeExo.fadePause
@@ -221,7 +222,8 @@ object MediaController {
             println("prepare 调用切列表")
             if (!play && playingMusicList.value == null) {
                 playingMusicList.value = thisMusicList
-                //refresh(music)
+                musicPlaying.value = music
+                refresh(music)
                 withContext(Dispatchers.Main) {
                     mediaControl?.shuffleModeEnabled = shuffleModeEnabled
                     mediaControl?.repeatMode = repeatMode
@@ -407,16 +409,24 @@ class YosPlaybackService : MediaSessionService() {
 
     private fun saveData() {
         println("持久化 尝试保存播放状态")
-        if (musicPlaying.value != null && mediaControl != null) {
+        val music = musicPlaying.value
+        val control = mediaControl
+        if (music != null && control != null) {
             println("持久化 保存播放状态")
             MusicLibrary.updatePlayStatus(
                 PlayStatus(
-                    musicPlaying.value,
-                    mediaControl?.currentPosition ?: 0,
-                    mediaControl?.shuffleModeEnabled ?: false,
-                    mediaControl?.repeatMode ?: REPEAT_MODE_ALL
+                    music,
+                    control.currentPosition,
+                    control.shuffleModeEnabled,
+                    control.repeatMode
                 )
             )
+            val playlist = playingMusicList.value
+            if (playlist != null) {
+                MusicLibrary.updatePlayList(
+                    PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist)
+                )
+            }
         }
     }
 
@@ -734,12 +744,18 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        saveData()
         mediaSession?.run {
             player.release()
             release()
             mediaSession = null
         }
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        saveData()
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onGetSession(

@@ -24,6 +24,7 @@ Flamingo 是一款基于 Kotlin + Jetpack Compose 构建的 Android 本地音乐
 14. [第三方依赖](#14-第三方依赖)
 15. [资源文件](#15-资源文件)
 16. [开发注意事项](#16-开发注意事项)
+17. [项目完整性分析](#17-项目完整性分析)
 
 ---
 
@@ -372,6 +373,10 @@ API 为 `NavController.toUI(route, data?)`，内部通过 URI 参数传递数据
 - 音频浮点输出开关
 - 硬件音轨播放参数开关
 - MediaCodec 解码器列表展示
+- ⚠️ 「淡入淡出播放」开关 — UI 切换无效，详见第 17 章
+
+#### 播放设置
+- ⚠️ 「使用播放历史」开关 — UI 切换无效，对应的 "Recently Played" 和 "Annual Memories" 播放列表未实现，详见第 17 章
 
 #### 界面设置 (UserInterfaceSetting)
 - 主题选择 (浅色/深色/随系统)
@@ -571,35 +576,38 @@ YosPlaybackService (MediaSessionService)
 
 ### SettingLibrary
 
-`data/libraries/SettingLibrary.kt` 定义了所有应用设置项，使用 `SettingOption` 数据类封装值。每个设置项通过 `DataSaver` 自动持久化到 MMKV。
+`data/libraries/SettingLibrary.kt` 定义了所有应用设置项，每个设置项通过 `DataSaver` 自动持久化到 MMKV。
 
-**24 个设置项清单**：
+**26 个设置项清单**：
 
-| 设置项 | 键 | 默认值 | 说明 |
+| 设置项 | 存储键 | 默认值 | 说明 |
 |--------|-----|--------|------|
-| `Theme` | `"settings_theme"` | `"System"` | 主题: System/Light/Dark |
-| `DarkWallpaper` | `"settings_dark_wallpaper"` | `true` | 深色壁纸 |
-| `Sort` | `"settings_sort"` | `"Title"` | 排序方式 |
-| `StatusBarLyricEnabled` | `"settings_status_bar_lyric_enabled"` | `false` | 状态栏歌词开关 |
-| `StatusBarLyricHooked` | `"settings_status_bar_lyric_hooked"` | `false` | 歌词框架钩子状态 |
-| `RefreshEveryTime` | `"settings_refresh_every_time"` | `false` | 每次启动刷新媒体库 |
-| `BlurEffect` | `"settings_performance_blur_effect"` | `true` | 模糊效果 |
-| `BarBlurEffect` | `"settings_performance_bar_blur_effect"` | `true` | 导航栏模糊效果 |
-| `NotificationEnableIcon` | `"settings_notification_enable_icon"` | `true` | 通知图标启用 |
-| `NotificationSmallerIcon` | `"settings_notification_small_icons"` | `false` | 小通知图标 |
-| `Codec` | `"settings_codec"` | `"Auto"` | 解码器选择 |
-| `AudioAttributes` | `"settings_audio_attributes"` | `"12-4"` | 音频属性 (Usage-ContentType) |
-| `AudioFloatOutput` | `"settings_audio_float_output"` | `true` | 音频浮点输出 |
-| `HardwareAudioTrackPlayBackParams` | `"settings_hardware_params"` | `false` | 硬件音轨参数 |
-| `VibratorClick` | `"settings_vibrator_click"` | `false` | 触摸振动 |
-| `VolumeBarShow` | `"settings_volume_bar_show"` | `true` | 显示音量条 |
-| `BackgroundEffect` | `"settings_background_effect"` | `true` | 背景效果 |
-| `ScreenCorner` | `"settings_screen_corner"` | 设备默认 | 屏幕圆角值 (0-130px) |
-| `ScreenCornerSet` | `"settings_screen_corner_set"` | `false` | 是否已设置过圆角 |
-| `LyricFontWeight` | `"settings_lyric_font_weight"` | `"Normal"` | 歌词字体粗细 |
-| `LyricLineBalance` | `"settings_lyric_line_balance"` | `false` | 歌词行平衡 |
-| `LyricBlurEffect` | `"settings_lyric_blur_effect"` | `true` | 歌词模糊效果 |
-| `IgnoreSystemAnimationScale` | `"settings_ignore_system_animation_scale"` | `true` | 忽略系统动画缩放 |
+| `NowPlayingShowVolumeBar` | `settings_performance_ui_nowplaying_show_volume_bar` | `true` | 播放界面显示音量条 |
+| `CustomTheme` | `settings_performance_ui_theme` | `"Auto"` | 主题: Auto/Light/Dark |
+| `ScreenCornerSet` | `settings_performance_ui_corner_set` | `false` | 是否已设置过屏幕圆角 |
+| `ScreenCorner` | `settings_performance_ui_corner` | `"30"` | 屏幕圆角值 (0-130px) |
+| `SongSort` | `yos_player_song_sort` | `TITLE` | 歌曲排序 |
+| `EnableDescending` | `yos_player_enable_descending` | `false` | 排序启用降序 |
+| `NowPlayingTranslation` | `now_playing_translation` | `true` | 歌词界面翻译显示 |
+| `RefreshEveryTime` | `settings_library_refresh_everytime` | `false` | 每次启动刷新媒体库 |
+| `LyricFontWeight` | `settings_performance_lyric_font_weight` | `"ExtraBold"` | 歌词字体字重 |
+| `LyricLineBalance` | `settings_performance_lyric_line_balance` | `false` | 歌词平衡行模式 |
+| `LyricBlurEffect` | `settings_performance_lyric_blur_effect` | `false` | 歌词模糊效果 |
+| `NowplayingBackgroundEffect` | `settings_performance_ui_nowplaying_background_effect` | `false` | 播放界面背景动态效果 |
+| `BarBlurEffect` | `settings_performance_ui_blur_effect` | `false` | 导航栏模糊效果 |
+| `NotificationEnableIcon` | `settings_performance_notification_enable_icon` | `true` | 通知栏显示媒体控制图标 |
+| `NotificationSmallerIcon` | `settings_performance_notification_smaller_icon` | `false` | 通知栏小尺寸图标 |
+| `FadePlay` | `settings_audio_fade_in_out` | `true` | 淡入淡出播放 ⚠️ |
+| `ListenHistory` | `settings_play_history` | `true` | 播放历史 ⚠️ |
+| `StatusBarLyricEnabled` | `statusBarLyricEnabled` | `false` | 状态栏歌词开关 |
+| `StatusBarLyricHooked` | `statusBarLyricHooked` | `false` | 歌词框架 Hook 状态 |
+| `AudioAttributes` | `settings_audio_exoplayer_audio_attributes` | `true` | ExoPlayer 音频属性 |
+| `Codec` | `settings_audio_exoplayer_codec` | `"Auto"` | 解码器: Auto/System/FFmpeg |
+| `HardwareAudioTrackPlayBackParams` | `settings_audio_exoplayer_hardware_audio_track_playback_params` | `false` | 硬件音频轨道播放参数 |
+| `AudioFloatOutput` | `settings_audio_exoplayer_audio_float_output` | `false` | 音频浮点输出 |
+| `EnableExcludeSongsUnderOneMinute` | `settings_library_enable_exclude_songs_under_one_minute` | `true` | 排除一分钟以内的歌曲 ⚠️ |
+
+> ⚠️ 标记表示该设置项存在定义但功能未完整连线 (详见第 17 章完整性分析)
 
 ### 设置项变更通知
 
@@ -796,17 +804,17 @@ Release 构建会：
 
 ### 已知限制
 
-- `ArtistInfo.kt` 页面未实现 (仅含包声明)
-- Release 构建仅支持 `armeabi-v7a` 和 `arm64-v8a`
+- Release 构建仅支持 `armeabi-v7a` 和 `arm64-v8a` ABI
 - 动态颜色仅支持 Android 12+ 且默认关闭
 - FFmpeg 软解需要预置的 `lib-decoder-ffmpeg-release.aar`
+- AndroidManifest 中存在 `android:extractNativeLibs` 弃用警告 (AGP 提示可移除)
 
 ### 崩溃处理
 
 `YosBasicApplication` 设置了全局未捕获异常处理器：
 1. 打印异常堆栈
 2. 启动 `CrashActivity` 显示错误信息 (设备信息/ABI/完整堆栈)
-3. 提供复制错误和重启应用按钮
+3. 提供「复制详细错误」「复制简要错误」「重启应用」三个按钮
 4. 杀掉当前进程
 
 ### 代码风格
@@ -818,4 +826,122 @@ Release 构建会：
 
 ---
 
-> 文档基于 Flamingo 项目 master 分支生成，最后更新: 2026-05-19
+## 17. 项目完整性分析
+
+本节详细记录对全部 80 个源文件逐一审查后发现的未完成功能、遗留代码和潜在问题。
+
+### 17.1 问题总览
+
+| 严重程度 | 问题数量 | 类别 |
+|----------|----------|------|
+| 🔴 功能缺失 | 3 | 空文件 / 死代码 |
+| 🟡 UI 断连 | 3 | 开关无效 / 设置未接线 |
+| 🟠 逻辑未完成 | 1 | 已定义但未使用的过滤规则 |
+| 🔵 代码遗留 | 4 | 大量被注释的旧实现 |
+
+### 17.2 详细问题
+
+#### 🔴 功能缺失
+
+**1. ArtistInfo.kt — 空文件 (死代码)**
+
+- 文件: `app/src/main/java/yos/music/player/ui/pages/library/artists/ArtistInfo.kt`
+- 内容: 仅 2 行 `package` 声明，无任何类或函数
+- 影响: 艺术家详情页功能完全不存在。导航路由中也没有 `ArtistInfo` 路由，因此该文件属于未清理的死代码。点击艺术家列表项后不会跳转到任何详情页。
+
+**2. MainViewModel / MediaViewModel — 空 ViewModel**
+
+- 文件: `data/models/MainViewModel.kt`、`data/models/MediaViewModel.kt`
+- 内容: 
+  - `MainViewModel` 仅含一个被注释掉的 `blurEffect` 状态声明，无任何活跃成员
+  - `MediaViewModel` 为空类，仅继承 `ViewModel()`
+- 影响: 两个 ViewModel 均在 `MainActivity` 中通过 `by viewModels()` 实例化，但均无实际功能。所有实际的状态管理通过 `data/objects/` 下的全局 object 完成，ViewModel 未起到应有的作用。
+
+**3. BaseActivity — 空抽象类**
+
+- 文件: `BaseActivity.kt`
+- 内容: 继承 `ComponentActivity` 的空抽象类，`onCreate()` 中的 `WindowCompat.setDecorFitsSystemWindows(window, false)` 已被注释
+- 影响: `MainActivity` 中使用 `enableEdgeToEdge()` 替代了此逻辑。该抽象类无实际价值，可安全删除。
+
+#### 🟡 UI 断连 (设置开关无效)
+
+**4. FadePlay 开关 — onClick 为空**
+
+- 文件: `ui/pages/settings/Settings.kt:121`
+- 代码: `SwitchItem(... onClick = { }, checkedLambda = { SettingsLibrary.FadePlay })`
+- 现象: 音频设置中的「淡入淡出播放」开关可以显示当前状态，但点击**没有任何效果** — `onClick` 是空 lambda
+- 根因: `SettingsLibrary.FadePlay` 设置项存在且能读写，但 UI 开关没有绑定修改逻辑。同时，`FadeExo.kt` 中的 `fadePlay()`/`fadePause()` **从不检查** `FadePlay` 设置值，始终执行淡入淡出，意味着该开关即使修复也只是一个 UI 装饰而无实际控制效果。
+
+**5. ListenHistory 开关 — onClick 为空**
+
+- 文件: `ui/pages/settings/Settings.kt:133`
+- 代码: `SwitchItem(... onClick = { }, checkedLambda = { SettingsLibrary.ListenHistory })`
+- 现象: 播放设置中的「使用播放历史」开关点击无效果
+- 影响: 字符串资源 `settings_play_history_desc` 描述中提到的 "Recently Played"、"Annual Memories" 播放列表在代码中**完全不存在**。`SettingsLibrary.ListenHistory` 仅定义了存储键，没有任何读取或使用该值的代码。
+
+**6. EnableExcludeSongsUnderOneMinute — 设置未使用**
+
+- 文件: `data/libraries/SettingLibrary.kt:249`
+- 现象: 该设置项已被定义 (`initialValue = true`)，但在 `MusicLibrary.scanMedia()` 和 `MusicLibrary.songs` 的过滤逻辑中**没有任何引用**
+- 影响: 一分钟以内的短歌曲不会被排除，该设置项完全无作用
+
+#### 🟠 逻辑未完成
+
+**7. MediaController 中旧播放器监听器被注释**
+
+- 文件: `code/MediaController.kt:548-568`
+- 被注释的监听器: `onIsPlayingChanged`、`onRepeatModeChanged`、`onShuffleModeEnabledChanged`、`onPlaybackStateChanged`
+- 现状: 被替换为单一的 `onEvents()` 方法 + `saveDataWithDelay()` 延迟保存
+- 影响: 功能上已由新实现覆盖，无功能缺失。但新旧代码并存增加了维护困惑。
+
+#### 🔵 代码遗留 (被注释的旧实现)
+
+**8. MainActivity 权限对话框 (~90 行被注释)**
+
+- 文件: `MainActivity.kt:1115-1184`
+- 内容: 使用 `ModalBottomSheet` 的权限授予对话框（包含详细的接受/拒绝交互）
+- 现状: 被简化为 `CheckAndRequestPermission()` 直接调用系统权限弹窗
+- 影响: 无功能缺失，旧代码可作为参考
+
+**9. YosBasicApplication Gson 类型适配器**
+
+- 文件: `YosBasicApplication.kt`
+- 内容: 被注释的 `UriSerializer`/`UriDeserializer`、`ImmutableListTypeAdapter`
+- 现状: 已统一替换为 `UriTypeAdapter`
+- 影响: 无功能缺失
+
+**10. MusicLibrary 旧数据模型**
+
+- 文件: `data/libraries/MusicLibrary.kt:29-46`
+- 内容: 被注释的旧 `Music` 数据类（更简单的字段结构）和 `removeSong()` 方法
+- 现状: 已迁移到 `YosMediaItem` (31 字段)
+- 影响: 无功能缺失
+
+**11. 未使用的设置项 `DarkWallpaper`、`VibratorClick`、`IgnoreSystemAnimationScale`**
+
+- 这三个字符串原先被记录为设置项，但在当前的 `SettingLibrary.kt` 中**不存在**
+- 实际的默认可定制振动 (`Vibrator.click`/`Vibrator.longPress`) 是硬编码的，不由设置项控制
+
+### 17.3 未被使用的文件和代码
+
+| 文件 | 行数 | 状态 |
+|------|------|------|
+| `ui/pages/library/artists/ArtistInfo.kt` | 2 | 仅有 package，死代码 |
+| `data/SettingOption.kt` | 2 | 定义了 `SettingOption(String)` 但整个项目中无任何引用 |
+| `BaseActivity.kt` | 19 | 空抽象类，`onCreate` 逻辑已被注释 |
+
+### 17.4 建议修复优先级
+
+| 优先级 | 问题 | 建议操作 |
+|--------|------|----------|
+| P0 | FadePlay 开关无效 | 修复 `onClick` 绑定，或移除该开关并用 `if(FadePlay)` 包裹 FadeExo 逻辑 |
+| P0 | ListenHistory 开关无效 | 实现播放历史功能，或移除该设置项及其 UI |
+| P1 | EnableExcludeSongsUnderOneMinute 未生效 | 在 `scanMedia()` 或 `songs` getter 中添加时长过滤逻辑 |
+| P2 | ArtistInfo.kt 死代码 | 删除文件，或实现艺术家详情页并在导航中注册 |
+| P2 | 空 ViewModel (MainViewModel/MediaViewModel) | 将 `data/objects/` 中的状态迁移到 ViewModel，或删除空 ViewModel |
+| P2 | BaseActivity 空抽象类 | 删除或合并到 MainActivity |
+| P3 | 大量注释的旧代码 | 清理以提升可维护性 |
+
+---
+
+> 文档基于 Flamingo 项目 master 分支生成，最后更新: 2026-05-19。包含完整项目完整性审查结果 (第 17 章)。
