@@ -26,7 +26,7 @@ data class YosUIConfig(
     val noLrcText: String = "No lyrics",
     val blankHeight: Int = 70,
     val mainTextSize: Int = 34,
-    val subTextSize: Int = mainTextSize - 18,
+    val subTextSize: Int = mainTextSize - 8,
     val mainTextBasicColor: Long = 0xFFF2F2F2,
     val subTextBasicColor: Long = 0xFF919191,
     val normalMainTextAlpha: Float = 0.4f,

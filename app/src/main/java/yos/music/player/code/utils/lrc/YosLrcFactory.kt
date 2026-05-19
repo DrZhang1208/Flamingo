@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.compose.ui.util.fastJoinToString
 import yos.music.player.data.objects.MediaViewModelObject
+import kotlin.math.abs
 
 /**
  * Lrc 歌词文本处理
@@ -30,7 +31,29 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         }
     }*/
     fun formatLrcEntries(lrcText: String): List<List<Pair<Float, String>>> {
-        val lrcLines = lrcText.lines()
+        // Strip content before first timestamp and after last timestamp
+        val timestampRegex = Regex("""\[\d{2}:\d{2}\.\d{2,3}]""")
+        val cleanText = run {
+            val firstTs = timestampRegex.find(lrcText)?.range?.first ?: 0
+            var result = lrcText.substring(firstTs)
+            // Find last valid timestamp line
+            val lines = result.lines()
+            val lastTsIndex = lines.indexOfLast { timestampRegex.containsMatchIn(it) }
+            if (lastTsIndex >= 0) {
+                result = lines.take(lastTsIndex + 1).joinToString("\n")
+            }
+            result
+        }
+        // Aggressively filter out all non-lyric lines
+        val lrcLines = cleanText.lines().filter { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@filter true
+            // Skip LRC metadata tags: [ti:...], [ar:...], etc.
+            if (trimmed.matches(Regex("""^\[(ti|ar|al|by|length|offset|re|ve|la|_)\s*:.*""", RegexOption.IGNORE_CASE))) return@filter false
+            // Skip KEY=VALUE or KEY:VALUE non-timestamp lines
+            if (!trimmed.startsWith("[") && trimmed.matches(Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE))) return@filter false
+            true
+        }
         val timeLyricPairs = mutableListOf<MutableList<Pair<Float, String>>>()
         lrcLines.fastForEachIndexed { index, line ->
             //将文本中完全相同而且重复的两个时间轴修改为一个
@@ -132,8 +155,16 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 val existingList =
                     timeLyricPairs.find { it.first().first == currentLinePairs.first().first }
                 if (existingList != null) {
-                    // existingList.remove(currentLinePairs[0].first to "")
-                    existingList.addAll(currentLinePairs)
+                    // 相同时间戳的行视为翻译，将翻译文本填入 sentinel 槽位
+                    // currentLinePairs 结构: [(time, ""), (time, "text"), ...] 或 [(time, "text"), ...]
+                    // 需要取非空的文本内容
+                    val translationText = currentLinePairs
+                        .firstOrNull { it.second.isNotEmpty() }
+                        ?.second.orEmpty()
+                    if (translationText.isNotEmpty()) {
+                        existingList[existingList.size - 1] =
+                            existingList.last().first to translationText
+                    }
                 } else {
                     currentLinePairs.add(currentLinePairs[0].first to "")
                     timeLyricPairs.add(currentLinePairs)
@@ -141,63 +172,123 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
         val processedEntries = processOtherSide(timeLyricPairs)
-        return processedEntries.filter { it.isNotEmpty() }
+        // Post-filter: remove entries with metadata-like text
+        return processedEntries.filter { entry ->
+            if (entry.isEmpty()) return@filter false
+            val joined = entry.fastJoinToString(separator = "") { it.second }
+            !joined.matches(Regex(""".*(TITLE|ARTIST|ALBUM|DATE|GENRE|TRACK|YEAR)\s*[=＝:：].*""", RegexOption.IGNORE_CASE))
+        }
+    }
+
+    /**
+     * 将翻译文本合并到已解析的歌词数据中。
+     * 翻译文本可以是 LRC 格式（含时间标签）或纯文本（每行一句翻译）。
+     * 合并后，每行歌词的最后一个元素将为翻译文本。
+     */
+    fun mergeTranslation(
+        lrcEntries: List<List<Pair<Float, String>>>,
+        translationText: String
+    ): List<List<Pair<Float, String>>> {
+        // 解析翻译 LRC 文本
+        val translationLines = translationText.lines()
+            .mapNotNull { line ->
+                val timeIndex = line.indexOf("[")
+                val timeAfter = line.indexOf("]")
+                if (timeIndex != -1 && timeAfter != -1) {
+                    val timeText = line.substring(timeIndex + 1, timeAfter)
+                    val timeParts = timeText.split(":")
+                    if (timeParts.size == 2) {
+                        val minutes = timeParts[0].toIntOrNull()
+                        val seconds = timeParts[1].toFloatOrNull()
+                        if (minutes != null && seconds != null) {
+                            val time = (minutes * 60 + seconds) * 1000f
+                            val text = line.substring(timeAfter + 1).trim()
+                            if (text.isNotEmpty() && text != "//") {
+                                return@mapNotNull time to text
+                            }
+                        }
+                    }
+                }
+                null
+            }
+
+        return if (translationLines.isNotEmpty()) {
+            // LRC 格式的翻译：按时间戳匹配
+            lrcEntries.map { line ->
+                if (line.isEmpty()) return@map line
+                val lineTime = line.first().first
+                val matchedTranslation = translationLines
+                    .filter { abs(it.first - lineTime) < 50f }
+                    .minByOrNull { abs(it.first - lineTime) }
+                if (matchedTranslation != null) {
+                    line.dropLast(1) + (line.last().first to matchedTranslation.second)
+                } else {
+                    line
+                }
+            }
+        } else {
+            // 尝试作为纯文本翻译处理（每行对应一句歌词）
+            val plainLines = translationText.lines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it != "//" }
+            if (plainLines.isEmpty()) return lrcEntries
+            lrcEntries.mapIndexed { index, line ->
+                if (index < plainLines.size && line.isNotEmpty()) {
+                    line.dropLast(1) + (line.last().first to plainLines[index])
+                } else {
+                    line
+                }
+            }
+        }
     }
 
     private fun processOtherSide(lrcEntries: List<List<Pair<Float, String>>>): List<List<Pair<Float, String>>> {
-        // 对唱处理
+        // Count duet markers - only enable duet mode if there are multiple markers
+        val duetMarkerCount = lrcEntries.count { lines ->
+            val lyric = lines.fastJoinToString(separator = "") { it.second }
+            lyric.endsWith(":") || lyric.endsWith("：") ||
+                (lines.size > 1 && lines[1].second.matches(Regex(".+\\s*:\\s*")))
+        }
+        val isDuetSong = duetMarkerCount >= 3
+
         val otherSideResult = mutableStateListOf<Boolean>()
         var otherSide = false
         var lastSinger: String? = null
         var otherSideFirstTime = false
 
         val filteredLrcEntries = lrcEntries.map { lines ->
-            val lyric = lines.fastJoinToString(separator = "", transform = {
-                it.second
-            })
-
+            val lyric = lines.fastJoinToString(separator = "") { it.second }
             var deleteType = -1
 
-            if (lyric.endsWith(":") || lyric.endsWith("：")) {
+            if (isDuetSong && (lyric.endsWith(":") || lyric.endsWith("："))) {
                 otherSide = !otherSide
-            } else if (lines.size > 1) {
+            } else if (isDuetSong && lines.size > 1) {
                 val currentSinger = lines[1].second
-                println("检查：$currentSinger")
                 if (currentSinger.matches(Regex(".+\\s*:\\s*"))) {
-                    println("符合要求：$lyric")
                     deleteType = 0
                     if (lastSinger != null && lastSinger == currentSinger) {
-                        // 保持 otherSide 不变
                     } else {
-                        if (otherSideFirstTime) {
-                            otherSide = !otherSide
-                        } else {
-                            otherSideFirstTime = true
-                        }
+                        if (otherSideFirstTime) otherSide = !otherSide
+                        else otherSideFirstTime = true
                     }
                     lastSinger = currentSinger
                 }
             }
 
-            /*if (runCatching { lyric.ifNeedMirror() }.getOrDefault(false)) {
-                otherSideResult.add(!otherSide)
-            } else {
-                otherSideResult.add(otherSide)
-            }*/
-
+            if (!isDuetSong) otherSide = false
             otherSideResult.add(otherSide)
 
-
-            lines.filterIndexed { index, char ->
-                !((index == 1 && char.second.matches(Regex(".+\\s*:\\s*"))) && deleteType == 0)
+            if (isDuetSong) {
+                lines.filterIndexed { index, char ->
+                    !((index == 1 && char.second.matches(Regex(".+\\s*:\\s*"))) && deleteType == 0)
+                }
+            } else {
+                lines
             }
         }
 
         MediaViewModelObject.otherSideForLines.clear()
         MediaViewModelObject.otherSideForLines.addAll(otherSideResult)
-        //println(MediaViewModelObject.otherSideForLines)
-
-        //println(filteredLrcEntries)
         return filteredLrcEntries
     }
 }

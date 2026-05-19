@@ -93,13 +93,13 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.4'
     implementation 'androidx.activity:activity-compose:1.9.1'
 
-    implementation "androidx.compose.foundation:foundation:1.7.0-beta07"
+    implementation "androidx.compose.foundation:foundation:1.7.3"
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.compose.runtime:runtime-livedata:1.0.0-beta01'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
-    androidTestImplementation "androidx.compose.foundation:foundation:1.7.0-beta07"
+    androidTestImplementation "androidx.compose.foundation:foundation:1.7.3"
     androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'

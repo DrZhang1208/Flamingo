@@ -105,23 +105,20 @@ class YosBasicApplication : Application() {
 
                         if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
                             println("prepare 准备调用")
-
                             if (savedMusic != null) {
                                 yos.music.player.code.MediaController.prepare(
-                                    savedMusic,
-                                    savedPlayingMusicList,
+                                    savedMusic, savedPlayingMusicList,
                                     playStatusData.position,
                                     playStatusData.shuffleModeEnabled,
                                     playStatusData.repeatMode,
                                     false
                                 )
                             }
-
                             playingMusicList.value = savedPlayingMusicList
                         } else {
                             println("prepare 无历史播放列表，跳过恢复")
                         }
-                    } catch (e:Exception) {
+                    } catch (e: Exception) {
                         e.printStackTrace()
                     }
                 }

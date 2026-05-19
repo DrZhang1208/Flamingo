@@ -239,15 +239,12 @@ object MediaController {
                 }
             }
 
-            // 播放列表切换事件
+            // 播放列表切换事件 — sync to disk immediately
             println("prepare 尝试保存播放列表")
             if (mainMusicList != null && playingMusicList.value != null) {
                 println("prepare 保存播放列表")
                 MusicLibrary.updatePlayList(
-                    PlayListV1(
-                        mainMusicList,
-                        playingMusicList.value
-                    )
+                    PlayListV1(mainMusicList, playingMusicList.value)
                 )
             }
 
@@ -485,8 +482,6 @@ class YosPlaybackService : MediaSessionService() {
 
                         val lrcEntries: MutableState<List<List<Pair<Float, String>>>> =
                             MediaViewModelObject.lrcEntries
-                        var lrcContent: String? = null
-
 
                         val path = player.currentMediaItem?.uri
 
@@ -510,21 +505,28 @@ class YosPlaybackService : MediaSessionService() {
 
                         val thisPath = path?.path
 
-                        val finalLrcContent = if (lrcContent == null) {
-                            val lrcPath = "${thisPath?.substringBeforeLast(".")}.lrc"
-                            println("获取歌词元数据失败，将读取：$lrcPath")
-                            AudioMetadataUtils.loadLrcFile(this@YosPlaybackService, lrcPath) ?: ""
-                        } else {
+                        // 1. 尝试从文件提取内嵌歌词
+                        var lrcContent: String? = null
+                        if (thisPath != null) {
+                            lrcContent = AudioMetadataUtils.extractEmbeddedLyrics(thisPath)
+                        }
+
+                        // 2. 回退到外部 LRC 文件读取
+                        val finalLrcContent = if (!lrcContent.isNullOrBlank()) {
                             lrcContent
+                        } else {
+                            val lrcPath = "${thisPath?.substringBeforeLast(".")}.lrc"
+                            println("无内嵌歌词，读取外部文件：$lrcPath")
+                            AudioMetadataUtils.loadLrcFile(this@YosPlaybackService, lrcPath) ?: ""
                         }
 
                         val lrcFactory = YosLrcFactory()
-                        lrcEntries.value = lrcFactory.formatLrcEntries(finalLrcContent)
+                        var parsedEntries = lrcFactory.formatLrcEntries(finalLrcContent)
+                        println("歌词解析 完成，共 ${parsedEntries.size} 行")
+
+                        lrcEntries.value = parsedEntries
 
                         if (thisPath != null) {
-                            // MediaViewModelObject.isDolby.value = thisPath.endsWith(".m4a")
-                            // 改为 JOC 判断
-
                             if (samplingRate == 0 || bitrate == 0) {
                                 val audioInfo = AudioMetadataUtils.getQualityInfos(thisPath)
                                 if (samplingRate == 0) {

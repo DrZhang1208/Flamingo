@@ -27,6 +27,8 @@ import androidx.compose.animation.core.EaseOutQuart
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -218,16 +220,13 @@ fun NowPlaying(
             musicPlaying
         }
 
+        val isSwitchingTrack = remember("NowPlaying_isSwitching") { mutableStateOf(false) }
         val lastClickTime = rememberSaveable(key = "NowPlaying_lastClickTime") {
             mutableLongStateOf(0L)
         }
 
         val showControl = rememberSaveable(key = "NowPlaying_showControl") {
             mutableStateOf(true)
-        }
-
-        val translation = rememberSaveable(key = "NowPlaying_translation") {
-            mutableStateOf(SettingsLibrary.NowPlayingTranslation)
         }
 
         val shuffleModeEnabled = rememberSaveable(key = "NowPlaying_shuffleModeEnabled") {
@@ -242,6 +241,12 @@ fun NowPlaying(
         }*/
 
         println("重组：NowPlaying")
+
+        // 切歌时保持封面大小不变
+        LaunchedEffect(thisMusicPlaying.value) {
+            delay(300)
+            isSwitchingTrack.value = false
+        }
 
         // 触摸超时
         YosWrapper {
@@ -333,7 +338,7 @@ fun NowPlaying(
                     Lyric(
                         lrcEntries = { lrcEntries.value },
                         weightLambda = { showControl.value },
-                        translationLambda = { translation.value },
+                        translationLambda = { true },
                         onBackClick = {
                             showControl.value = true
                             lastClickTime.longValue =
@@ -399,7 +404,8 @@ fun NowPlaying(
                                                     visible = isVisible
                                                 ),
                                                 albumUrl = { thisMusicPlaying.value?.thumb },
-                                                isPlaying = isPlayingStatusLambda
+                                                isPlaying = isPlayingStatusLambda,
+                                                isSwitching = { isSwitchingTrack.value }
                                             )
                                             AnimatedContent(
                                                 targetState = thisMusicPlaying.value,
@@ -420,9 +426,9 @@ fun NowPlaying(
                                                     ) {
                                                         Text(
                                                             text = it?.title
-                                                                ?: defaultTitle,/*
-                                                        fontWeight = FontWeight.Bold,*/
+                                                                ?: defaultTitle,
                                                             fontSize = 19.5.sp,
+                                                            lineHeight = 26.sp,
                                                             maxLines = 1,
                                                             overflow = TextOverflow.Ellipsis,
                                                             fontWeight = FontWeight.Medium
@@ -431,6 +437,7 @@ fun NowPlaying(
                                                             text = it?.artistsName
                                                                 ?: defaultArtistsName,
                                                             fontSize = 18.5.sp,
+                                                            lineHeight = 24.sp,
                                                             modifier = Modifier.overlayEffect(),
                                                             maxLines = 1,
                                                             overflow = TextOverflow.Ellipsis,
@@ -557,69 +564,11 @@ fun NowPlaying(
                                         shrinkTowards = Alignment.Top,
                                         targetHeight = { (it / 1.4).toInt() })
                                 ) {
-                                    YosWrapper {
-                                        Row(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 32.dp)
-                                                .graphicsLayer {
-                                                    compositingStrategy =
-                                                        CompositingStrategy.ModulateAlpha
-                                                    this.alpha = alphaAnim.value
-                                                },
-                                            horizontalArrangement = Arrangement.End
-                                        ) {
-                                            YosWrapper {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .overlayEffect()
-                                                        .alpha(0.4f)
-                                                        .clickable(
-                                                            enabled = translationButtonEnabled.value,
-                                                            onClick = {
-                                                                Vibrator.click(context)
-                                                                translation.value =
-                                                                    !translation.value
-                                                                showControl.value = true
-                                                                lastClickTime.longValue =
-                                                                    TimeUtils.getNowMills()
-                                                                SettingsLibrary.NowPlayingTranslation =
-                                                                    translation.value
-                                                            },
-                                                            indication = null,
-                                                            interactionSource = remember { MutableInteractionSource() }),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    AnimatedContent(
-                                                        targetState = translation.value,
-                                                        transitionSpec = {
-                                                            fadeIn() togetherWith fadeOut()
-                                                        }) {
-                                                        if (it) {
-                                                            Icon(
-                                                                painterResource(id = R.drawable.ic_nowplaying_translateon),
-                                                                contentDescription = null,
-                                                                modifier = Modifier
-                                                                    .size(30.dp)
-                                                            )
-                                                        } else {
-                                                            Icon(
-                                                                painterResource(id = R.drawable.ic_nowplaying_translate),
-                                                                contentDescription = null,
-                                                                modifier = Modifier
-                                                                    .size(30.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
                                     PlayerControl(
                                         isPlayingLambda = isPlayingStatusLambda,
                                         isPlayingOnChanged = isPlayingOnChanged,
                                         onPrevious = {
+                                            isSwitchingTrack.value = true
                                             mediaControl?.seekToPreviousMediaItem()
                                             showControl.value = true
                                             lastClickTime.longValue = TimeUtils.getNowMills()
@@ -634,6 +583,7 @@ fun NowPlaying(
                                             lastClickTime.longValue = TimeUtils.getNowMills()
                                         },
                                         onNext = {
+                                            isSwitchingTrack.value = true
                                             mediaControl?.seekToNextMediaItem()
                                             showControl.value = true
                                             lastClickTime.longValue = TimeUtils.getNowMills()
@@ -689,7 +639,8 @@ fun NowPlaying(
 private fun ColumnScope.Album(
     modifier: Modifier,
     albumUrl: () -> Uri?,
-    isPlaying: () -> Boolean
+    isPlaying: () -> Boolean,
+    isSwitching: () -> Boolean = { false }
 ) = Box(
     Modifier
         .weight(1f)
@@ -701,27 +652,24 @@ private fun ColumnScope.Album(
     val springSpec: AnimationSpec<Float> = remember("Album_springSpec") {
         SpringSpec(stiffness = 300f, dampingRatio = 1f, visibilityThreshold = 0.001f)
     }
-
     val tweenSpec: AnimationSpec<Float> = remember("Album_tweenSpec") {
         TweenSpec(durationMillis = 350, easing = EaseOutQuart)
     }
 
-    val scale = animateFloatAsState(
-        targetValue = if (isPlaying()) 0f else 1f,
-        animationSpec = if (isPlaying()) springSpec else tweenSpec,
-        visibilityThreshold = 0.001f
-    )
+    val targetScale = if (isSwitching()) null else if (isPlaying()) 0f else 1f
+    val scale = remember("Album_scale") { Animatable(targetScale ?: 0f) }
+    LaunchedEffect(targetScale) {
+        targetScale?.let {
+            scale.animateTo(it, animationSpec = if (it == 0f) springSpec else tweenSpec)
+        }
+    }
 
     YosWrapper {
         val dp = (7 + (27 * scale.value)).dp
         ShadowImageWithCache(
             dataLambda = albumUrl, contentDescription = null, modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                    // scaleX = scale.value
-                    // scaleY = scale.value
-                }
+                .graphicsLayer { compositingStrategy = CompositingStrategy.ModulateAlpha }
                 .padding(start = dp, end = dp, bottom = dp)
                 .then(modifier),
             imageQuality = ImageQuality.RAW,

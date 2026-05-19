@@ -397,7 +397,7 @@ fun YosLyricView(
                     }
 
                     key(lines) {
-                        val translation = remember(index) {
+                        val translation = remember(lines) {
                             val str = lines.last().second
                             str.ifBlank { null }
                         }
@@ -429,7 +429,7 @@ fun YosLyricView(
                                 mainLyric = lines.dropLast(1),
                                 translation,
                                 translationLambda(),
-                                //mainTextSize = uiConfig.mainTextSize,
+                                mainTextSize = uiConfig.mainTextSize,
                                 subTextSize = uiConfig.subTextSize,
                                 blur = { blur.value },
                                 mainTextBasicColor,
@@ -861,7 +861,7 @@ fun LazyItemScope.LyricItem(
     mainLyric: List<Pair<Float, String>>,
     translation: String?,
     showTranslation: Boolean,
-    //mainTextSize: Int,
+    mainTextSize: Int,
     subTextSize: Int,
     blur: () -> Float,
     /*showBlur: Boolean,*/
@@ -1133,9 +1133,10 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
 
+                                    val lyricTextStyle = MainTextStyle.copy(fontSize = mainTextSize.sp)
                                     Line(
                                         lines = mainLyric,
-                                        style = if (otherSide) MainTextStyle.copy(textAlign = TextAlign.End) else MainTextStyle,
+                                        style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
                                         measurer = measurer,
                                         modifier = Modifier
                                             .graphicsLayer {
@@ -1379,7 +1380,7 @@ fun LazyItemScope.LyricItem(
                                                 text = it,
                                                 fontSize = subTextSize.sp,
                                                 color = subTextBasicColor,
-                                                fontWeight = FontWeight.Normal,
+                                                fontWeight = FontWeight.Bold,
                                                 modifier = Modifier
                                                     .graphicsLayer {
                                                         this.alpha =
