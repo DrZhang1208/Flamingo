@@ -239,14 +239,8 @@ object MediaController {
                 }
             }
 
-            // 播放列表切换事件 — sync to disk immediately
-            println("prepare 尝试保存播放列表")
-            if (mainMusicList != null && playingMusicList.value != null) {
-                println("prepare 保存播放列表")
-                MusicLibrary.updatePlayList(
-                    PlayListV1(mainMusicList, playingMusicList.value)
-                )
-            }
+            // Immediately persist state on every prepare
+            syncState()
 
         } else {
             println("prepare 调用非切列表")
@@ -256,6 +250,17 @@ object MediaController {
                 mediaControl?.fadePlay()
             }
         }
+    }
+
+    suspend fun syncState() {
+        val music = musicPlaying.value ?: return
+        val control = mediaControl ?: return
+        val playlist = playingMusicList.value ?: listOf(music)
+        val pos = withContext(Dispatchers.Main) { control.currentPosition }
+        val shuffle = withContext(Dispatchers.Main) { control.shuffleModeEnabled }
+        val repeat = withContext(Dispatchers.Main) { control.repeatMode }
+        MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
+        MusicLibrary.updatePlayList(PlayListV1(mainMusicList, playlist))
     }
 
     fun onCase(mediaItem: YosMediaItem) {
@@ -394,6 +399,13 @@ class YosPlaybackService : MediaSessionService() {
 
     private var saveJob: Job? = null
 
+    fun saveDataNow() {
+        saveJob?.cancel()
+        saveJob = CoroutineScope(Dispatchers.Main).launch {
+            saveData()
+        }
+    }
+
     fun saveDataWithDelay() {
         saveJob?.cancel()
         saveJob = CoroutineScope(Dispatchers.IO).launch {
@@ -406,25 +418,15 @@ class YosPlaybackService : MediaSessionService() {
 
     private fun saveData() {
         println("持久化 尝试保存播放状态")
-        val music = musicPlaying.value
+        val music = musicPlaying.value ?: return
+        val playlist = playingMusicList.value ?: listOf(music)
         val control = mediaControl
-        if (music != null && control != null) {
-            println("持久化 保存播放状态")
-            MusicLibrary.updatePlayStatus(
-                PlayStatus(
-                    music,
-                    control.currentPosition,
-                    control.shuffleModeEnabled,
-                    control.repeatMode
-                )
-            )
-            val playlist = playingMusicList.value
-            if (playlist != null) {
-                MusicLibrary.updatePlayList(
-                    PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist)
-                )
-            }
-        }
+        val pos = runCatching { control?.currentPosition ?: 0 }.getOrDefault(0)
+        val shuffle = runCatching { control?.shuffleModeEnabled ?: false }.getOrDefault(false)
+        val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
+        println("持久化 保存播放状态 playlist=${playlist.size}")
+        MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
+        MusicLibrary.updatePlayList(PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist))
     }
 
     @OptIn(UnstableApi::class)

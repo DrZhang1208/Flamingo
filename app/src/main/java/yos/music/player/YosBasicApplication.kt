@@ -89,24 +89,24 @@ class YosBasicApplication : Application() {
             {
                 mediaControl = controllerFuture.get()
 
-                CoroutineScope(Dispatchers.Main).launch {
-                    val playListData = MusicLibrary.loadPlayList()
-                    val playStatusData = MusicLibrary.loadPlayStatus()
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val playListData = MusicLibrary.loadPlayList()
+                        val playStatusData = MusicLibrary.loadPlayStatus()
 
-                    println("prepare 读取历史")
-                    val savedMusic = playStatusData.music
-                    val savedPlayingMusicList = playListData.playingMusicList
-                    println("prepare savedMusic=$savedMusic, savedPlayingMusicList size=${savedPlayingMusicList?.size}")
+                        println("prepare 读取历史")
+                        val savedMusic = playStatusData.music
+                        val savedPlayingMusicList = playListData.playingMusicList
+                        println("prepare savedMusic=$savedMusic, savedPlayingMusicList size=${savedPlayingMusicList?.size}")
 
-                    if (savedMusic != null) {
-                        musicPlaying.value = savedMusic
-                        println("prepare 直接恢复 musicPlaying: ${savedMusic.title}")
-                    }
-
-                    if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
-                        println("prepare 准备调用")
                         if (savedMusic != null) {
-                            try {
+                            musicPlaying.value = savedMusic
+                            println("prepare 直接恢复 musicPlaying: ${savedMusic.title}")
+                        }
+
+                        if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
+                            println("prepare 准备调用")
+                            if (savedMusic != null) {
                                 yos.music.player.code.MediaController.prepare(
                                     savedMusic, savedPlayingMusicList,
                                     playStatusData.position,
@@ -114,24 +114,13 @@ class YosBasicApplication : Application() {
                                     playStatusData.repeatMode,
                                     false
                                 )
-                            } catch (e: Exception) {
-                                android.util.Log.e("Restore", "prepare failed", e)
                             }
+                            playingMusicList.value = savedPlayingMusicList
+                        } else {
+                            println("prepare 无历史播放列表，跳过恢复")
                         }
-                        playingMusicList.value = savedPlayingMusicList
-                    } else if (savedMusic != null) {
-                        // Fallback: restore just the current song
-                        println("prepare 无播放列表，只恢复当前歌曲")
-                        try {
-                            yos.music.player.code.MediaController.prepare(
-                                savedMusic, listOf(savedMusic), 0, false, Player.REPEAT_MODE_ALL, false
-                            )
-                        } catch (e: Exception) {
-                            android.util.Log.e("Restore", "fallback prepare failed", e)
-                        }
-                        playingMusicList.value = listOf(savedMusic)
-                    } else {
-                        println("prepare 无历史状态，跳过恢复")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
             },
