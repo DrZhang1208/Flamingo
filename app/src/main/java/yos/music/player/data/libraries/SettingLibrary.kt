@@ -103,6 +103,26 @@ object SettingsLibrary {
     )
 
     /**
+     * 歌词字体大小
+     */
+    @Stable
+    var LyricFontSize by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_font_size",
+        initialValue = 34
+    )
+
+    /**
+     * 翻译字体大小
+     */
+    @Stable
+    var TranslationFontSize by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_translation_font_size",
+        initialValue = 26
+    )
+
+    /**
      * 歌词平衡行模式
      */
     @Stable

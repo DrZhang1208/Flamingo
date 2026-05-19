@@ -1133,7 +1133,7 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
 
-                                    val lyricTextStyle = MainTextStyle.copy(fontSize = mainTextSize.sp)
+                                    val lyricTextStyle = mainTextStyle().copy(fontSize = mainTextSize.sp)
                                     Line(
                                         lines = mainLyric,
                                         style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
@@ -1202,6 +1202,7 @@ fun LazyItemScope.LyricItem(
 
                                         lastTime = mainLyric.first().first
 
+                                        val measureStyle = lyricTextStyle.let { if (otherSide) it.copy(textAlign = TextAlign.End) else it }
                                         mainLyric.fastForEachIndexed { wordIndex, word ->
 
                                             // 旧的逐字处理逻辑
@@ -1217,7 +1218,7 @@ fun LazyItemScope.LyricItem(
                                                         word = charWord,
                                                         layout = measurer.measure(
                                                             text = charWord,
-                                                            style = MainTextStyle,
+                                                            style = lyricTextStyle,
                                                             constraints = measureResult.layoutInput.constraints,
                                                             layoutDirection = if (viewAlign.value == Alignment.End) LayoutDirection.Rtl else LayoutDirection.Ltr
                                                         ),
@@ -1277,9 +1278,7 @@ fun LazyItemScope.LyricItem(
 
                                                 val layout = measurer.measure(
                                                     text = charWord,
-                                                    style = if (otherSide) MainTextStyle.copy(
-                                                        textAlign = TextAlign.End
-                                                    ) else MainTextStyle,
+                                                    style = measureStyle,
                                                     constraints = measureResult.layoutInput.constraints
                                                 )
 
@@ -1491,7 +1490,8 @@ fun CountdownAnimation(progress: () -> Float, colorLambda: () -> Color) {
 }
 
 
-val MainTextStyle = TextStyle(
+@Composable
+fun mainTextStyle(): TextStyle = TextStyle(
     fontSize = 30.5.sp,
     lineHeight = 40.5.sp,
     fontWeight =

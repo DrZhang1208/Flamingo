@@ -24,12 +24,22 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.EaseOutQuart
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.core.graphics.drawable.toBitmap
+import coil.ImageLoader
+import coil.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -74,6 +84,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -124,7 +135,6 @@ import com.blankj.utilcode.util.TimeUtils
 import com.google.accompanist.insets.navigationBarsHeight
 import com.google.accompanist.insets.statusBarsHeight
 import com.google.accompanist.insets.statusBarsPadding
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -664,17 +674,32 @@ private fun ColumnScope.Album(
         }
     }
 
+    val albumAlpha = remember { Animatable(1f) }
+    val displayUrl = remember { mutableStateOf(albumUrl()) }
+
+    LaunchedEffect(albumUrl()) {
+        val newUrl = albumUrl() ?: return@LaunchedEffect
+        if (newUrl != displayUrl.value) {
+            albumAlpha.animateTo(0f, tween(400, easing = FastOutSlowInEasing))
+            displayUrl.value = newUrl
+            albumAlpha.snapTo(0f)
+            albumAlpha.animateTo(1f, tween(800, easing = FastOutSlowInEasing))
+        }
+    }
+
     YosWrapper {
         val dp = (7 + (27 * scale.value)).dp
-        ShadowImageWithCache(
-            dataLambda = albumUrl, contentDescription = null, modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.ModulateAlpha }
-                .padding(start = dp, end = dp, bottom = dp)
-                .then(modifier),
-            imageQuality = ImageQuality.RAW,
-            shadowOverlay = true
-        )
+        displayUrl.value?.let { url ->
+            ShadowImageWithCache(
+                dataLambda = { url }, contentDescription = null, modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(albumAlpha.value)
+                    .padding(start = dp, end = dp, bottom = dp)
+                    .then(modifier),
+                imageQuality = ImageQuality.RAW,
+                shadowOverlay = true
+            )
+        }
     }
 }
 
@@ -1050,7 +1075,9 @@ private fun Lyric(
                     SettingsLibrary.LyricBlurEffect
                 },
                 uiConfig = YosUIConfig(
-                    noLrcText = stringResource(id = R.string.tip_no_lyrics)
+                    noLrcText = stringResource(id = R.string.tip_no_lyrics),
+                    mainTextSize = SettingsLibrary.LyricFontSize,
+                    subTextSize = SettingsLibrary.TranslationFontSize
                 ),
                 weightLambda = weightLambda,
                 modifier = Modifier.drawWithCache {
