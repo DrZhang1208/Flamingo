@@ -44,15 +44,18 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
             result
         }
-        // Aggressively filter out all non-lyric lines
+        // Filter out metadata lines but keep timestamp lines
         val lrcLines = cleanText.lines().filter { line ->
             val trimmed = line.trim()
             if (trimmed.isEmpty()) return@filter true
+            // Keep all lines that have timestamps
+            if (timestampRegex.containsMatchIn(trimmed)) return@filter true
             // Skip LRC metadata tags: [ti:...], [ar:...], etc.
             if (trimmed.matches(Regex("""^\[(ti|ar|al|by|length|offset|re|ve|la|_)\s*:.*""", RegexOption.IGNORE_CASE))) return@filter false
-            // Skip KEY=VALUE or KEY:VALUE non-timestamp lines
-            if (!trimmed.startsWith("[") && trimmed.matches(Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE))) return@filter false
-            true
+            // Skip KEY=VALUE or KEY:VALUE lines without timestamps
+            if (trimmed.matches(Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE))) return@filter false
+            // Skip other non-timestamp lines
+            false
         }
         val timeLyricPairs = mutableListOf<MutableList<Pair<Float, String>>>()
         lrcLines.fastForEachIndexed { index, line ->
@@ -172,11 +175,13 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
         val processedEntries = processOtherSide(timeLyricPairs)
-        // Post-filter: remove entries with metadata-like text
         return processedEntries.filter { entry ->
             if (entry.isEmpty()) return@filter false
-            val joined = entry.fastJoinToString(separator = "") { it.second }
-            !joined.matches(Regex(""".*(TITLE|ARTIST|ALBUM|DATE|GENRE|TRACK|YEAR)\s*[=＝:：].*""", RegexOption.IGNORE_CASE))
+            // Only filter lines that are pure metadata (no actual lyric text with timestamps)
+            val hasTimestamp = entry.any { it.first > 0f && it.second.isNotEmpty() }
+            if (hasTimestamp) return@filter true
+            val joined = entry.fastJoinToString(separator = "") { it.second }.trim()
+            joined.isNotEmpty() && !joined.matches(Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE))
         }
     }
 

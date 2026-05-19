@@ -396,7 +396,7 @@ fun YosLyricView(
                         )
                     }
 
-                    key(lines) {
+                    key(lines, SettingsLibrary.LyricFontSize, SettingsLibrary.TranslationFontSize, SettingsLibrary.LyricFontWeight) {
                         val translation = remember(lines) {
                             val str = lines.last().second
                             str.ifBlank { null }
@@ -429,8 +429,8 @@ fun YosLyricView(
                                 mainLyric = lines.dropLast(1),
                                 translation,
                                 translationLambda(),
-                                mainTextSize = uiConfig.mainTextSize,
-                                subTextSize = uiConfig.subTextSize,
+                                mainTextSize = SettingsLibrary.LyricFontSize,
+                                subTextSize = SettingsLibrary.TranslationFontSize,
                                 blur = { blur.value },
                                 mainTextBasicColor,
                                 subTextBasicColor,
@@ -1133,7 +1133,7 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
 
-                                    val lyricTextStyle = mainTextStyle().copy(fontSize = mainTextSize.sp)
+                                    val lyricTextStyle = mainTextStyle()
                                     Line(
                                         lines = mainLyric,
                                         style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
@@ -1377,7 +1377,7 @@ fun LazyItemScope.LyricItem(
 
                                             Text(
                                                 text = it,
-                                                fontSize = subTextSize.sp,
+                                                fontSize = SettingsLibrary.TranslationFontSize.sp,
                                                 color = subTextBasicColor,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier
@@ -1389,7 +1389,7 @@ fun LazyItemScope.LyricItem(
                                                     }
                                                     .then(translationOtherSidePadding)
                                                     .padding(top = 5.dp),
-                                                lineHeight = (subTextSize + 5).sp,
+                                                lineHeight = (SettingsLibrary.TranslationFontSize + 5).sp,
                                                 letterSpacing = 0.3.sp,
                                                 textAlign = textAlign
                                             )
@@ -1492,7 +1492,7 @@ fun CountdownAnimation(progress: () -> Float, colorLambda: () -> Color) {
 
 @Composable
 fun mainTextStyle(): TextStyle = TextStyle(
-    fontSize = 30.5.sp,
+    fontSize = SettingsLibrary.LyricFontSize.sp,
     lineHeight = 40.5.sp,
     fontWeight =
     when (SettingsLibrary.LyricFontWeight) {
