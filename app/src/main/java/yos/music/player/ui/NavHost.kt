@@ -25,6 +25,7 @@ interface UI {
         const val LocalAlbums = "LocalAlbums"
 
         const val AlbumInfo = "AlbumInfo"
+        const val ArtistInfo = "ArtistInfo"
     }
 
     @Stable

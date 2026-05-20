@@ -72,6 +72,8 @@
     <string name="page_library_album_info_title">Album Information</string>
     <string name="normal_button_play">Play</string>
     <string name="normal_button_shuffle">Shuffle</string>
+    <string name="page_library_artist_info_title">Artist Information</string>
+    <string name="page_library_artist_info_others">%1$d Songs, about %2$d minutes</string>
     <string name="page_library_album_info_others">%1$d Songs, about %2$d minutes</string>
     <string name="page_library_artists">Artists</string>
     <string name="page_library_playlists">Playlists</string>

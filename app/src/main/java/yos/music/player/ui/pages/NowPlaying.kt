@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
 import coil.request.ImageRequest
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -105,6 +106,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -116,6 +118,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -703,7 +706,8 @@ private fun ColumnScope.Album(
                     .padding(start = dp, end = dp, bottom = dp)
                     .then(modifier),
                 imageQuality = ImageQuality.RAW,
-                shadowOverlay = true
+                shadowAlpha = 0f,
+                shadowOverlay = false
             )
         }
     }

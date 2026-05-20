@@ -54,7 +54,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import yos.music.player.R
 import yos.music.player.data.libraries.MusicLibrary
+import yos.music.player.data.objects.LibraryObject
+import yos.music.player.ui.UI
 import yos.music.player.ui.theme.withNight
+import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.SearchTextField
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
@@ -149,7 +152,8 @@ fun LocalArtists(navController: NavController) {
                     contentType = { _, _ -> "LocalArtists_item" }*/
                 ) { index, artist ->
                     ArtistItem(artistName = artist) {
-
+                        LibraryObject.setTargetArtistName(artist)
+                        navController.toUI(UI.ArtistInfo)
                     }
 
                     key(index) {
