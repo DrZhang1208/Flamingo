@@ -35,7 +35,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
 import coil.request.ImageRequest
@@ -48,6 +50,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -102,8 +105,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -114,6 +119,7 @@ import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -1546,20 +1552,15 @@ private fun PlayerControl(
 
                 // 进度条
                 YosWrapper {
-                    //println("重组：控制区域内部 - 进度条")
                     Slider(
                         value = sliderPosition.floatValue,
                         onValueChange = { newValue ->
                             isSliding.value = true
-
                             sliderPosition.floatValue = newValue
                             val newTotalSeconds = newValue.toLong() / 1000
                             playedTime.value = formatTime(newTotalSeconds)
-
-                            val newRemainingSeconds =
-                                playingDuration.longValue / 1000 - newTotalSeconds
+                            val newRemainingSeconds = playingDuration.longValue / 1000 - newTotalSeconds
                             remainingTime.value = "-${formatTime(newRemainingSeconds)}"
-
                             onSlider()
                         },
                         onValueChangeFinished = {
@@ -1572,12 +1573,8 @@ private fun PlayerControl(
                             activeTrackColor = Color.White,
                             inactiveTrackColor = Color(0x0DFFFFFF)
                         ),
-                        modifier = Modifier
-                            .overlayEffect()
-                            .alpha(0.45f)
-                            .height(14.dp),
-                        thumb = {
-                        },
+                        modifier = Modifier.overlayEffect().alpha(0.45f).height(14.dp),
+                        thumb = { },
                         track = {
                             Track(
                                 sliderPositions = SliderPositions(
@@ -1897,11 +1894,8 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
                     activeTrackColor = Color.White,
                     inactiveTrackColor = Color(0x0DFFFFFF)
                 ),
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 1.5.dp, end = 5.dp),
-                thumb = {
-                },
+                modifier = Modifier.weight(1f).padding(start = 1.5.dp, end = 5.dp),
+                thumb = { },
                 track = {
                     Track(
                         sliderPositions = SliderPositions(
