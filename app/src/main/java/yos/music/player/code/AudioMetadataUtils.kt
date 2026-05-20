@@ -26,7 +26,7 @@ object AudioMetadataUtils {
     }
 
     fun extractEmbeddedLyrics(filePath: String): String? {
-        // Method 1: MediaMetadataRetriever (API 33+), fast, no file read
+        // Method 1: MediaMetadataRetriever (API 33+)
         runCatching {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(filePath)
@@ -41,7 +41,30 @@ object AudioMetadataUtils {
             println("内嵌歌词 MediaMetadataRetriever 失败: ${it.message}")
         }
 
-        // Method 2: Scan file head/tail for LRC content (fast, partial read)
+        // Method 2: TagLib ID3 parser (properly extracts USLT frame)
+        runCatching {
+            val file = File(filePath)
+            if (!file.exists()) return@runCatching null
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                val metadata = TagLib.getMetadata(fd.dup().detachFd(), false)
+                val propertyMap = metadata?.propertyMap ?: return@runCatching null
+                // USLT frame keys typically contain "USLT" or "UNSYNCEDLYRICS"
+                val lyricEntry = propertyMap.entries.firstOrNull { (key, _) ->
+                    key.uppercase().let { it.contains("USLT") || it.contains("UNSYNCEDLYRICS") || it.contains("LYRICS") }
+                }
+                if (lyricEntry != null) {
+                    val lyricText = lyricEntry.value.lastOrNull() // Last value is the lyric text
+                    if (!lyricText.isNullOrBlank()) {
+                        println("内嵌歌词 TagLib 获取成功")
+                        return lyricText
+                    }
+                }
+            }
+        }.onFailure {
+            println("内嵌歌词 TagLib 失败: ${it.message}")
+        }
+
+        // Method 3: Scan file for LRC content (fallback)
         return runCatching {
             val file = File(filePath)
             if (!file.exists()) return@runCatching null
@@ -53,8 +76,8 @@ object AudioMetadataUtils {
 
     private fun extractLrcFromFile(file: File): String? {
         val fileLength = file.length()
-        // Only scan files under 100MB
-        if (fileLength > 100 * 1024 * 1024) return null
+        // Only scan files under 500MB
+        if (fileLength > 500 * 1024 * 1024) return null
 
         // Read head (lyrics often in ID3v2 header at front) and tail (Vorbis/MP4)
         val headSize = minOf(fileLength, 512L * 1024L).toInt() // 512KB head

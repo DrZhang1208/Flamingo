@@ -177,11 +177,15 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         val processedEntries = processOtherSide(timeLyricPairs)
         return processedEntries.filter { entry ->
             if (entry.isEmpty()) return@filter false
-            // Only filter lines that are pure metadata (no actual lyric text with timestamps)
             val hasTimestamp = entry.any { it.first > 0f && it.second.isNotEmpty() }
-            if (hasTimestamp) return@filter true
-            val joined = entry.fastJoinToString(separator = "") { it.second }.trim()
-            joined.isNotEmpty() && !joined.matches(Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE))
+            if (!hasTimestamp) return@filter false
+            val text = entry.fastJoinToString(separator = "") { it.second }.trim().uppercase()
+            !text.startsWith("TITLE=") && !text.startsWith("ARTIST=") &&
+            !text.startsWith("ALBUM=") && !text.startsWith("GENRE=") &&
+            !text.startsWith("DATE=") && !text.startsWith("YEAR=") &&
+            !text.startsWith("TRACK=") && !text.startsWith("COMPOSER=") &&
+            !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
+            !text.startsWith("LENGTH=")
         }
     }
 

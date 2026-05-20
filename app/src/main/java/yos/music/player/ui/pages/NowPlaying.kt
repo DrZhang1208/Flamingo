@@ -16,6 +16,8 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -118,6 +120,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -424,7 +427,8 @@ fun NowPlaying(
                                                 ),
                                                 albumUrl = { thisMusicPlaying.value?.thumb },
                                                 isPlaying = isPlayingStatusLambda,
-                                                isSwitching = { isSwitchingTrack.value }
+                                                isSwitching = { isSwitchingTrack.value },
+                                                isVisible = { isVisible }
                                             )
                                             AnimatedContent(
                                                 targetState = thisMusicPlaying.value,
@@ -659,7 +663,8 @@ private fun ColumnScope.Album(
     modifier: Modifier,
     albumUrl: () -> Uri?,
     isPlaying: () -> Boolean,
-    isSwitching: () -> Boolean = { false }
+    isSwitching: () -> Boolean = { false },
+    isVisible: () -> Boolean = { true }
 ) = Box(
     Modifier
         .weight(1f)
@@ -683,32 +688,56 @@ private fun ColumnScope.Album(
         }
     }
 
-    val albumAlpha = remember { Animatable(1f) }
-    val displayUrl = remember { mutableStateOf(albumUrl()) }
+    val currentUrl = remember { mutableStateOf(albumUrl()) }
+    val prevUrl = remember { mutableStateOf<Uri?>(null) }
+    val prevAlpha = remember { Animatable(0f) }
 
     LaunchedEffect(albumUrl()) {
         val newUrl = albumUrl() ?: return@LaunchedEffect
-        if (newUrl != displayUrl.value) {
-            albumAlpha.animateTo(0f, tween(400, easing = FastOutSlowInEasing))
-            displayUrl.value = newUrl
-            albumAlpha.snapTo(0f)
-            albumAlpha.animateTo(1f, tween(800, easing = FastOutSlowInEasing))
+        if (newUrl != currentUrl.value) {
+            if (currentUrl.value != null) {
+                if (isVisible()) {
+                    prevAlpha.snapTo(1f)
+                    prevUrl.value = currentUrl.value
+                    currentUrl.value = newUrl
+                    prevAlpha.animateTo(0f, tween(600, easing = FastOutSlowInEasing))
+                    prevUrl.value = null
+                } else {
+                    currentUrl.value = newUrl
+                }
+            } else {
+                currentUrl.value = newUrl
+            }
         }
     }
 
     YosWrapper {
         val dp = (7 + (27 * scale.value)).dp
-        displayUrl.value?.let { url ->
-            ShadowImageWithCache(
-                dataLambda = { url }, contentDescription = null, modifier = Modifier
-                    .fillMaxWidth()
-                    .alpha(albumAlpha.value)
-                    .padding(start = dp, end = dp, bottom = dp)
-                    .then(modifier),
-                imageQuality = ImageQuality.RAW,
-                shadowAlpha = 0f,
-                shadowOverlay = false
-            )
+        val shape = RoundedCornerShape(8.dp)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = dp, end = dp, bottom = dp)
+                .then(modifier)
+        ) {
+            // Layer 0 (bottom): new image
+            currentUrl.value?.let { url ->
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
+                    contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
+                )
+            }
+            // Layer 1 (top): old image fading out
+            prevUrl.value?.let { url ->
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
+                    contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth().aspectRatio(1f).clip(shape)
+                        .graphicsLayer { alpha = prevAlpha.value }
+                )
+            }
         }
     }
 }
@@ -1278,6 +1307,25 @@ private fun PlayingBar(
     musicPlayingLambda: () -> YosMediaItem?,
     onAlbumClick: () -> Unit
 ) = YosWrapper {
+    val stickyUrl = remember { mutableStateOf(albumUrlLambda()) }
+    val current = albumUrlLambda()
+    if (current != null) stickyUrl.value = current
+    val ctx = LocalContext.current
+    val thumbBitmap = remember { mutableStateOf<ImageBitmap?>(value = null) }
+
+    LaunchedEffect(stickyUrl.value) {
+        val url = stickyUrl.value ?: return@LaunchedEffect
+        withContext(Dispatchers.Default) {
+            runCatching {
+                val loader = ImageLoader.Builder(ctx).crossfade(true).build()
+                val req = ImageRequest.Builder(ctx).data(url).size(128).build()
+                val bmp = loader.execute(req).drawable?.toBitmap()?.asImageBitmap()
+                loader.shutdown()
+                withContext(Dispatchers.Main) { if (bmp != null) thumbBitmap.value = bmp }
+            }
+        }
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -1285,19 +1333,13 @@ private fun PlayingBar(
             .padding(top = 22.dp)
             .height(70.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        ShadowImageWithCache(
-            dataLambda = albumUrlLambda, contentDescription = null, modifier = modifier
-                .size(69.dp)
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = {
-                        onAlbumClick()
-                    }), cornerRadius = 5.dp,
-            imageQuality = ImageQuality.LOW,
-            shadowType = ShadowType.Small,
-            shadowOverlay = true
-        )
+        thumbBitmap.value?.let { bmp ->
+            Image(
+                bitmap = bmp, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = modifier.size(69.dp).clip(RoundedCornerShape(5.dp))
+                    .clickable(MutableInteractionSource(), null) { onAlbumClick() }
+            )
+        }
         Column(
             Modifier
                 .fillMaxWidth()

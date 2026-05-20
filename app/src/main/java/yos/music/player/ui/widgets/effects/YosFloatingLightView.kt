@@ -196,6 +196,6 @@ fun imageResolve(image: Bitmap, moreLight: Boolean = false): Bitmap {
             drawColor((0x40000000).toInt())
         }
     }
-    resizedBitmap = Toolkit.blur(resizedBitmap, 25)
+    resizedBitmap = Toolkit.blur(Toolkit.blur(resizedBitmap, 25), 25)
     return resizedBitmap
 }
