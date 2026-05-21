@@ -376,7 +376,6 @@ object RemoteServerManager {
 
     private fun parsePropfind(xml: String, parentPath: String): List<RemoteFile> {
         val results = mutableListOf<RemoteFile>()
-        // 适配不同 WebDAV 服务器的命名空间前缀（D:, d:, 或无前缀）
         val ns = "(?:\\w+:)?"
         val respRegex = Regex("<${ns}response>(.*?)</${ns}response>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val hrefR = Regex("<${ns}href>(.*?)</${ns}href>", RegexOption.IGNORE_CASE)
@@ -387,17 +386,34 @@ object RemoteServerManager {
 
         for (m in respRegex.findAll(xml)) {
             val r = m.groupValues[1]
-            val href = (hrefR.find(r)?.groupValues?.get(1) ?: continue).trim()
-            val name = (nameR.find(r)?.groupValues?.get(1) ?: href.substringAfterLast('/')).trim()
+            val rawHref = (hrefR.find(r)?.groupValues?.get(1) ?: continue).trim()
+            val name = (nameR.find(r)?.groupValues?.get(1) ?: rawHref.substringAfterLast('/').ifEmpty { rawHref }).trim()
             if (name.isBlank()) continue
-            val full = href.trimEnd('/'); val parent = parentPath.trimEnd('/')
-            if (full == parent || full == "/$parent") continue
+
+            // href 是服务器根路径（如 /dav/Music），需要转为相对于当前浏览路径的路径
+            val href = rawHref.trimEnd('/')
+            val resolvedPath = resolveRelativePath(parentPath.trimEnd('/'), href)
+
+            // 跳过当前目录自身
+            if (resolvedPath == parentPath.trimEnd('/')) continue
+
             val size = sizeR.find(r)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
             val isDir = collR.containsMatchIn(r)
             val mod = modR.find(r)?.groupValues?.get(1)
             val modMs = runCatching { java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", java.util.Locale.US).parse(mod ?: "")?.time }.getOrNull() ?: System.currentTimeMillis()
-            results.add(RemoteFile(name, full, isDir, size, modMs))
+            results.add(RemoteFile(name, resolvedPath, isDir, size, modMs))
         }
         return results
+    }
+
+    /**
+     * 将 PROPFIND 返回的绝对路径 href 转为相对于 basePath 的相对路径。
+     * 例：basePath="" href="/dav/Music" → "Music"
+     *     basePath="Music" href="/dav/Music/Rock" → "Rock"
+     */
+    private fun resolveRelativePath(basePath: String, href: String): String {
+        // href 的最后一个路径段作为简单相对路径（适用于 Depth: 1）
+        val name = href.substringAfterLast('/')
+        return if (basePath.isEmpty()) name else "$basePath/$name"
     }
 }
