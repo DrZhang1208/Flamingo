@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -108,6 +110,7 @@ private fun YosBottomSheetDialog(
                         Modifier
                             .fillMaxWidth()
                             .padding(26.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
                         content()
                     }
@@ -171,7 +174,7 @@ fun OptionDialog(
     content: (@Composable () -> Unit)?,
     positiveContent: String,
     negativeContent: String? = null,
-    bottomSheetState: SheetState = rememberModalBottomSheetState(),
+    bottomSheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     properties: ModalBottomSheetProperties = ModalBottomSheetDefaults.properties(),
     cornerRadius: () -> Dp = { SettingsLibrary.ScreenCorner.toInt().dp },
     onPositive: () -> Unit,

@@ -51,6 +51,7 @@ import yos.music.player.data.libraries.artistsName
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.theme.withNight
+import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
@@ -90,8 +91,7 @@ fun ArtistInfo(navController: NavController) {
                     }
                     Spacer(Modifier.width(15.dp))
                     NormalButton(painterResource(id = R.drawable.button_icon_shuffle), stringResource(id = R.string.normal_button_shuffle), Modifier.weight(1f)) {
-                        MediaController.mediaControl?.shuffleModeEnabled = true
-                        scope.launch(Dispatchers.IO) { MediaController.prepare(songs.value.random(), songs.value) }
+                        scope.launch(Dispatchers.IO) { MediaController.prepare(songs.value.random(), songs.value, shuffleModeEnabled = true) }
                     }
                 }
             }
@@ -99,7 +99,7 @@ fun ArtistInfo(navController: NavController) {
 
         item { ArtistDivider() }
 
-        itemsIndexed(songs.value, key = { _, music -> music }) { index, music ->
+        itemsIndexed(songs.value, key = { index, music -> "${index}_${music.uri}" }) { index, music ->
             key(music) {
                 ArtistSongsItem(music, artistName.value) {
                     scope.launch(Dispatchers.IO) { MediaController.prepare(music, songs.value) }
@@ -150,5 +150,6 @@ private fun ArtistSongsItem(music: YosMediaItem, artistName: String, onClick: ()
                 }
             }
         }
+        SongMenuIcon(music)
     }
 }

@@ -26,8 +26,19 @@ android {
         renderscriptSupportModeEnabled true
     }
 
+    signingConfigs {
+        debug {
+            storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+        // release 暂时也用 debug 密钥
+    }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.debug
             minifyEnabled true
             zipAlignEnabled true
             shrinkResources true

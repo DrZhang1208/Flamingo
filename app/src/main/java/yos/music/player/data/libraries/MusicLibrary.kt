@@ -114,6 +114,7 @@ object MusicLibrary {
     private const val mmkvID = "yos_player_core"
     private const val playListKey = "yos_play_list_v1"
     private const val playStatusKey = "yos_player_play_status"
+    private const val playCountKey = "yos_play_count"
 
     var hideSongs by mutableDataSaverListStateOf(
         dataSaverInterface = SongListSaver,
@@ -256,6 +257,20 @@ object MusicLibrary {
 
     fun loadPlayStatus(): PlayStatus {
         return loadData(playStatusKey) ?: PlayStatus(null, 0L, false, 0)
+    }
+
+    private val playCountMap: MutableMap<String, Int> by lazy {
+        (loadData<MutableMap<String, Int>>(playCountKey) ?: mutableMapOf())
+    }
+
+    fun incrementPlayCount(uri: Uri?) {
+        val key = uri?.toString() ?: return
+        playCountMap[key] = (playCountMap[key] ?: 0) + 1
+        updateData(playCountKey, playCountMap)
+    }
+
+    fun getPlayCount(uri: Uri?): Int {
+        return uri?.toString()?.let { playCountMap[it] } ?: 0
     }
 
     private inline fun <reified T> updateData(key: String, value: T) {

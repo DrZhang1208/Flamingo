@@ -208,4 +208,82 @@ object AudioMetadataUtils {
         return Pair(bitrate, sampleRate)
     }
 
+    data class AudioFileInfo(
+        val bitrate: Int?,        // kbps
+        val sampleRate: Int?,     // Hz
+        val channels: Int?,       // channel count
+        val bitsPerSample: Int?,  // bit depth (PCM only)
+        val fileSize: Long,       // bytes
+        val format: String,       // file extension
+        val source: String        // parent folder name
+    )
+
+    fun getAudioFileInfo(filePath: String): AudioFileInfo {
+        val file = File(filePath)
+        var bitrate: Int? = null
+        var sampleRate: Int? = null
+        var channels: Int? = null
+        var bitsPerSample: Int? = null
+
+        // Try TagLib for audio properties
+        runCatching {
+            if (file.exists()) {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    val props = TagLib.getAudioProperties(fd.dup().detachFd(), AudioPropertiesReadStyle.Fast)
+                    bitrate = props?.bitrate
+                    sampleRate = props?.sampleRate
+                    channels = props?.channels
+                }
+            }
+        }
+
+        // Fallback to MediaExtractor for missing fields
+        runCatching {
+            val extractor = MediaExtractor()
+            extractor.setDataSource(filePath)
+            val format = extractor.getTrackFormat(0)
+            if (bitrate == null) bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE)
+            if (sampleRate == null) sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            if (channels == null) channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            // Try to get PCM encoding for bit depth
+            runCatching {
+                val pcmEncoding = format.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                bitsPerSample = when (pcmEncoding) {
+                    2 -> 16  // ENCODING_PCM_16BIT
+                    3 -> 8   // ENCODING_PCM_8BIT
+                    4 -> 32  // ENCODING_PCM_FLOAT
+                    else -> null
+                }
+            }
+            extractor.release()
+        }
+
+        val format = file.extension.uppercase().ifEmpty { "UNKNOWN" }
+        val source = file.parentFile?.name ?: "未知来源"
+        val fileSize = if (file.exists()) file.length() else 0L
+
+        return AudioFileInfo(
+            bitrate = bitrate,
+            sampleRate = sampleRate,
+            channels = channels,
+            bitsPerSample = bitsPerSample,
+            fileSize = fileSize,
+            format = format,
+            source = source
+        )
+    }
+
+    fun getYear(filePath: String): Int? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            val yearStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
+            yearStr?.toIntOrNull()
+        } catch (_: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
+    }
+
 }

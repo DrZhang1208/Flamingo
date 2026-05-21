@@ -67,6 +67,7 @@ import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.ShadowImage
+import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
 import yos.music.player.ui.widgets.effects.ShadowType
@@ -239,11 +240,11 @@ fun AlbumInfo(
                                     label = stringResource(id = R.string.normal_button_shuffle),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    MediaController.mediaControl?.shuffleModeEnabled = true
                                     scope.launch(Dispatchers.IO) {
                                         MediaController.prepare(
                                             songs.random(),
-                                            songs
+                                            songs,
+                                            shuffleModeEnabled = true
                                         )
                                     }
                                 }
@@ -258,7 +259,7 @@ fun AlbumInfo(
 
                 itemsIndexed(
                     songs,
-                    key = { _, music -> music }/*,
+                    key = { index, music -> "${index}_${music.uri}" }/*,
                     contentType = { _, _ -> "AlbumInfo_item" }*/
                 ) { index, music ->
                     key(music) {
@@ -423,7 +424,7 @@ private fun AlbumSongsItem(
         }
         Spacer(modifier = Modifier.width(10.dp))
 
-        Column(Modifier.padding(vertical = 10.dp)) {
+        Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
             Text(
                 text = music.title ?: defaultTitle,
                 fontSize = 16.sp,
@@ -449,5 +450,6 @@ private fun AlbumSongsItem(
                 }
             }
         }
+        SongMenuIcon(music)
     }
 }

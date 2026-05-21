@@ -53,6 +53,8 @@ import yos.music.player.code.MediaController.mediaSession
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.onServiceRunning
 import yos.music.player.code.MediaController.playingMusicList
+import yos.music.player.code.MediaController.shuffleEnabled
+import yos.music.player.code.MediaController.toggleShuffle
 import yos.music.player.code.utils.lrc.YosLrcFactory
 import yos.music.player.code.utils.player.FadeExo
 import yos.music.player.code.utils.player.FadeExo.fadePause
@@ -85,6 +87,13 @@ object MediaController {
 
     @Stable
     var mediaSession: MediaSession? = null
+
+    /** 应用层随机播放标志。ExoPlayer 始终工作在顺序模式。 */
+    @Stable
+    var shuffleEnabled = mutableStateOf(false)
+
+    /** 原始播放列表（未打乱），用于关闭随机时恢复自然顺序 */
+    private var sourceMusicList: List<YosMediaItem>? = null
 
     fun onServiceRunning() {
         val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -201,36 +210,49 @@ object MediaController {
         play: Boolean = true
     ) {
         println("prepare $music")
+        // 保留已有随机状态，除非调用方显式要求开启
+        val effectiveShuffle = shuffleModeEnabled || shuffleEnabled.value
+        shuffleEnabled.value = effectiveShuffle
+
         if (thisMusicList != playingMusicList.value) {
 
-            var index = 0
+            // 保存原始列表，用于关闭随机时恢复
+            sourceMusicList = thisMusicList
 
-            val itemList = thisMusicList.mapIndexed { thisIndex, it ->
-                if (it.uri == music.uri) {
-                    index = thisIndex
-                }
-
-                it.toMediaItem()
+            // 应用层随机：打乱列表，保持当前曲目在首位
+            val playbackList = if (effectiveShuffle) {
+                val others = thisMusicList.filter { it.uri != music.uri }.shuffled()
+                listOf(music) + others
+            } else {
+                thisMusicList
             }
 
+            val startIndex = if (effectiveShuffle) {
+                0
+            } else {
+                playbackList.indexOfFirst { it.uri == music.uri }.coerceAtLeast(0)
+            }
+
+            val itemList = playbackList.map { it.toMediaItem() }
 
             withContext(Dispatchers.Main) {
-                mediaControl?.setMediaItems(itemList, index, position)
+                // ExoPlayer 始终顺序播放
+                mediaControl?.shuffleModeEnabled = false
+                mediaControl?.setMediaItems(itemList, startIndex, position)
                 mediaControl?.prepare()
             }
 
             println("prepare 调用切列表")
             if (!play && playingMusicList.value == null) {
-                playingMusicList.value = thisMusicList
+                playingMusicList.value = playbackList
                 musicPlaying.value = music
                 refresh(music)
                 withContext(Dispatchers.Main) {
-                    mediaControl?.shuffleModeEnabled = shuffleModeEnabled
                     mediaControl?.repeatMode = repeatMode
                     mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
                 }
             } else {
-                playingMusicList.value = thisMusicList
+                playingMusicList.value = playbackList
             }
 
             if (play) {
@@ -257,13 +279,59 @@ object MediaController {
         val control = mediaControl ?: return
         val playlist = playingMusicList.value ?: listOf(music)
         val pos = withContext(Dispatchers.Main) { control.currentPosition }
-        val shuffle = withContext(Dispatchers.Main) { control.shuffleModeEnabled }
+        val shuffle = shuffleEnabled.value
         val repeat = withContext(Dispatchers.Main) { control.repeatMode }
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
         MusicLibrary.updatePlayList(PlayListV1(mainMusicList, playlist))
     }
 
+    fun toggleShuffle() {
+        val enabled = !shuffleEnabled.value
+        shuffleEnabled.value = enabled
+
+        val current = musicPlaying.value ?: return
+        val currentList = playingMusicList.value ?: return
+        val srcList = sourceMusicList
+
+        CoroutineScope(Dispatchers.IO).launch {
+            // 不触碰当前曲目（位置0），只重建其后的列表，避免播放中断
+            val mc = mediaControl ?: return@launch
+            val newTail: List<YosMediaItem> = if (enabled) {
+                currentList.filter { it.uri != current.uri }.shuffled()
+            } else {
+                val src = srcList ?: currentList
+                val currentIdxInSrc = src.indexOfFirst { it.uri == current.uri }.coerceAtLeast(0)
+                // 保持自然顺序连续性：先排当前曲目后面的，再排前面的
+                src.drop(currentIdxInSrc + 1) + src.take(currentIdxInSrc)
+            }
+            val newList = listOf(current) + newTail
+
+            withContext(Dispatchers.Main) {
+                // 先把当前曲目移到位置 0（切歌后它可能不在 0 了）
+                val currentIdx = mc.currentMediaItemIndex
+                if (currentIdx > 0) {
+                    mc.moveMediaItem(currentIdx, 0)
+                }
+                // 移除当前曲目之后的所有项
+                val size = mc.mediaItemCount
+                if (size > 1) {
+                    mc.removeMediaItems(1, size)
+                }
+                // 追加新顺序的尾部
+                if (newTail.isNotEmpty()) {
+                    mc.addMediaItems(1, newTail.map { it.toMediaItem() })
+                }
+            }
+            playingMusicList.value = newList
+            syncState()
+            withContext(Dispatchers.Main) {
+                mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
+            }
+        }
+    }
+
     fun onCase(mediaItem: YosMediaItem) {
+        MusicLibrary.incrementPlayCount(mediaItem.uri)
         CoroutineScope(Dispatchers.IO).launch {
             refresh(mediaItem)
         }
@@ -313,7 +381,7 @@ class YosPlaybackService : MediaSessionService() {
             val useSmallerIcon = SettingsLibrary.NotificationSmallerIcon
 
             val shuffleButtonIcon =
-                if (player.shuffleModeEnabled) {
+                if (shuffleEnabled.value) {
                     if (useSmallerIcon) R.drawable.ic_mini_shuffle else R.drawable.ic_shuffle
                 } else {
                     if (useSmallerIcon) R.drawable.ic_mini_shuffle_off else R.drawable.ic_shuffle_off
@@ -347,7 +415,7 @@ class YosPlaybackService : MediaSessionService() {
             val useSmallerIcon = SettingsLibrary.NotificationSmallerIcon
 
             val shuffleButtonIcon =
-                if (player.shuffleModeEnabled) {
+                if (shuffleEnabled.value) {
                     if (useSmallerIcon) R.drawable.ic_mini_shuffle else R.drawable.ic_shuffle
                 } else {
                     if (useSmallerIcon) R.drawable.ic_mini_shuffle_off else R.drawable.ic_shuffle_off
@@ -422,7 +490,7 @@ class YosPlaybackService : MediaSessionService() {
         val playlist = playingMusicList.value ?: listOf(music)
         val control = mediaControl
         val pos = runCatching { control?.currentPosition ?: 0 }.getOrDefault(0)
-        val shuffle = runCatching { control?.shuffleModeEnabled ?: false }.getOrDefault(false)
+        val shuffle = shuffleEnabled.value
         val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
         println("持久化 保存播放状态 playlist=${playlist.size}")
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
@@ -632,7 +700,7 @@ class YosPlaybackService : MediaSessionService() {
                 args: Bundle
             ): ListenableFuture<SessionResult> {
                 if (customCommand.customAction == shuffleMode) {
-                    player.shuffleModeEnabled = !player.shuffleModeEnabled
+                    toggleShuffle()
                     setCustomButtons(forwardingPlayer)
                 } else if (customCommand.customAction == repeatMode) {
                     when (player.repeatMode) {

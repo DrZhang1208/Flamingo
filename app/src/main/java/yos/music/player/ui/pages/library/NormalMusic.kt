@@ -1,5 +1,6 @@
 package yos.music.player.ui.pages.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -226,11 +227,11 @@ fun NormalMusic(navController: NavController) {
                                 label = stringResource(id = R.string.normal_button_shuffle),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                MediaController.mediaControl?.shuffleModeEnabled = true
                                 scope.launch(Dispatchers.IO) {
                                     MediaController.prepare(
                                         list.value.random(),
-                                        list.value
+                                        list.value,
+                                        shuffleModeEnabled = true
                                     )
                                 }
                             }
@@ -239,7 +240,7 @@ fun NormalMusic(navController: NavController) {
 
                     itemsIndexed(
                         list.value,
-                        key = { _, music -> music }
+                        key = { index, music -> "${index}_${music.uri}" }
                     ) { index, music ->
                         MusicList(
                             music
@@ -314,6 +315,10 @@ fun FloatingMenu(
     }
 
     if (keepPopup.value) {
+        BackHandler {
+            showPopup.value = false
+        }
+
         Popup(
             //offset = IntOffset(0, buttonPosition.y.toInt()),
             onDismissRequest = {

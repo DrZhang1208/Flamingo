@@ -14,7 +14,9 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
+import android.media.MediaRouter2
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.BitmapDrawable
@@ -75,12 +77,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -155,6 +159,8 @@ import yos.music.player.code.MediaController
 import yos.music.player.code.MediaController.mediaControl
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.playingMusicList
+import yos.music.player.code.MediaController.shuffleEnabled
+import yos.music.player.code.MediaController.toggleShuffle
 import yos.music.player.code.SystemMediaControlResolver
 import yos.music.player.code.VolumeChangeReceiver
 import yos.music.player.code.YosPlaybackService
@@ -252,7 +258,7 @@ fun NowPlaying(
         }
 
         val shuffleModeEnabled = rememberSaveable(key = "NowPlaying_shuffleModeEnabled") {
-            mutableStateOf(mediaControl?.shuffleModeEnabled ?: false)
+            mutableStateOf(shuffleEnabled.value)
         }
         val repeatMode = rememberSaveable(key = "NowPlaying_repeatMode") {
             mutableIntStateOf(mediaControl?.repeatMode ?: REPEAT_MODE_OFF)
@@ -644,7 +650,7 @@ fun NowPlaying(
                                             .padding(top = 52.dp),
                                         onWhile = {
                                             shuffleModeEnabled.value =
-                                                mediaControl?.shuffleModeEnabled ?: false
+                                                shuffleEnabled.value
                                             repeatMode.intValue =
                                                 mediaControl?.repeatMode ?: REPEAT_MODE_OFF
                                         })
@@ -818,9 +824,7 @@ private fun PlayingList(
                                 .clickable(
                                     onClick = {
                                         Vibrator.click(context)
-                                        mediaControl?.shuffleModeEnabled =
-                                            !shuffleModeEnabledLambda()
-                                        mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
+                                        toggleShuffle()
                                         shuffleModeOnChanged(!shuffleModeEnabledLambda())
                                     },
                                     indication = null,
@@ -1003,11 +1007,10 @@ private fun PlayingList(
                             item("blank_before") {
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
-                            items(
+                            itemsIndexed(
                                 musicList.value ?: emptyList(),
-                                key = { music -> music }/*,
-                                contentType = { _ -> "NowPlaying_item" }*/
-                            ) { music ->
+                                key = { index, music -> "${index}_${music.uri}" }
+                            ) { _, music ->
                                 SmallMusicListItem(
                                     music
                                 ) {
@@ -1374,6 +1377,7 @@ private fun PlayingBar(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun RowScope.AirPlay() {
     val contextCompose = LocalContext.current
     val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
@@ -1448,21 +1452,11 @@ fun RowScope.AirPlay() {
     }
 
     YosWrapper {
-        val context = LocalContext.current
-
-        val systemMediaControlResolver = SystemMediaControlResolver(context)
-
         Column(
             modifier = Modifier
                 .heightIn(min = 53.dp)
                 .navigationBarsHeight(48.dp)
-                .weight(1f)
-                .clickable(
-                    onClick = {
-                        systemMediaControlResolver.intentSystemMediaDialog()
-                    },
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }),
+                .weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(modifier = Modifier.height(36.dp), contentAlignment = Alignment.Center) {
