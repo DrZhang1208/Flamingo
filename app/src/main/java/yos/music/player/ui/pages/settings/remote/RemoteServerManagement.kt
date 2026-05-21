@@ -149,7 +149,8 @@ fun RemoteServerManagement(navController: NavController) {
             onSave = { config, password ->
                 RemoteServerManager.addServer(config, password)
                 MusicLibrary.saveRemoteServers(RemoteServerManager.saveConfigs())
-                scope.launch(Dispatchers.IO) { RemoteServerManager.connect(config.id, password.takeIf { it.isNotBlank() }) }
+                val pwd = password
+                scope.launch(Dispatchers.IO) { RemoteServerManager.connect(config.id, pwd?.takeIf { it.isNotBlank() }) }
                 refreshKey++
                 showAddDialog = false
             }
