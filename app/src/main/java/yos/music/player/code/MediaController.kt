@@ -25,6 +25,8 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import yos.music.player.code.datasource.RemoteDataSourceFactory
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
@@ -522,6 +524,9 @@ class YosPlaybackService : MediaSessionService() {
                     }
                 )
         )
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(RemoteDataSourceFactory(this))
+            )
             .setAudioAttributes(
                 audioAttributes,
                 SettingsLibrary.AudioAttributes

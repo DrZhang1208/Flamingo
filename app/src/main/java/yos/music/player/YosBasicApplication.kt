@@ -40,6 +40,9 @@ class YosBasicApplication : Application() {
         // 初始化 MMKV
         MMKV.initialize(this)
 
+        // 初始化远程服务器管理器（加密凭据存储）
+        yos.music.player.data.remote.RemoteServerManager.init(this)
+
         val gson =
             GsonBuilder()
             //.registerTypeAdapter(Uri::class.java, UriSerializer())
