@@ -85,7 +85,7 @@ object RemoteServerManager {
     fun addServer(config: ServerConfig, password: String?): ServerConfig {
         val finalConfig = config.copy(id = config.id.ifEmpty { UUID.randomUUID().toString() })
         configCache.add(finalConfig)
-        if (password != null) credPrefs?.edit()?.putString("pwd_${finalConfig.id}", password)?.apply()
+        if (password != null) credPrefs?.edit()?.putString("pwd_${finalConfig.id}", password)?.commit()
         return finalConfig
     }
 
@@ -145,12 +145,12 @@ object RemoteServerManager {
         return if (resp.isSuccessful) "连接成功，根目录可达" else "连接失败: HTTP ${resp.code}"
     }
 
-    fun connect(serverId: String): Boolean {
+    fun connect(serverId: String, password: String? = null): Boolean {
         return runCatching {
             val cfg = getServer(serverId) ?: return false
             when (cfg.type) {
                 ServerType.SMB -> connectSmb(cfg)
-                ServerType.WEBDAV -> connectWebDav(cfg)
+                ServerType.WEBDAV -> connectWebDav(cfg, password)
             }
         }.isSuccess
     }
@@ -172,8 +172,9 @@ object RemoteServerManager {
         }
     }
 
-    private fun connectWebDav(config: ServerConfig): Boolean {
-        webDavClients[config.id] = buildWebDavClient(config, getPassword(config.id))
+    private fun connectWebDav(config: ServerConfig, password: String? = null): Boolean {
+        val pwd = password ?: getPassword(config.id)
+        webDavClients[config.id] = buildWebDavClient(config, pwd)
         return true
     }
 
