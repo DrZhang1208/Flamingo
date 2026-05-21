@@ -246,7 +246,7 @@ object MediaController {
             }
 
             withContext(Dispatchers.Main) {
-                // ExoPlayer 始终顺序播放
+                // 始终顺序播放
                 mediaControl?.shuffleModeEnabled = false
                 mediaControl?.setMediaItems(itemList, startIndex, position)
                 mediaControl?.prepare()
@@ -350,16 +350,19 @@ object MediaController {
         val scheme = uri.scheme ?: return uri
 
         if (scheme == "webdav") {
-            // 尝试加载 server 配置
-            val cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-                ?: run {
-                    val saved = MusicLibrary.loadRemoteServers()
-                    if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
-                    yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-                }
+            // 尝试加载 server 配置（处理重启后 configCache 为空的情况）
+            var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+            if (cfg == null) {
+                val saved = MusicLibrary.loadRemoteServers()
+                if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
+                cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+            }
             if (cfg != null) {
                 val base = cfg.host.trimEnd('/')
+                println("resolveRemoteUri: $uri -> $base/$path")
                 return android.net.Uri.parse("$base/$path")
+            } else {
+                println("resolveRemoteUri: server not found for $serverId")
             }
         }
         return uri
@@ -690,6 +693,11 @@ class YosPlaybackService : MediaSessionService() {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     super.onIsPlayingChanged(isPlaying)
                     MediaViewModelObject.isPlaying.value = isPlaying
+                }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    println("ExoPlayer error: ${error.message} code=${error.errorCode} cause=${error.cause}")
+                    super.onPlayerError(error)
                 }
 
                 override fun onEvents(player: Player, events: Player.Events) {
