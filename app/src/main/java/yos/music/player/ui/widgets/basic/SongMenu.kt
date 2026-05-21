@@ -109,7 +109,7 @@ fun SongMenuIcon(music: YosMediaItem) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
+fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
     val playlists = PlayListLibrary.playList
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
@@ -173,7 +173,7 @@ private fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
+fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
     val filePath = music.uri?.path
     val info = remember(filePath) {
         if (filePath != null) yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath) else null

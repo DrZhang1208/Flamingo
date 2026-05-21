@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.graphics.Color
@@ -257,9 +258,9 @@ private fun LazyItemScope.PlayListItem(playListType: PlayListType, title: String
     ) {
         val shape = YosRoundedCornerShape(4.dp)
         val density = LocalDensity.current
-        Image(painter = painterResource(if (playListType == PlayListType.Add) R.drawable.placeholder_playlist_new else R.drawable.placeholder_playlist_default),
-            contentDescription = null,
+        Box(
             modifier = Modifier.size(64.dp).graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen; clip = true; this.shape = shape }
+                .background(Color(0xFFF0F0F0) withNight Color(0xFF2C2C2E), shape)
                 .drawWithCache {
                     onDrawWithContent {
                         drawContent()
@@ -267,7 +268,24 @@ private fun LazyItemScope.PlayListItem(playListType: PlayListType, title: String
                         drawOutline(o, Color.Gray.copy(alpha = 0.1f), style = Stroke(width = 8f))
                         drawOutline(o, Color.Gray.copy(alpha = 0.5f), style = Stroke(width = 8f), blendMode = BlendMode.Overlay)
                     }
-                })
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            when (playListType) {
+                PlayListType.Add -> Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = Color(0xFFFA233B)  // red accent, consistent across themes
+                )
+                PlayListType.Favorite -> Icon(
+                    painter = painterResource(R.drawable.ic_nowplaying_favorite),
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = Color(0xFFFF9500)  // orange/gold for star
+                )
+            }
+        }
         Column(Modifier.padding(start = 16.dp).weight(1f)) {
             Text(title, modifier = Modifier.padding(bottom = 1.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 16.sp, lineHeight = 16.sp)
         }

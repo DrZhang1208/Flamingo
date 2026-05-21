@@ -14,6 +14,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
+import android.widget.Toast
 import android.media.MediaRouter2
 import android.os.Build
 import androidx.annotation.RequiresApi
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
@@ -80,6 +82,10 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -170,6 +176,12 @@ import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.code.utils.player.FadeExo.fadePause
 import yos.music.player.code.utils.player.FadeExo.fadePlay
 import yos.music.player.data.libraries.FavPlayListLibrary
+import yos.music.player.data.libraries.MusicLibrary.toMediaItem
+import yos.music.player.data.libraries.PlayListLibrary
+import yos.music.player.ui.widgets.basic.PopupMenu
+import yos.music.player.ui.widgets.basic.PopupMenuItem
+import yos.music.player.ui.widgets.basic.PlaylistPickerDialog
+import yos.music.player.ui.widgets.basic.SongDetailDialog
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
 import yos.music.player.data.libraries.artistsName
@@ -1262,23 +1274,30 @@ private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
 
         Spacer(modifier = Modifier.width(14.dp))
 
+        // 三点菜单
+        var showMoreMenu = remember { mutableStateOf(false) }
+        var showPlaylistPicker = remember { mutableStateOf(false) }
+        var showDetail = remember { mutableStateOf(false) }
+        var btnPos = remember { mutableStateOf(Offset.Zero) }
+
+        val menuOpen = showMoreMenu.value || showPlaylistPicker.value || showDetail.value
+
         Box(
             modifier = Modifier
                 .graphicsLayer {
                     rotationZ = 90f
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 }
+                .onGloballyPositioned { btnPos.value = it.localToRoot(Offset.Zero) }
                 .clickable(
-                    onClick = {
-
-                    },
+                    onClick = { showMoreMenu.value = true },
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() })
                 .size(dp),
             contentAlignment = Alignment.Center
         ) {
             AnimatedContent(
-                targetState = false,
+                targetState = menuOpen,
                 transitionSpec = {
                     fadeIn() togetherWith fadeOut()
                 }) {
@@ -1286,19 +1305,55 @@ private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
                     Icon(
                         painterResource(id = R.drawable.ic_nowplaying_more_fill),
                         contentDescription = null,
-                        modifier = Modifier
-                            .size(dp)
+                        modifier = Modifier.size(dp)
                     )
                 } else {
                     Icon(
                         painterResource(id = R.drawable.ic_nowplaying_more),
                         contentDescription = null,
-                        modifier = Modifier
-                            .overlayEffect()
-                            .size(dp)
+                        modifier = Modifier.overlayEffect().size(dp)
                     )
                 }
             }
+        }
+
+        // 菜单弹出
+        val music = musicPlayingLambda()
+        if (music != null) {
+            PopupMenu(
+                items = listOf(
+                    PopupMenuItem("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay) {
+                        showPlaylistPicker.value = true; showMoreMenu.value = false
+                    },
+                    PopupMenuItem("下一首播放", Icons.Filled.Add) {
+                        val currentMusic = MediaController.musicPlaying.value ?: return@PopupMenuItem
+                        val list = MediaController.playingMusicList.value?.toMutableList() ?: return@PopupMenuItem
+                        val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
+                        if (currentIdx >= 0) {
+                            list.add(currentIdx + 1, music)
+                            MediaController.playingMusicList.value = list
+                            MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
+                            Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
+                        }
+                        showMoreMenu.value = false
+                    },
+                    PopupMenuItem("歌曲信息", Icons.Outlined.Info) {
+                        showDetail.value = true; showMoreMenu.value = false
+                    }
+                ),
+                buttonPosition = btnPos.value,
+                expanded = showMoreMenu.value,
+                onDismiss = { showMoreMenu.value = false },
+                dark = true
+            )
+        }
+
+        if (showPlaylistPicker.value && music != null) {
+            PlaylistPickerDialog(music, onDismiss = { showPlaylistPicker.value = false })
+        }
+
+        if (showDetail.value && music != null) {
+            SongDetailDialog(music, onDismiss = { showDetail.value = false })
         }
     }
 }

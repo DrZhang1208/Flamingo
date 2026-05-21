@@ -56,7 +56,8 @@ fun PopupMenu(
     items: List<PopupMenuItem>,
     buttonPosition: Offset,
     expanded: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    dark: Boolean = false
 ) {
     val density = LocalDensity.current
     val showPopup = remember { mutableStateOf(false) }
@@ -105,7 +106,7 @@ fun PopupMenu(
                             transformOrigin = TransformOrigin(0.95f, if (showAbove) 1f else 0f)
                         )
                     ) {
-                        PopupMenuContent(shadow.value, alignRight, items)
+                        PopupMenuContent(shadow.value, alignRight, items, dark)
                     }
                 }
             } else {
@@ -119,7 +120,7 @@ fun PopupMenu(
                     enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.8f, animationSpec = tween(250), transformOrigin = TransformOrigin(0.95f, 0f)),
                     exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f, animationSpec = tween(150), transformOrigin = TransformOrigin(0.95f, 0f))
                 ) {
-                    PopupMenuContent(shadow.value, alignRight, items)
+                    PopupMenuContent(shadow.value, alignRight, items, dark)
                 }
             }
         }
@@ -127,47 +128,51 @@ fun PopupMenu(
 }
 
 @Composable
-private fun PopupMenuContent(shadowValue: Float, alignRight: Boolean, items: List<PopupMenuItem>) {
+private fun PopupMenuContent(shadowValue: Float, alignRight: Boolean, items: List<PopupMenuItem>, dark: Boolean) {
     val shape = RoundedCornerShape(10.dp)
+    val menuBackground = if (dark) Color(0xFA161616) else Color(0xF2E9E9E9) withNight Color(0xFA161616)
     val menuAlign = if (alignRight) Alignment.TopEnd else Alignment.TopStart
     Box(Modifier.fillMaxWidth(), contentAlignment = menuAlign) {
         Column(
             Modifier
                 .graphicsLayer { this.shape = shape; shadowElevation = shadowValue; clip = true }
-                .background(Color(0xF2E9E9E9) withNight Color(0xFA161616), shape)
+                .background(menuBackground, shape)
         ) {
             items.forEachIndexed { index, item ->
-                if (index > 0) PopupMenuDivider()
-                PopupMenuItemRow(item.label, item.icon, item.onClick)
+                if (index > 0) PopupMenuDivider(dark)
+                PopupMenuItemRow(item.label, item.icon, item.onClick, dark)
             }
         }
     }
 }
 
 @Composable
-private fun PopupMenuItemRow(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun PopupMenuItemRow(label: String, icon: ImageVector, onClick: () -> Unit, dark: Boolean) {
+    val rowBackground = if (dark) Color.Black.copy(alpha = 0.68f) else (Color.White withNight Color.Black).copy(alpha = 0.68f)
+    val iconTint = if (dark) Color.White else MaterialTheme.colorScheme.onBackground
     Row(
         Modifier
             .fillMaxWidth(0.618f)
             .height(48.dp)
-            .background((Color.White withNight Color.Black).copy(alpha = 0.68f))
+            .background(rowBackground)
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             label, fontSize = 17.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (dark) Color.White.copy(alpha = 0.9f) else Color.Unspecified,
             modifier = Modifier.weight(1f).alpha(0.9f).padding(end = 18.dp)
         )
-        Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onBackground)
+        Icon(icon, null, Modifier.size(24.dp), tint = iconTint)
     }
 }
 
 @Composable
-private fun PopupMenuDivider() = Spacer(
+private fun PopupMenuDivider(dark: Boolean = false) = Spacer(
     Modifier
         .fillMaxWidth(0.618f)
         .alpha(0.1f)
         .height(0.5.dp)
-        .background((Color.Black withNight Color.White).copy(alpha = 0.1f))
+        .background(if (dark) Color.White.copy(alpha = 0.1f) else (Color.Black withNight Color.White).copy(alpha = 0.1f))
 )
