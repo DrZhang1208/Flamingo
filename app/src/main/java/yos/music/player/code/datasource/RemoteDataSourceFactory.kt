@@ -35,6 +35,17 @@ class RemoteDataSource(
         delegate = when (uri.scheme) {
             "smb" -> createSmbSource(uri)
             "webdav" -> createWebDavSource(uri)
+            "http", "https" -> {
+                // 检查 HTTP URL 是否属于已注册的 WebDAV 服务器，若是则添加认证
+                val matchingServer = findMatchingWebDavServer(uri.toString())
+                if (matchingServer != null) {
+                    val baseUrl = matchingServer.host.trimEnd('/')
+                    val relativePath = uri.toString().removePrefix(baseUrl).trimStart('/')
+                    WebDavDataSource(matchingServer, relativePath)
+                } else {
+                    defaultFactory.createDataSource()
+                }
+            }
             else -> defaultFactory.createDataSource()
         }
         listener?.let { delegate?.addTransferListener(it) }
@@ -56,10 +67,21 @@ class RemoteDataSource(
     }
 
     private fun findOrLoadServer(serverId: String) = RemoteServerManager.getServer(serverId) ?: run {
-        // 尝试从持久化存储加载配置（App 重启后 configCache 为空）
         val saved = yos.music.player.data.libraries.MusicLibrary.loadRemoteServers()
         if (!saved.isNullOrBlank()) RemoteServerManager.loadConfigs(saved)
         RemoteServerManager.getServer(serverId)
+    }
+
+    /** 查找 HTTP URL 是否匹配已注册的 WebDAV 服务器 */
+    private fun findMatchingWebDavServer(httpUrl: String): yos.music.player.data.remote.ServerConfig? {
+        val servers = RemoteServerManager.getAllServers()
+        if (servers.isEmpty()) {
+            val saved = yos.music.player.data.libraries.MusicLibrary.loadRemoteServers()
+            if (!saved.isNullOrBlank()) RemoteServerManager.loadConfigs(saved)
+        }
+        return RemoteServerManager.getAllServers().firstOrNull { cfg ->
+            cfg.type == yos.music.player.data.remote.ServerType.WEBDAV && httpUrl.startsWith(cfg.host.trimEnd('/'))
+        }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {

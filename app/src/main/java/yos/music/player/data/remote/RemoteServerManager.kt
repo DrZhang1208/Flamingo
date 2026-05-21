@@ -449,9 +449,13 @@ object RemoteServerManager {
             if (name.isBlank()) continue
 
             val resolvedPath = resolveRelativePath(parentPath.trimEnd('/'), href.trimEnd('/'))
-            // 跳过当前目录自身
+            // 跳过当前目录自身：比较路径最后一段（处理中英文/编码差异）
             if (resolvedPath == parentPath.trimEnd('/')) continue
-            if (href.trimEnd('/') == selfPath) continue
+            val hrefLast = href.trimEnd('/').substringAfterLast('/')
+            val selfLast = selfPath.substringAfterLast('/').ifEmpty { selfPath.substringAfterLast('/') }
+            val hrefDecoded = runCatching { java.net.URLDecoder.decode(hrefLast, "UTF-8") }.getOrDefault(hrefLast)
+            val selfDecoded = runCatching { java.net.URLDecoder.decode(selfLast, "UTF-8") }.getOrDefault(selfLast)
+            if (hrefDecoded == selfDecoded || hrefLast == selfLast) continue
 
             val size = sizeStr?.toLongOrNull() ?: 0L
             val modMs = runCatching { java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", java.util.Locale.US).parse(lastModified ?: "")?.time }.getOrNull() ?: System.currentTimeMillis()
