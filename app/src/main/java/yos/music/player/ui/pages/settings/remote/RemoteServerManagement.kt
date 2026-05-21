@@ -169,10 +169,10 @@ private fun buildSubTitle(config: ServerConfig): String {
 private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String?) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var type by remember { mutableStateOf(ServerType.SMB) }
+    var type by remember { mutableStateOf(ServerType.WEBDAV) }
     var label by remember { mutableStateOf("") }
     // WebDAV: 单个 URL 字段
-    var webdavUrl by remember { mutableStateOf("http://") }
+    var webdavUrl by remember { mutableStateOf("") }
     // SMB: 分字段
     var smbHost by remember { mutableStateOf("") }
     var smbPort by remember { mutableStateOf("445") }
@@ -213,6 +213,10 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
         positiveContent = if (testing) "测试中..." else "保存",
         onPositive = {
             if (testing) return@OptionDialog
+            if (type == ServerType.WEBDAV && webdavUrl.isBlank()) {
+                Toast.makeText(context, "请输入 WebDAV 地址", Toast.LENGTH_SHORT).show()
+                return@OptionDialog
+            }
             val cfg = if (type == ServerType.WEBDAV) {
                 ServerConfig(type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl }, host = webdavUrl,
                     username = username.ifBlank { null }, authRequired = username.isNotBlank())
@@ -225,6 +229,10 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
         },
         negativeContent = if (testing) "测试中..." else "测试连接",
         onNegative = {
+            if (type == ServerType.WEBDAV && webdavUrl.isBlank()) {
+                Toast.makeText(context, "请输入 WebDAV 地址", Toast.LENGTH_SHORT).show()
+                return@OptionDialog
+            }
             testing = true
             val cfg = if (type == ServerType.WEBDAV) {
                 ServerConfig(type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl }, host = webdavUrl,

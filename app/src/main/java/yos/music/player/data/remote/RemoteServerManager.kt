@@ -118,6 +118,7 @@ object RemoteServerManager {
     // --- Connection ---
 
     fun testConnection(config: ServerConfig, password: String?): String {
+        if (config.type == ServerType.WEBDAV && config.host.isBlank()) return "请输入 WebDAV 地址"
         return when (config.type) {
             ServerType.SMB -> testSmb(config, password)
             ServerType.WEBDAV -> testWebDav(config, password)
@@ -353,7 +354,7 @@ object RemoteServerManager {
             connectWebDav(cfg)
             webDavClients[serverId] ?: return emptyList()
         }
-        val url = buildWebDavUrl(cfg, remotePath)
+        val url = buildWebDavUrl(cfg, remotePath).trimEnd('/') + "/"
         println("WebDAV PROPFIND url=$url")
         val resp = client.newCall(Request.Builder().url(url).method("PROPFIND", propfindBody).header("Depth", "1").build()).execute()
         println("WebDAV PROPFIND response: code=${resp.code} success=${resp.isSuccessful}")
