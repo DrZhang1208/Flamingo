@@ -341,6 +341,24 @@ object RemoteServerManager {
     }
 
     private fun buildWebDavUrl(config: ServerConfig, path: String): String {
+        // 如果 host 包含 ://，用户输入了完整 URL，直接提取组件
+        if (config.host.contains("://")) {
+            val uri = android.net.Uri.parse(
+                if (config.host.startsWith("http")) config.host else "http://${config.host}"
+            )
+            val scheme = uri.scheme ?: "http"
+            val host = uri.host ?: config.host
+            val port = uri.port
+            val parsedPath = uri.path?.trimEnd('/') ?: ""
+            val clean = path.trimStart('/')
+            val fullPath = if (parsedPath.isEmpty()) "/$clean" else "$parsedPath/$clean"
+            return if (port > 0 && port != 80 && port != 443) {
+                "$scheme://$host:$port$fullPath"
+            } else {
+                "$scheme://$host$fullPath"
+            }
+        }
+        // 常规拼接
         val base = config.basePath.trimEnd('/')
         val clean = path.trimStart('/')
         val scheme = if (config.port == 443) "https" else "http"
