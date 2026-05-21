@@ -348,11 +348,24 @@ object RemoteServerManager {
 
     private fun listWebDav(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
-        val client = webDavClients[serverId] ?: return emptyList()
+        val client = webDavClients[serverId] ?: run {
+            println("WebDAV client not found for $serverId, attempting connect")
+            connectWebDav(cfg)
+            webDavClients[serverId] ?: return emptyList()
+        }
         val url = buildWebDavUrl(cfg, remotePath)
+        println("WebDAV PROPFIND url=$url")
         val resp = client.newCall(Request.Builder().url(url).method("PROPFIND", propfindBody).header("Depth", "1").build()).execute()
-        if (!resp.isSuccessful) return emptyList()
-        return parsePropfind(resp.body?.string() ?: "", remotePath)
+        println("WebDAV PROPFIND response: code=${resp.code} success=${resp.isSuccessful}")
+        if (!resp.isSuccessful) {
+            println("WebDAV PROPFIND failed: ${resp.message}")
+            return emptyList()
+        }
+        val body = resp.body?.string() ?: ""
+        println("WebDAV PROPFIND body length=${body.length} body=${body.take(500)}")
+        val result = parsePropfind(body, remotePath)
+        println("WebDAV PROPFIND parsed ${result.size} entries")
+        return result
     }
 
     private val propfindBody = """
@@ -362,12 +375,14 @@ object RemoteServerManager {
 
     private fun parsePropfind(xml: String, parentPath: String): List<RemoteFile> {
         val results = mutableListOf<RemoteFile>()
-        val respRegex = Regex("<D:response>(.*?)</D:response>", RegexOption.DOT_MATCHES_ALL)
-        val hrefR = Regex("<D:href>(.*?)</D:href>")
-        val nameR = Regex("<D:displayname>(.*?)</D:displayname>")
-        val sizeR = Regex("<D:getcontentlength>(\\d+)</D:getcontentlength>")
-        val modR = Regex("<D:getlastmodified>(.*?)</D:getlastmodified>")
-        val collR = Regex("<D:collection/>")
+        // 适配不同 WebDAV 服务器的命名空间前缀（D:, d:, 或无前缀）
+        val ns = "(?:\\w+:)?"
+        val respRegex = Regex("<${ns}response>(.*?)</${ns}response>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val hrefR = Regex("<${ns}href>(.*?)</${ns}href>", RegexOption.IGNORE_CASE)
+        val nameR = Regex("<${ns}displayname>(.*?)</${ns}displayname>", RegexOption.IGNORE_CASE)
+        val sizeR = Regex("<${ns}getcontentlength>(\\d+)</${ns}getcontentlength>", RegexOption.IGNORE_CASE)
+        val modR = Regex("<${ns}getlastmodified>(.*?)</${ns}getlastmodified>", RegexOption.IGNORE_CASE)
+        val collR = Regex("<${ns}collection/>", RegexOption.IGNORE_CASE)
 
         for (m in respRegex.findAll(xml)) {
             val r = m.groupValues[1]
