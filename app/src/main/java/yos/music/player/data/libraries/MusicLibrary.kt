@@ -118,6 +118,7 @@ object MusicLibrary {
     private const val playListKey = "yos_play_list_v1"
     private const val playStatusKey = "yos_player_play_status"
     private const val playCountKey = "yos_play_count"
+    private const val remoteServersKey = "yos_remote_servers"
 
     var hideSongs by mutableDataSaverListStateOf(
         dataSaverInterface = SongListSaver,
@@ -274,6 +275,27 @@ object MusicLibrary {
 
     fun getPlayCount(uri: Uri?): Int {
         return uri?.toString()?.let { playCountMap[it] } ?: 0
+    }
+
+    // --- 远程服务器配置持久化 ---
+
+    fun saveRemoteServers(json: String) {
+        updateData(remoteServersKey, json)
+    }
+
+    fun loadRemoteServers(): String? {
+        return loadData<String>(remoteServersKey)
+    }
+
+    fun mountRemoteFolder(folder: Folder) {
+        folders = folders + folder
+    }
+
+    fun unmountRemoteFolder(folderName: String, serverId: String) {
+        folders = folders.filter { !(it.name == folderName && it.serverId == serverId) }
+        // Also remove songs from songSaver
+        val urisToRemove = folders.find { it.name == folderName && it.serverId == serverId }?.songs?.mapNotNull { it.uri?.toString() } ?: emptyList()
+        songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
     }
 
     private inline fun <reified T> updateData(key: String, value: T) {

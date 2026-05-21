@@ -128,7 +128,7 @@ object RemoteMetadataScanner {
 
     // --- Helpers ---
 
-    private fun inferMimeType(fileName: String): String {
+    fun inferMimeType(fileName: String): String {
         return when (fileName.substringAfterLast('.', "").lowercase()) {
             "mp3" -> "audio/mpeg"
             "flac" -> "audio/flac"

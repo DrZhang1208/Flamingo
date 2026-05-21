@@ -498,6 +498,9 @@ class MainActivity : BaseActivity() {
                                             composable(UI.Settings.NotificationSetting) {
                                                 NotificationSetting(navController)
                                             }
+                                            composable(UI.Settings.RemoteServerManagement) {
+                                                yos.music.player.ui.pages.settings.remote.RemoteServerManagement(navController)
+                                            }
                                         }
 
 

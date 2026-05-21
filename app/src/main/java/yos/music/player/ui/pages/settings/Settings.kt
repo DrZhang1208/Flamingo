@@ -93,6 +93,14 @@ fun Settings(navController: NavController) =
                         ListHeader(content = stringResource(id = R.string.settings_library_refresh_now_desc))
 
                         GroupSpacer()
+                        ListHeader(stringResource(id = R.string.settings_remote_title))
+                        RoundColumn {
+                            LabelItem(title = stringResource(id = R.string.settings_remote_server_management)) {
+                                navController.toUI(UI.Settings.RemoteServerManagement)
+                            }
+                        }
+
+                        GroupSpacer()
                         ListHeader(stringResource(id = R.string.settings_performance))
                         RoundColumn {
                             LabelItem(title = stringResource(id = R.string.settings_performance_lyric_title)) {
