@@ -180,6 +180,7 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
     var shareName by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var skipSsl by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
 
     OptionDialog(
@@ -209,6 +210,12 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
                 }
                 OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(), label = { Text("用户名 (可选)") }, singleLine = true)
                 OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("密码 (可选)") }, singleLine = true)
+                if (type == ServerType.WEBDAV) {
+                    Row(Modifier.fillMaxWidth().clickable { skipSsl = !skipSsl }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(skipSsl, { skipSsl = !skipSsl })
+                        Text("跳过 SSL 证书验证（自签名证书）", fontSize = 13.sp, modifier = Modifier.alpha(0.7f))
+                    }
+                }
             }
         },
         positiveContent = if (testing) "测试中..." else "保存",
@@ -220,7 +227,7 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
             }
             val cfg = if (type == ServerType.WEBDAV) {
                 ServerConfig(type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl }, host = webdavUrl,
-                    username = username.ifBlank { null }, authRequired = username.isNotBlank())
+                    username = username.ifBlank { null }, authRequired = username.isNotBlank(), skipSslVerify = skipSsl)
             } else {
                 ServerConfig(type = ServerType.SMB, label = label.ifBlank { smbHost }, host = smbHost,
                     port = smbPort.toIntOrNull() ?: 445, shareName = shareName.ifBlank { null },
@@ -237,7 +244,7 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
             testing = true
             val cfg = if (type == ServerType.WEBDAV) {
                 ServerConfig(type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl }, host = webdavUrl,
-                    username = username.ifBlank { null }, authRequired = username.isNotBlank())
+                    username = username.ifBlank { null }, authRequired = username.isNotBlank(), skipSslVerify = skipSsl)
             } else {
                 ServerConfig(type = ServerType.SMB, label = label.ifBlank { smbHost }, host = smbHost,
                     port = smbPort.toIntOrNull() ?: 445, shareName = shareName.ifBlank { null },

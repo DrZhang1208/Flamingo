@@ -32,11 +32,11 @@ class RemoteDataSource(
 
     override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
         val uri = dataSpec.uri
+        android.util.Log.e("FlamingoDS", "open scheme=${uri.scheme} host=${uri.host} path=${uri.path}")
         delegate = when (uri.scheme) {
             "smb" -> createSmbSource(uri)
             "webdav" -> createWebDavSource(uri)
             "http", "https" -> {
-                // 检查 HTTP URL 是否属于已注册的 WebDAV 服务器，若是则添加认证
                 val matchingServer = findMatchingWebDavServer(uri.toString())
                 if (matchingServer != null) {
                     val baseUrl = matchingServer.host.trimEnd('/')

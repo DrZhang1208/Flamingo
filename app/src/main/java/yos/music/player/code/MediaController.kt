@@ -696,7 +696,7 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    println("ExoPlayer error: ${error.message} code=${error.errorCode} cause=${error.cause}")
+                    android.util.Log.e("FlamingoDS", "ExoPlayer error: ${error.message} code=${error.errorCode}")
                     super.onPlayerError(error)
                 }
 

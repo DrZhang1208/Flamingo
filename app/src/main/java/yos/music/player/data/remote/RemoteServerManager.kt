@@ -38,6 +38,7 @@ data class ServerConfig(
     val basePath: String = "/",
     val username: String? = null,
     val authRequired: Boolean = true,
+    val skipSslVerify: Boolean = false,
     val mountFolders: List<String> = emptyList()
 )
 
@@ -332,7 +333,7 @@ object RemoteServerManager {
     // --- WebDAV helpers ---
 
     private fun buildWebDavClient(config: ServerConfig, password: String?): OkHttpClient {
-        return OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor { chain ->
@@ -341,7 +342,19 @@ object RemoteServerManager {
                     req.header("Authorization", Credentials.basic(config.username ?: "", password ?: getPassword(config.id) ?: ""))
                 }
                 chain.proceed(req.build())
-            }.build()
+            }
+        if (config.skipSslVerify) {
+            val trustAll = object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(c: Array<java.security.cert.X509Certificate>, a: String) {}
+                override fun checkServerTrusted(c: Array<java.security.cert.X509Certificate>, a: String) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+            }
+            val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
+            sslContext.init(null, arrayOf(trustAll), java.security.SecureRandom())
+            builder.sslSocketFactory(sslContext.socketFactory, trustAll)
+            builder.hostnameVerifier { _, _ -> true }
+        }
+        return builder.build()
     }
 
     private fun buildWebDavUrl(config: ServerConfig, path: String): String {
