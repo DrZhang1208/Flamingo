@@ -7,7 +7,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import yos.music.player.data.libraries.TagScanStatus
 import yos.music.player.data.libraries.YosMediaItem
 
 /**
@@ -69,7 +68,7 @@ object RemoteMetadataScanner {
                 albumArtists = null,
                 cdTrackNumber = null,
                 serverId = serverConfig.id,
-                tagScanStatus = TagScanStatus.PENDING
+                tagScanStatus = "PENDING"
             )
         }
     }
@@ -85,7 +84,7 @@ object RemoteMetadataScanner {
     ) {
         scanJob?.cancel()
         scanJob = scope.launch {
-            val pending = items.filter { it.tagScanStatus == TagScanStatus.PENDING }
+            val pending = items.filter { it.tagScanStatus == "PENDING" }
             if (pending.isEmpty()) return@launch
 
             _scanProgress.value = ScanProgress(serverId, pending.size, 0, "", true)
@@ -109,11 +108,11 @@ object RemoteMetadataScanner {
                         album = tags.album ?: item.album,
                         releaseYear = tags.year ?: item.releaseYear,
                         recordingYear = tags.year ?: item.recordingYear,
-                        tagScanStatus = TagScanStatus.COMPLETE
+                        tagScanStatus = "COMPLETE"
                     )
                     onItemUpdated(updated)
                 } catch (_: Exception) {
-                    val failed = item.copy(tagScanStatus = TagScanStatus.FAILED)
+                    val failed = item.copy(tagScanStatus = "FAILED")
                     onItemUpdated(failed)
                 }
             }

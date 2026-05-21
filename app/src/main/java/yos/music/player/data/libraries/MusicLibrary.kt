@@ -68,7 +68,7 @@ data class PlayStatus(
 
 @Parcelize
 @Stable
-data class Folder(val name: String, val path: String, val songs: List<YosMediaItem>, val source: FolderSource = FolderSource.LOCAL, val serverId: String? = null) : Parcelable
+data class Folder(val name: String, val path: String, val songs: List<YosMediaItem>, val source: String? = null, val serverId: String? = null) : Parcelable
 
 @Parcelize
 @Stable
@@ -100,12 +100,11 @@ data class YosMediaItem(
     val modifiedDate: Long?,
     val cdTrackNumber: Int?,
     val serverId: String? = null,
-    val tagScanStatus: TagScanStatus = TagScanStatus.COMPLETE
-) : Parcelable
+    val tagScanStatus: String? = null  // "PENDING"/"SCANNING"/"COMPLETE"/"FAILED"，null 等同于 COMPLETE
+) : Parcelable {
 
-enum class TagScanStatus { PENDING, SCANNING, COMPLETE, FAILED }
-
-enum class FolderSource { LOCAL, SMB, WEBDAV }
+    val effectiveTagScanStatus: String get() = tagScanStatus ?: "COMPLETE"
+}
 
 @Stable
 @Parcelize
