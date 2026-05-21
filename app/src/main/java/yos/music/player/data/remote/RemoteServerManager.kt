@@ -351,23 +351,62 @@ object RemoteServerManager {
     private fun listWebDav(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
         val client = webDavClients[serverId] ?: run {
-            println("WebDAV client not found for $serverId, attempting connect")
             connectWebDav(cfg)
             webDavClients[serverId] ?: return emptyList()
         }
         val url = buildWebDavUrl(cfg, remotePath).trimEnd('/') + "/"
-        println("WebDAV PROPFIND url=$url")
-        val resp = client.newCall(Request.Builder().url(url).method("PROPFIND", propfindBody).header("Depth", "1").build()).execute()
-        println("WebDAV PROPFIND response: code=${resp.code} success=${resp.isSuccessful}")
-        if (!resp.isSuccessful) {
-            println("WebDAV PROPFIND failed: ${resp.message}")
-            return emptyList()
-        }
+        println("WebDAV list url=$url")
+
+        // Try PROPFIND
+        val resp = client.newCall(
+            Request.Builder().url(url)
+                .method("PROPFIND", propfindBody)
+                .header("Depth", "1")
+                .header("User-Agent", "Flamingo/1.0")
+                .build()
+        ).execute()
+
+        println("WebDAV PROPFIND code=${resp.code}")
         val body = resp.body?.string() ?: ""
-        println("WebDAV PROPFIND body length=${body.length} body=${body.take(500)}")
-        val result = parsePropfind(body, remotePath)
-        println("WebDAV PROPFIND parsed ${result.size} entries")
-        return result
+        println("WebDAV body len=${body.length} preview=${body.take(300)}")
+
+        if (resp.isSuccessful && body.isNotBlank()) {
+            val result = parsePropfind(body, remotePath)
+            if (result.isNotEmpty()) return result
+        }
+
+        // Fallback: GET + parse HTML or simple file list
+        println("WebDAV PROPFIND failed/empty, trying GET fallback")
+        val getResp = client.newCall(
+            Request.Builder().url(url).header("User-Agent", "Flamingo/1.0").build()
+        ).execute()
+        val getBody = getResp.body?.string() ?: ""
+        println("WebDAV GET code=${getResp.code} body=${getBody.take(300)}")
+        if (getResp.isSuccessful && getBody.isNotBlank()) {
+            return parseHtmlDirectory(getBody, remotePath, url)
+        }
+
+        return emptyList()
+    }
+
+    /**
+     * 解析 WebDAV 服务器返回的 HTML 目录列表（Apache/Nginx/内置索引页）
+     */
+    private fun parseHtmlDirectory(html: String, parentPath: String, baseUrl: String): List<RemoteFile> {
+        val results = mutableListOf<RemoteFile>()
+        // 匹配 <a href="...">name</a> 链接
+        val linkRegex = Regex("""<a\s+href\s*=\s*["']([^"']+)["'][^>]*>\s*(.*?)\s*</a>""", RegexOption.IGNORE_CASE)
+        for (m in linkRegex.findAll(html)) {
+            val href = m.groupValues[1]
+            val name = m.groupValues[2].ifBlank { href.trimEnd('/').substringAfterLast('/') }
+            if (name == ".." || name == "../" || name == "Parent Directory" || href == "../") continue
+            val isDir = href.endsWith("/")
+            val cleanHref = href.trimEnd('/')
+            val resolvedPath = if (parentPath.isEmpty()) cleanHref else "$parentPath/$cleanHref"
+            results.add(RemoteFile(name, resolvedPath, isDir, 0L, System.currentTimeMillis()))
+        }
+        println("WebDAV HTML parsed ${results.size} entries")
+        return results
     }
 
     private val propfindBody = """
