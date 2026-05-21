@@ -375,8 +375,8 @@ object RemoteServerManager {
         println("WebDAV body len=${body.length} preview=${body.take(300)}")
 
         if (resp.isSuccessful && body.isNotBlank()) {
-            val basePathPart = android.net.Uri.parse(cfg.host).path?.trimEnd('/') ?: ""
-            val selfPath = "$basePathPart/${remotePath.trimStart('/')}".trimEnd('/')
+            // 用请求 URL 的路径作为自引用标识，过滤当前目录自身
+            val selfPath = android.net.Uri.parse(url).path?.trimEnd('/') ?: ""
             val result = parsePropfind(body, remotePath, selfPath)
             if (result.isNotEmpty()) return result
         }

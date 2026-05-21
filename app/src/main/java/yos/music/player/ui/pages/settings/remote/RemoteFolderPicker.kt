@@ -72,18 +72,8 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
             val connected = RemoteServerManager.isConnected(serverId)
             if (!connected) { RemoteServerManager.connect(serverId) }
             val files = RemoteServerManager.listFolder(serverId, path)
-            val debugBody = RemoteServerManager.lastListBody
             withContext(Dispatchers.Main) {
                 entries = files; currentPath = path; loading = false
-                if (files.isEmpty()) {
-                    val err = RemoteServerManager.lastParseError
-                    val clipText = "body=$debugBody\n\nerror=$err"
-                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("WebDAV", clipText))
-                    Toast.makeText(context, "0项 err=$err 已复制", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(context, "${files.size}项", Toast.LENGTH_SHORT).show()
-                }
             }
         }
     }
