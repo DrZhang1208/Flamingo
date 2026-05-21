@@ -140,9 +140,8 @@ object RemoteServerManager {
 
     private fun testWebDav(config: ServerConfig, password: String?): String {
         val client = buildWebDavClient(config, password)
-        val url = buildWebDavUrl(config, "")
-        val resp = client.newCall(Request.Builder().url(url).method("PROPFIND", propfindBody).header("Depth", "0").build()).execute()
-        return if (resp.isSuccessful) "连接成功" else "连接失败: HTTP ${resp.code}"
+        val resp = client.newCall(Request.Builder().url(config.host).method("PROPFIND", propfindBody).header("Depth", "0").build()).execute()
+        return if (resp.isSuccessful) "连接成功，根目录可达" else "连接失败: HTTP ${resp.code}"
     }
 
     fun connect(serverId: String): Boolean {
@@ -341,29 +340,10 @@ object RemoteServerManager {
     }
 
     private fun buildWebDavUrl(config: ServerConfig, path: String): String {
-        // 如果 host 包含 ://，用户输入了完整 URL，直接提取组件
-        if (config.host.contains("://")) {
-            val uri = android.net.Uri.parse(
-                if (config.host.startsWith("http")) config.host else "http://${config.host}"
-            )
-            val scheme = uri.scheme ?: "http"
-            val host = uri.host ?: config.host
-            val port = uri.port
-            val parsedPath = uri.path?.trimEnd('/') ?: ""
-            val clean = path.trimStart('/')
-            val fullPath = if (parsedPath.isEmpty()) "/$clean" else "$parsedPath/$clean"
-            return if (port > 0 && port != 80 && port != 443) {
-                "$scheme://$host:$port$fullPath"
-            } else {
-                "$scheme://$host$fullPath"
-            }
-        }
-        // 常规拼接
-        val base = config.basePath.trimEnd('/')
+        // WebDAV: host 字段存储完整 URL（如 http://192.168.1.1:8080/dav）
+        val base = config.host.trimEnd('/')
         val clean = path.trimStart('/')
-        val scheme = if (config.port == 443) "https" else "http"
-        val authority = if (config.port == 80 || config.port == 443) config.host else "${config.host}:${config.port}"
-        return "$scheme://$authority$base/$clean"
+        return if (clean.isEmpty()) base else "$base/$clean"
     }
 
     private fun listWebDav(serverId: String, remotePath: String): List<RemoteFile> {

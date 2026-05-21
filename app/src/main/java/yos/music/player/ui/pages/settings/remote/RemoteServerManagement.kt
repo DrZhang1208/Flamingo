@@ -160,7 +160,8 @@ fun RemoteServerManagement(navController: NavController) {
 private fun buildSubTitle(config: ServerConfig): String {
     val type = if (config.type == ServerType.SMB) "SMB" else "WebDAV"
     val status = if (RemoteServerManager.isConnected(config.id)) "已连接" else "未连接"
-    return "$type · ${config.host}:${config.port} · $status"
+    val addr = if (config.type == ServerType.WEBDAV) config.host else "${config.host}:${config.port}"
+    return "$type · $addr · $status"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -170,10 +171,12 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
     val context = LocalContext.current
     var type by remember { mutableStateOf(ServerType.SMB) }
     var label by remember { mutableStateOf("") }
-    var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf(if (type == ServerType.SMB) "445" else "8080") }
+    // WebDAV: 单个 URL 字段
+    var webdavUrl by remember { mutableStateOf("http://") }
+    // SMB: 分字段
+    var smbHost by remember { mutableStateOf("") }
+    var smbPort by remember { mutableStateOf("445") }
     var shareName by remember { mutableStateOf("") }
-    var basePath by remember { mutableStateOf("/") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var testing by remember { mutableStateOf(false) }
@@ -181,7 +184,7 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
     OptionDialog(
         icon = { Spacer(Modifier.size(0.dp)) },
         title = "添加服务器",
-        subTitle = "支持 SMB / WebDAV",
+        subTitle = if (type == ServerType.WEBDAV) "输入完整的 WebDAV 地址" else "输入 SMB 服务器信息",
         content = {
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
@@ -195,37 +198,42 @@ private fun AddServerDialog(onDismiss: () -> Unit, onSave: (ServerConfig, String
                     }
                 }
                 OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text("名称") }, singleLine = true)
-                OutlinedTextField(host, { host = it }, Modifier.fillMaxWidth(), label = { Text("地址") }, singleLine = true)
-                OutlinedTextField(port, { port = it }, Modifier.fillMaxWidth(), label = { Text("端口") }, singleLine = true)
-                if (type == ServerType.SMB) {
-                    OutlinedTextField(shareName, { shareName = it }, Modifier.fillMaxWidth(), label = { Text("共享名") }, singleLine = true)
+                if (type == ServerType.WEBDAV) {
+                    OutlinedTextField(webdavUrl, { webdavUrl = it }, Modifier.fillMaxWidth(), label = { Text("地址") }, singleLine = true,
+                        placeholder = { Text("http://192.168.1.1:8080/dav") })
                 } else {
-                    OutlinedTextField(basePath, { basePath = it }, Modifier.fillMaxWidth(), label = { Text("路径") }, singleLine = true)
+                    OutlinedTextField(smbHost, { smbHost = it }, Modifier.fillMaxWidth(), label = { Text("主机地址") }, singleLine = true)
+                    OutlinedTextField(smbPort, { smbPort = it }, Modifier.fillMaxWidth(), label = { Text("端口") }, singleLine = true)
+                    OutlinedTextField(shareName, { shareName = it }, Modifier.fillMaxWidth(), label = { Text("共享名") }, singleLine = true)
                 }
-                OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(), label = { Text("用户名") }, singleLine = true)
-                OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("密码") }, singleLine = true)
+                OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(), label = { Text("用户名 (可选)") }, singleLine = true)
+                OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("密码 (可选)") }, singleLine = true)
             }
         },
         positiveContent = if (testing) "测试中..." else "保存",
         onPositive = {
             if (testing) return@OptionDialog
-            val cfg = ServerConfig(
-                type = type, label = label.ifBlank { host }, host = host,
-                port = port.toIntOrNull() ?: if (type == ServerType.SMB) 445 else 8080,
-                shareName = shareName.ifBlank { null }, basePath = basePath.ifBlank { "/" },
-                username = username.ifBlank { null }, authRequired = username.isNotBlank()
-            )
+            val cfg = if (type == ServerType.WEBDAV) {
+                ServerConfig(type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl }, host = webdavUrl,
+                    username = username.ifBlank { null }, authRequired = username.isNotBlank())
+            } else {
+                ServerConfig(type = ServerType.SMB, label = label.ifBlank { smbHost }, host = smbHost,
+                    port = smbPort.toIntOrNull() ?: 445, shareName = shareName.ifBlank { null },
+                    username = username.ifBlank { null }, authRequired = username.isNotBlank())
+            }
             onSave(cfg, password.ifBlank { null })
         },
         negativeContent = if (testing) "测试中..." else "测试连接",
         onNegative = {
             testing = true
-            val cfg = ServerConfig(
-                type = type, label = label.ifBlank { host }, host = host,
-                port = port.toIntOrNull() ?: if (type == ServerType.SMB) 445 else 8080,
-                shareName = shareName.ifBlank { null }, basePath = basePath.ifBlank { "/" },
-                username = username.ifBlank { null }, authRequired = username.isNotBlank()
-            )
+            val cfg = if (type == ServerType.WEBDAV) {
+                ServerConfig(type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl }, host = webdavUrl,
+                    username = username.ifBlank { null }, authRequired = username.isNotBlank())
+            } else {
+                ServerConfig(type = ServerType.SMB, label = label.ifBlank { smbHost }, host = smbHost,
+                    port = smbPort.toIntOrNull() ?: 445, shareName = shareName.ifBlank { null },
+                    username = username.ifBlank { null }, authRequired = username.isNotBlank())
+            }
             scope.launch(Dispatchers.IO) {
                 val result = RemoteServerManager.testConnection(cfg, password.ifBlank { null })
                 withContext(Dispatchers.Main) { testing = false; Toast.makeText(context, result, Toast.LENGTH_LONG).show() }
