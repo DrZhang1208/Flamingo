@@ -84,40 +84,30 @@ fun RemoteServerManagement(navController: NavController) {
 
             for (server in servers) {
                 val sid = server.id
+                val connected = RemoteServerManager.isConnected(sid)
                 item("server_$sid") {
                     RoundColumn {
                         Row(
-                            Modifier.fillMaxWidth().clickable { }.padding(horizontal = 12.dp, vertical = 12.dp),
+                            Modifier.fillMaxWidth().clickable {
+                                if (connected) {
+                                    navController.navigate("RemoteFolderPicker/$sid")
+                                } else {
+                                    scope.launch(Dispatchers.IO) {
+                                        RemoteServerManager.connect(sid)
+                                        withContext(Dispatchers.Main) { refreshKey++ }
+                                    }
+                                }
+                            }.padding(horizontal = 12.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val icon = if (server.type == ServerType.SMB) Icons.Filled.Computer else Icons.Filled.Cloud
-                            Icon(icon, null, Modifier.size(24.dp), tint = Color(0xFF007AFF))
+                            Icon(icon, null, Modifier.size(24.dp), tint = if (connected) Color(0xFF34C759) else Color(0xFF8E8E93))
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(server.label, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                                Text(
-                                    buildSubTitle(server), fontSize = 13.sp,
-                                    modifier = Modifier.alpha(0.5f)
-                                )
+                                Text(buildSubTitle(server), fontSize = 13.sp, modifier = Modifier.alpha(0.5f))
                             }
-                        }
-                        Divider()
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                scope.launch(Dispatchers.IO) {
-                                    if (RemoteServerManager.isConnected(sid)) RemoteServerManager.disconnect(sid)
-                                    else RemoteServerManager.connect(sid)
-                                    withContext(Dispatchers.Main) {
-                                        refreshKey++
-                                        Toast.makeText(context,
-                                            if (RemoteServerManager.isConnected(sid)) "已连接" else "已断开",
-                                            Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(if (RemoteServerManager.isConnected(sid)) "断开连接" else "连接", fontSize = 14.sp)
+                            if (connected) Text("›", fontSize = 18.sp, modifier = Modifier.alpha(0.3f))
                         }
                         Divider()
                         Row(
@@ -159,6 +149,7 @@ fun RemoteServerManagement(navController: NavController) {
             onSave = { config, password ->
                 RemoteServerManager.addServer(config, password)
                 MusicLibrary.saveRemoteServers(RemoteServerManager.saveConfigs())
+                scope.launch(Dispatchers.IO) { RemoteServerManager.connect(config.id) }
                 refreshKey++
                 showAddDialog = false
             }

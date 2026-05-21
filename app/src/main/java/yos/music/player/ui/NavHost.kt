@@ -43,6 +43,7 @@ interface UI {
             const val UserInterfaceSetting = "UserInterfaceSetting"
             const val NotificationSetting = "NotificationSetting"
             const val RemoteServerManagement = "RemoteServerManagement"
+            const val RemoteFolderPicker = "RemoteFolderPicker/{serverId}"
         }
     }
 }

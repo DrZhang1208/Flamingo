@@ -289,6 +289,7 @@ object MusicLibrary {
 
     fun mountRemoteFolder(folder: Folder) {
         folders = folders + folder
+        songSaver = songSaver + folder.songs
     }
 
     fun unmountRemoteFolder(folderName: String, serverId: String) {

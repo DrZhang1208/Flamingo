@@ -501,6 +501,10 @@ class MainActivity : BaseActivity() {
                                             composable(UI.Settings.RemoteServerManagement) {
                                                 yos.music.player.ui.pages.settings.remote.RemoteServerManagement(navController)
                                             }
+                                            composable(UI.Settings.RemoteFolderPicker) {
+                                                val serverId = it.arguments?.getString("serverId")
+                                                yos.music.player.ui.pages.settings.remote.RemoteFolderPicker(navController, serverId)
+                                            }
                                         }
 
 
