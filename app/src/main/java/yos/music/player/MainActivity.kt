@@ -91,9 +91,11 @@ import androidx.compose.ui.util.lerp
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.google.accompanist.insets.ProvideWindowInsets
 import com.google.accompanist.insets.navigationBarsHeight
 import com.google.accompanist.navigation.animation.AnimatedNavHost
@@ -501,7 +503,10 @@ class MainActivity : BaseActivity() {
                                             composable(UI.Settings.RemoteServerManagement) {
                                                 yos.music.player.ui.pages.settings.remote.RemoteServerManagement(navController)
                                             }
-                                            composable(UI.Settings.RemoteFolderPicker) {
+                                            composable(
+                                                UI.Settings.RemoteFolderPicker,
+                                                arguments = listOf(navArgument("serverId") { type = NavType.StringType })
+                                            ) {
                                                 val serverId = it.arguments?.getString("serverId")
                                                 yos.music.player.ui.pages.settings.remote.RemoteFolderPicker(navController, serverId)
                                             }
