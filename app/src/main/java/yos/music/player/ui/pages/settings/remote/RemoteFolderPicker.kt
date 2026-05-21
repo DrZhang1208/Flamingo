@@ -69,12 +69,21 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
     fun loadFolder(path: String) {
         loading = true
         scope.launch(Dispatchers.IO) {
-            if (!RemoteServerManager.isConnected(serverId)) RemoteServerManager.connect(serverId)
+            val connected = RemoteServerManager.isConnected(serverId)
+            if (!connected) { RemoteServerManager.connect(serverId) }
             val files = RemoteServerManager.listFolder(serverId, path)
+            val debugBody = RemoteServerManager.lastListBody
             withContext(Dispatchers.Main) {
-                entries = files
-                currentPath = path
-                loading = false
+                entries = files; currentPath = path; loading = false
+                if (files.isEmpty()) {
+                    val err = RemoteServerManager.lastParseError
+                    val clipText = "body=$debugBody\n\nerror=$err"
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("WebDAV", clipText))
+                    Toast.makeText(context, "0项 err=$err 已复制", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "${files.size}项", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -86,10 +95,12 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
 
     SettingBackground {
         Title(title = folderName.ifEmpty { config.label }, onBack = {
-            if (pathStack.size > 1) {
-                val newStack = pathStack.dropLast(1)
+            if (currentPath.isNotEmpty()) {
+                // 返回上级目录
+                val parent = currentPath.substringBeforeLast('/')
+                val newStack = if (parent.isEmpty()) listOf("") else pathStack.dropLastWhile { it != parent } + parent
                 pathStack = newStack
-                loadFolder(newStack.last())
+                loadFolder(parent)
             } else {
                 navController.popBackStack()
             }
@@ -99,6 +110,8 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             scope.launch(Dispatchers.IO) {
+                                val already = MusicLibrary.folders.any { it.serverId == serverId && it.path == currentPath }
+                                if (already) { withContext(Dispatchers.Main) { Toast.makeText(context, "已挂载", Toast.LENGTH_SHORT).show() }; return@launch }
                                 val audioFiles = RemoteServerManager.listAudioFiles(serverId, currentPath)
                                 if (audioFiles.isEmpty()) {
                                     withContext(Dispatchers.Main) { Toast.makeText(context, "该文件夹没有音频文件", Toast.LENGTH_SHORT).show() }

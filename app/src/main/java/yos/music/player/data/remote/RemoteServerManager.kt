@@ -63,6 +63,9 @@ object RemoteServerManager {
     private val smbShares = mutableMapOf<String, DiskShare>()
     private val webDavClients = mutableMapOf<String, OkHttpClient>()
 
+    var lastListBody: String = ""
+        private set
+
     private val AUDIO_EXTENSIONS = setOf(
         "mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus", "ape", "aiff", "alac", "dsf", "dff"
     )
@@ -368,10 +371,13 @@ object RemoteServerManager {
 
         println("WebDAV PROPFIND code=${resp.code}")
         val body = resp.body?.string() ?: ""
+        lastListBody = body
         println("WebDAV body len=${body.length} preview=${body.take(300)}")
 
         if (resp.isSuccessful && body.isNotBlank()) {
-            val result = parsePropfind(body, remotePath)
+            val basePathPart = android.net.Uri.parse(cfg.host).path?.trimEnd('/') ?: ""
+            val selfPath = "$basePathPart/${remotePath.trimStart('/')}".trimEnd('/')
+            val result = parsePropfind(body, remotePath, selfPath)
             if (result.isNotEmpty()) return result
         }
 
@@ -414,36 +420,52 @@ object RemoteServerManager {
         <D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:getcontentlength/><D:getlastmodified/><D:resourcetype/></D:prop></D:propfind>
     """.trimIndent().toRequestBody("application/xml".toMediaType())
 
-    private fun parsePropfind(xml: String, parentPath: String): List<RemoteFile> {
-        val results = mutableListOf<RemoteFile>()
-        val ns = "(?:\\w+:)?"
-        val respRegex = Regex("<${ns}response>(.*?)</${ns}response>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val hrefR = Regex("<${ns}href>(.*?)</${ns}href>", RegexOption.IGNORE_CASE)
-        val nameR = Regex("<${ns}displayname>(.*?)</${ns}displayname>", RegexOption.IGNORE_CASE)
-        val sizeR = Regex("<${ns}getcontentlength>(\\d+)</${ns}getcontentlength>", RegexOption.IGNORE_CASE)
-        val modR = Regex("<${ns}getlastmodified>(.*?)</${ns}getlastmodified>", RegexOption.IGNORE_CASE)
-        val collR = Regex("<${ns}collection/>", RegexOption.IGNORE_CASE)
+    var lastParseError: String = ""
+        private set
 
-        for (m in respRegex.findAll(xml)) {
-            val r = m.groupValues[1]
-            val rawHref = (hrefR.find(r)?.groupValues?.get(1) ?: continue).trim()
-            val name = (nameR.find(r)?.groupValues?.get(1) ?: rawHref.substringAfterLast('/').ifEmpty { rawHref }).trim()
+    private fun parsePropfind(xml: String, parentPath: String, selfPath: String = ""): List<RemoteFile> {
+        val results = mutableListOf<RemoteFile>()
+        // 简单字符串解析：按 <D:response> 分割，逐块提取字段
+        val responseTag = Regex("<(\\w+:)?response>", RegexOption.IGNORE_CASE)
+        val closeTag = Regex("</(\\w+:)?response>", RegexOption.IGNORE_CASE)
+        var searchFrom = 0
+        while (true) {
+            val start = responseTag.find(xml, searchFrom)?.range?.last?.plus(1) ?: break
+            val end = closeTag.find(xml, start)?.range?.first ?: break
+            val block = xml.substring(start, end)
+            searchFrom = end + 1
+
+            val href = extractTag(block, "href")
+            val displayName = extractTag(block, "displayname")
+            val lastModified = extractTag(block, "getlastmodified")
+            val sizeStr = extractTag(block, "getcontentlength")
+            val isCollection = block.contains(Regex("<(\\w+:)?collection[/>]", RegexOption.IGNORE_CASE))
+
+            if (href.isNullOrBlank()) continue
+
+            val rawName = displayName?.takeIf { it.isNotBlank() }
+                ?: href.trimEnd('/').substringAfterLast('/').ifEmpty { href.trimEnd('/') }
+            val name = runCatching { java.net.URLDecoder.decode(rawName, "UTF-8") }.getOrDefault(rawName)
             if (name.isBlank()) continue
 
-            // href 是服务器根路径（如 /dav/Music），需要转为相对于当前浏览路径的路径
-            val href = rawHref.trimEnd('/')
-            val resolvedPath = resolveRelativePath(parentPath.trimEnd('/'), href)
-
+            val resolvedPath = resolveRelativePath(parentPath.trimEnd('/'), href.trimEnd('/'))
             // 跳过当前目录自身
             if (resolvedPath == parentPath.trimEnd('/')) continue
+            if (href.trimEnd('/') == selfPath) continue
 
-            val size = sizeR.find(r)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-            val isDir = collR.containsMatchIn(r)
-            val mod = modR.find(r)?.groupValues?.get(1)
-            val modMs = runCatching { java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", java.util.Locale.US).parse(mod ?: "")?.time }.getOrNull() ?: System.currentTimeMillis()
-            results.add(RemoteFile(name, resolvedPath, isDir, size, modMs))
+            val size = sizeStr?.toLongOrNull() ?: 0L
+            val modMs = runCatching { java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", java.util.Locale.US).parse(lastModified ?: "")?.time }.getOrNull() ?: System.currentTimeMillis()
+            results.add(RemoteFile(name, resolvedPath, isCollection, size, modMs))
         }
         return results
+    }
+
+    private fun extractTag(xml: String, tagName: String): String? {
+        val open = Regex("<(\\w+:)?$tagName[^>]*>", RegexOption.IGNORE_CASE)
+        val close = Regex("</(\\w+:)?$tagName>", RegexOption.IGNORE_CASE)
+        val start = open.find(xml)?.range?.last?.plus(1) ?: return null
+        val end = close.find(xml, start)?.range?.first ?: return null
+        return xml.substring(start, end).trim()
     }
 
     /**

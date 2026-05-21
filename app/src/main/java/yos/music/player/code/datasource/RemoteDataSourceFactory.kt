@@ -43,16 +43,23 @@ class RemoteDataSource(
 
     private fun createSmbSource(uri: android.net.Uri): SmbDataSource {
         val serverId = uri.host ?: throw IllegalStateException("SMB URI missing server ID: $uri")
-        val config = RemoteServerManager.getServer(serverId) ?: throw IllegalStateException("SMB server not found: $serverId")
+        val config = findOrLoadServer(serverId) ?: throw IllegalStateException("SMB server not found: $serverId")
         val path = uri.path?.trimStart('/') ?: ""
         return SmbDataSource(config, path)
     }
 
     private fun createWebDavSource(uri: android.net.Uri): WebDavDataSource {
         val serverId = uri.host ?: throw IllegalStateException("WebDAV URI missing server ID: $uri")
-        val config = RemoteServerManager.getServer(serverId) ?: throw IllegalStateException("WebDAV server not found: $serverId")
+        val config = findOrLoadServer(serverId) ?: throw IllegalStateException("WebDAV server not found: $serverId")
         val path = uri.path?.trimStart('/') ?: ""
         return WebDavDataSource(config, path)
+    }
+
+    private fun findOrLoadServer(serverId: String) = RemoteServerManager.getServer(serverId) ?: run {
+        // 尝试从持久化存储加载配置（App 重启后 configCache 为空）
+        val saved = yos.music.player.data.libraries.MusicLibrary.loadRemoteServers()
+        if (!saved.isNullOrBlank()) RemoteServerManager.loadConfigs(saved)
+        RemoteServerManager.getServer(serverId)
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {

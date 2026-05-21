@@ -68,7 +68,7 @@ fun LibraryOverview(navController: NavController) =
             yosRoundColumn {
                 itemsIndexed(
                     folders,
-                    key = { _, folder -> folder.path }
+                    key = { index, folder -> "${index}_${folder.path}_${folder.serverId}" }
                 ) { index, folder ->
                     FolderItem(folder = folder) {
                         val targetTitle = folder.name
