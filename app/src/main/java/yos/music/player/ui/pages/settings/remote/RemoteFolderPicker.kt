@@ -45,6 +45,7 @@ import yos.music.player.code.MediaController
 import yos.music.player.data.libraries.Folder
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.objects.LibraryObject
+import yos.music.player.data.objects.MediaViewModelObject
 import yos.music.player.data.remote.RemoteFile
 import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
@@ -130,14 +131,21 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     val aIdx = all.indexOfFirst { it.uri == updated.uri }
                                     if (aIdx >= 0) { all[aIdx] = updated; MusicLibrary.updateSongSaver(all) }
                                     MusicLibrary.updateFolderSongs(serverId, folderName, updated)
-                                    // 直接刷新 targetList，确保 UI 看到最新标签
                                     val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.name == folderName }
-                                    if (latest != null) {
-                                        LibraryObject.setTargetListWithTitle(folderName, latest.songs)
-                                    }
-                                    if (MediaController.musicPlaying.value?.uri == updated.uri) {
-                                        MediaController.musicPlaying.value = updated
-                                        MediaController.metadataRefreshTrigger++
+                                    val isPlaying = MediaController.musicPlaying.value?.uri == updated.uri
+                                    // 所有 UI 更新必须在主线程
+                                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                        if (latest != null) LibraryObject.setTargetListWithTitle(folderName, latest.songs)
+                                        if (isPlaying) {
+                                            MediaController.musicPlaying.value = updated
+                                            MediaController.metadataRefreshTrigger++
+                                            // 更新歌词
+                                            val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
+                                            if (!cached?.lyrics.isNullOrBlank()) {
+                                                val lrc = yos.music.player.code.utils.lrc.YosLrcFactory().formatLrcEntries(cached!!.lyrics)
+                                                if (lrc.isNotEmpty()) MediaViewModelObject.lrcEntries.value = lrc
+                                            }
+                                        }
                                     }
                                 }
                                 withContext(Dispatchers.Main) {
