@@ -604,7 +604,12 @@ class YosPlaybackService : MediaSessionService() {
                         var parsedEntries = lrcFactory.formatLrcEntries(finalLrcContent)
                         println("歌词解析 完成，共 ${parsedEntries.size} 行")
 
-                        if (parsedEntries.isNotEmpty()) lrcEntries.value = parsedEntries
+                        if (parsedEntries.isNotEmpty()) {
+                            lrcEntries.value = parsedEntries
+                            android.util.Log.w("LRCTRACE", "onTracksChanged SET lyrics size=${parsedEntries.size}")
+                        } else {
+                            android.util.Log.w("LRCTRACE", "onTracksChanged SKIP empty, keeping lrc size=${lrcEntries.value.size}")
+                        }
 
                         if (thisPath != null) {
                             if (samplingRate == 0 || bitrate == 0) {
@@ -644,10 +649,12 @@ class YosPlaybackService : MediaSessionService() {
                                     val entries = lrcFactory.formatLrcEntries(cached.lyrics)
                                     if (entries.isNotEmpty()) {
                                         MediaViewModelObject.lrcEntries.value = entries
+                                        android.util.Log.w("LRCTRACE", "onMediaItemTransition cached SET lyrics size=${entries.size}")
                                     } else {
                                         val lines = cached.lyrics.lines().filter { it.isNotBlank() }
                                         if (lines.isNotEmpty()) {
                                             MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
+                                            android.util.Log.w("LRCTRACE", "onMediaItemTransition cached SET plain lyrics lines=${lines.size}")
                                         }
                                     }
                                 }
@@ -655,6 +662,7 @@ class YosPlaybackService : MediaSessionService() {
                             } else {
                                 // 无缓存：先初始化播放状态，再异步拉取头部提取标签
                                 MediaViewModelObject.lrcEntries.value = listOf()
+                                android.util.Log.w("LRCTRACE", "onMediaItemTransition nocache CLEAR lyrics")
                                 yos.music.player.code.MediaController.onCase(yosItem)
                                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                                     extractAndApplyTags(yosItem)

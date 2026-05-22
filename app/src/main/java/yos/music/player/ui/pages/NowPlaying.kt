@@ -247,7 +247,6 @@ fun NowPlaying(
     nowPageOnChanged: (String) -> Unit
 ) {
     val thisMusicPlaying = musicPlaying
-    key(thisMusicPlaying.value) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,
@@ -374,6 +373,7 @@ fun NowPlaying(
                 ) {
                     println("重组：YosLyricView 外层 3")
 
+                    key(lrcEntries.value.size) {
                     Lyric(
                         lrcEntries = { lrcEntries.value },
                         weightLambda = { showControl.value },
@@ -386,6 +386,7 @@ fun NowPlaying(
                         mainViewModel = mainViewModel,
                         mediaViewModel = mediaViewModel
                     )
+                    }
                 }
             }
 
@@ -673,7 +674,6 @@ fun NowPlaying(
             }
 
         }
-    }
     }
 }
 
