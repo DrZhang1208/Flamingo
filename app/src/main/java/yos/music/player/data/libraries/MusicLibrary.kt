@@ -229,8 +229,13 @@ object MusicLibrary {
             }
             if (cfg != null) {
                 val base = cfg.host.trimEnd('/')
+                android.util.Log.d("FlamingoURI", "resolved $uri -> $base/$path")
                 return android.net.Uri.parse("$base/$path")
+            } else {
+                android.util.Log.e("FlamingoURI", "server not found for id=$serverId uri=$uri")
             }
+        } else {
+            android.util.Log.e("FlamingoURI", "unsupported scheme=$scheme for id=$serverId")
         }
         return null
     }
@@ -467,9 +472,11 @@ object MusicLibrary {
             // 有层级结构的result.folderStructure.folderList[""].folderList
             // val folderList = result.folderStructure.folderList
 
+            // 保留远程挂载的歌曲（不受本地 MediaStore 扫描影响）
+            val remoteSongs = songSaver.filter { it.serverId != null }
             songSaver = result.songList.fastMap {
                 it.toYosMediaItem()
-            }
+            } + remoteSongs
 
             result.shallowFolder.folderList.map {
                 val name = it.key
