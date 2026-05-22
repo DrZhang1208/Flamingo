@@ -247,25 +247,22 @@ object MediaController {
 
             val itemList = playbackList.map { it.toMediaItem() }
 
+            // 必须在 setMediaItems 之前设置，确保 onMediaItemTransition 回调能匹配 serverId
+            playingMusicList.value = playbackList
+
             withContext(Dispatchers.Main) {
                 mediaControl?.shuffleModeEnabled = false
                 mediaControl?.setMediaItems(itemList, startIndex, position)
                 mediaControl?.prepare()
+                mediaControl?.repeatMode = repeatMode
+                mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
             }
 
             println("prepare 调用切列表")
             if (!play && playingMusicList.value == null) {
-                playingMusicList.value = playbackList
                 musicPlaying.value = music
                 refresh(music)
-                withContext(Dispatchers.Main) {
-                    mediaControl?.repeatMode = repeatMode
-                    mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
-                }
-            } else {
-                playingMusicList.value = playbackList
             }
-
             if (play) {
                 withContext(Dispatchers.Main) {
                     mediaControl?.fadePlay()
@@ -656,9 +653,22 @@ class YosPlaybackService : MediaSessionService() {
                     mediaItem?.let {
                         val yosItem = it.toYosMediaItem()
                         // 从 playingMusicList 查找原始 serverId（toYosMediaItem 的 URI 已被解析为 HTTP）
+                        val fullUri = yosItem.uri?.toString() ?: ""
+                        val plSize = playingMusicList.value?.size ?: 0
+                        val plFirst = playingMusicList.value?.firstOrNull()
+                        val plFirstUri = plFirst?.uri?.toString() ?: "null"
+                        val plFirstPath = plFirst?.uri?.path ?: "null"
+                        val endsMatch = plFirst?.uri?.path?.let { fullUri.endsWith(it) } ?: false
+                        val diag = "find: plSize=$plSize plFirstUri=$plFirstUri plFirstPath=$plFirstPath fullUri=${fullUri.take(80)} endsMatch=$endsMatch"
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            yos.music.player.code.MediaController.appContext?.let { ctx ->
+                                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("find", diag))
+                            }
+                        }
                         val playingItem = playingMusicList.value?.find { song ->
-                            song.uri?.toString() == yosItem.uri?.toString() ||
-                            (song.serverId != null && yosItem.uri?.toString()?.endsWith(song.uri?.path ?: "") == true)
+                            song.uri?.toString() == fullUri ||
+                            (song.serverId != null && fullUri.endsWith(song.uri?.path ?: ""))
                         }
                         val effectiveItem = if (playingItem?.serverId != null) yosItem.copy(serverId = playingItem.serverId) else yosItem
                         // 优先从数据库加载缓存标签
