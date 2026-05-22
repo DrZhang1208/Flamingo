@@ -94,8 +94,8 @@ object RemoteMetadataScanner {
                 _scanProgress.value = ScanProgress(serverId, pending.size, i, item.title ?: path, true)
 
                 try {
-                    // 读取文件头部 256KB
-                    val header = RemoteServerManager.readFileBytes(serverId, path, 0, 256 * 1024)
+                    // 读取文件头部 512KB（封面可能较大）
+                    val header = RemoteServerManager.readFileBytes(serverId, path, 0, 512 * 1024)
                     // 提取时长
                     val duration = RemoteMetadataExtractor.extractDuration(header, item.title ?: path)
                     // 从头部解析 ID3 基本标签（仅 MP3）
