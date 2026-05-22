@@ -249,8 +249,7 @@ fun NowPlaying(
     val thisMusicPlaying = musicPlaying
     // 强制观察元数据刷新
     val uiVer = uiRefreshTrigger
-    val lrcSize = MediaViewModelObject.lrcEntries.value.size
-    key(thisMusicPlaying.value?.title, thisMusicPlaying.value?.artists, thisMusicPlaying.value?.thumb, lrcSize, uiVer) {
+    key(uiVer) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,

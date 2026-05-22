@@ -676,9 +676,13 @@ class YosPlaybackService : MediaSessionService() {
                                         }
                                     }
                                 }
+                                uiRefreshTrigger++
                                 yos.music.player.code.MediaController.onCase(withCached)
                                 return@let
                             }
+                            // 无缓存：清空歌词避免显示上一首歌的
+                            MediaViewModelObject.lrcEntries.value = listOf()
+                            uiRefreshTrigger++
                         }
                         yos.music.player.code.MediaController.onCase(yosItem)
                     }
