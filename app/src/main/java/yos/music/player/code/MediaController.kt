@@ -56,7 +56,7 @@ import yos.music.player.MainActivity
 import yos.music.player.R
 import yos.music.player.code.MediaController.mediaControl
 import yos.music.player.code.MediaController.mediaSession
-import yos.music.player.code.MediaController.metadataRefreshTrigger
+import yos.music.player.code.MediaController.uiRefreshTrigger
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.onServiceRunning
 import yos.music.player.code.MediaController.playingMusicList
@@ -98,8 +98,8 @@ object MediaController {
     @Stable
     var appContext: android.content.Context? = null
 
-    /** UI 刷新触发器，每次 ExoPlayer 提取到新元数据时自增 */
-    @Volatile var metadataRefreshTrigger = 0
+    /** 全局 UI 刷新计数器——扫描器/播放回调更新标签/歌词/封面后自增 */
+    @Volatile var uiRefreshTrigger = 0
 
     /** 应用层随机播放标志。ExoPlayer 始终工作在顺序模式。 */
     @Stable
@@ -739,7 +739,7 @@ class YosPlaybackService : MediaSessionService() {
                             genre = metadata.genre?.toString() ?: current.genre
                         )
                         musicPlaying.value = updated
-                        metadataRefreshTrigger++
+                        uiRefreshTrigger++
                         if (current.serverId != null) {
                             val uri = current.uri?.toString() ?: ""
                             yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(

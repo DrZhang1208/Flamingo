@@ -138,7 +138,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                         if (latest != null) LibraryObject.setTargetListWithTitle(folderName, latest.songs)
                                         if (isPlaying) {
                                             MediaController.musicPlaying.value = updated
-                                            MediaController.metadataRefreshTrigger++
+                                            MediaController.uiRefreshTrigger++
                                             // 更新歌词
                                             val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
                                             if (!cached?.lyrics.isNullOrBlank()) {
