@@ -32,8 +32,13 @@ class RemoteDataSource(
 
     override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
         val uri = dataSpec.uri
-        android.util.Log.e("FlamingoDS", "open scheme=${uri.scheme} host=${uri.host} path=${uri.path}")
-        delegate = when (uri.scheme) {
+        val rawUri = uri.toString()
+        val scheme = uri.scheme ?: when {
+            rawUri.startsWith("webdav://") -> "webdav"
+            rawUri.startsWith("smb://") -> "smb"
+            else -> null
+        }
+        delegate = when (scheme) {
             "smb" -> createSmbSource(uri)
             "webdav" -> createWebDavSource(uri)
             "http", "https" -> {
@@ -53,16 +58,18 @@ class RemoteDataSource(
     }
 
     private fun createSmbSource(uri: android.net.Uri): SmbDataSource {
-        val serverId = uri.host ?: throw IllegalStateException("SMB URI missing server ID: $uri")
+        val raw = uri.toString()
+        val serverId = uri.host ?: raw.substringAfter("smb://").substringBefore("/")
         val config = findOrLoadServer(serverId) ?: throw IllegalStateException("SMB server not found: $serverId")
-        val path = uri.path?.trimStart('/') ?: ""
+        val path = uri.path?.trimStart('/') ?: raw.substringAfter("smb://$serverId/")
         return SmbDataSource(config, path)
     }
 
     private fun createWebDavSource(uri: android.net.Uri): WebDavDataSource {
-        val serverId = uri.host ?: throw IllegalStateException("WebDAV URI missing server ID: $uri")
+        val raw = uri.toString()
+        val serverId = uri.host ?: raw.substringAfter("webdav://").substringBefore("/")
         val config = findOrLoadServer(serverId) ?: throw IllegalStateException("WebDAV server not found: $serverId")
-        val path = uri.path?.trimStart('/') ?: ""
+        val path = uri.path?.trimStart('/') ?: raw.substringAfter("webdav://$serverId/")
         return WebDavDataSource(config, path)
     }
 

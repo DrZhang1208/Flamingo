@@ -100,8 +100,12 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             scope.launch(Dispatchers.IO) {
-                                val already = MusicLibrary.folders.any { it.serverId == serverId && it.path == currentPath }
-                                if (already) { withContext(Dispatchers.Main) { Toast.makeText(context, "已挂载", Toast.LENGTH_SHORT).show() }; return@launch }
+                                // 防重复：用 getFolders() 确保读取最新数据
+                                val already = MusicLibrary.folders.any { it.serverId == serverId && (it.path == currentPath || it.path == currentPath.trimStart('/')) }
+                                if (already) {
+                                    withContext(Dispatchers.Main) { Toast.makeText(context, "已挂载", Toast.LENGTH_SHORT).show() }
+                                    return@launch
+                                }
                                 val audioFiles = RemoteServerManager.listAudioFiles(serverId, currentPath)
                                 if (audioFiles.isEmpty()) {
                                     withContext(Dispatchers.Main) { Toast.makeText(context, "该文件夹没有音频文件", Toast.LENGTH_SHORT).show() }

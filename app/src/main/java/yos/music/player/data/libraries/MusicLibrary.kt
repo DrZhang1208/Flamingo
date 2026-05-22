@@ -216,36 +216,10 @@ object MusicLibrary {
         )
     }
 
-    /** 通过 serverId 查找服务器配置，拼接 HTTP URL */
-    private fun resolveRemoteMediaUri(serverId: String, path: String): android.net.Uri? {
-        var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-        if (cfg == null) {
-            val saved = loadRemoteServers()
-            if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
-            cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-        }
-        return cfg?.let { android.net.Uri.parse("${it.host.trimEnd('/')}/$path") }
-    }
-
     fun YosMediaItem.toMediaItem(): MediaItem {
-        // 远程文件：字符串前缀匹配（不依赖 Uri.scheme）
-        val rawUri = this.uri?.toString() ?: ""
-        val resolvedUri = when {
-            rawUri.startsWith("webdav://") -> {
-                val serverId = rawUri.substringAfter("webdav://").substringBefore("/")
-                val path = rawUri.substringAfter("webdav://$serverId/")
-                resolveRemoteMediaUri(serverId, path) ?: this.uri
-            }
-            rawUri.startsWith("smb://") -> {
-                val serverId = rawUri.substringAfter("smb://").substringBefore("/")
-                val path = rawUri.substringAfter("smb://$serverId/")
-                resolveRemoteMediaUri(serverId, path) ?: this.uri
-            }
-            else -> this.uri
-        }
         return MediaItem.Builder()
-            .setUri(resolvedUri)
-            .setMediaId(this.mediaId ?: resolvedUri?.toString() ?: resolvedUri?.lastPathSegment ?: "0")
+            .setUri(this.uri)
+            .setMediaId(this.mediaId ?: this.uri?.toString() ?: this.uri?.lastPathSegment ?: "0")
             .setMimeType(this.mimeType)
             .setMediaMetadata(
                 MediaMetadata.Builder()
