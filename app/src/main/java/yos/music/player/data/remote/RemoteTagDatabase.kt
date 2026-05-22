@@ -90,7 +90,7 @@ object RemoteTagDatabase {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            if (old < 2) db.execSQL("ALTER TABLE remote_tags ADD COLUMN lyrics TEXT")
+            try { if (old < 2) db.execSQL("ALTER TABLE remote_tags ADD COLUMN lyrics TEXT") } catch (_: Exception) {}
         }
     }
 }

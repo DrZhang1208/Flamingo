@@ -42,11 +42,11 @@ class YosBasicApplication : Application() {
 
         // 初始化远程服务器管理器（加密凭据存储）
         yos.music.player.data.remote.RemoteServerManager.init(this)
-        // 初始化远程标签数据库 + 清理过期数据
-        yos.music.player.data.remote.RemoteTagDatabase.init(this)
-        yos.music.player.data.remote.RemoteTagDatabase.cleanup(30)
+        // 初始化远程标签数据库
+        try { yos.music.player.data.remote.RemoteTagDatabase.init(this) } catch (_: Exception) {}
+        try { yos.music.player.data.remote.RemoteTagDatabase.cleanup(30) } catch (_: Exception) {}
         // 从已持久化的 songSaver 重建远程文件夹列表
-        yos.music.player.data.libraries.MusicLibrary.rebuildRemoteFolders()
+        try { yos.music.player.data.libraries.MusicLibrary.rebuildRemoteFolders() } catch (_: Exception) {}
 
         val gson =
             GsonBuilder()
