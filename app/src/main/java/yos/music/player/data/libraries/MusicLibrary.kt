@@ -216,10 +216,35 @@ object MusicLibrary {
         )
     }
 
+    /** 将远程 song URI 解析为 ExoPlayer 可播放的真实 URL */
+    private fun resolveRemoteMediaUri(uri: android.net.Uri, serverId: String): android.net.Uri? {
+        val scheme = uri.scheme ?: return null
+        val path = uri.path?.trimStart('/') ?: return null
+        if (scheme == "webdav") {
+            var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+            if (cfg == null) {
+                val saved = loadRemoteServers()
+                if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
+                cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+            }
+            if (cfg != null) {
+                val base = cfg.host.trimEnd('/')
+                return android.net.Uri.parse("$base/$path")
+            }
+        }
+        return null
+    }
+
     fun YosMediaItem.toMediaItem(): MediaItem {
+        // 远程文件：将 webdav:// smb:// URI 解析为真实 URL
+        val resolvedUri = if (serverId != null && uri != null) {
+            resolveRemoteMediaUri(uri, serverId!!) ?: uri
+        } else {
+            uri
+        }
         return MediaItem.Builder()
-            .setUri(this.uri)
-            .setMediaId(this.mediaId ?: this.uri?.toString() ?: this.uri?.lastPathSegment ?: "0")
+            .setUri(resolvedUri)
+            .setMediaId(this.mediaId ?: resolvedUri?.toString() ?: resolvedUri?.lastPathSegment ?: "0")
             .setMimeType(this.mimeType)
             .setMediaMetadata(
                 MediaMetadata.Builder()

@@ -235,15 +235,7 @@ object MediaController {
                 playbackList.indexOfFirst { it.uri == music.uri }.coerceAtLeast(0)
             }
 
-            // 将远程 URI 转为 ExoPlayer 可识别的真实 URL
-            val itemList = playbackList.map { item ->
-                val uri = item.uri
-                if (uri != null && (uri.scheme == "webdav" || uri.scheme == "smb")) {
-                    item.copy(uri = resolveRemoteUri(uri)).toMediaItem()
-                } else {
-                    item.toMediaItem()
-                }
-            }
+            val itemList = playbackList.map { it.toMediaItem() }
 
             withContext(Dispatchers.Main) {
                 // 始终顺序播放
@@ -338,34 +330,6 @@ object MediaController {
                 mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
             }
         }
-    }
-
-    /**
-     * 将 app 内部 URI（webdav://serverId/path 或 smb://serverId/path）
-     * 转为 ExoPlayer 可直接播放的真实 URL。
-     */
-    private fun resolveRemoteUri(uri: android.net.Uri): android.net.Uri {
-        val serverId = uri.host ?: return uri
-        val path = uri.path?.trimStart('/') ?: return uri
-        val scheme = uri.scheme ?: return uri
-
-        if (scheme == "webdav") {
-            // 尝试加载 server 配置（处理重启后 configCache 为空的情况）
-            var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-            if (cfg == null) {
-                val saved = MusicLibrary.loadRemoteServers()
-                if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
-                cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-            }
-            if (cfg != null) {
-                val base = cfg.host.trimEnd('/')
-                println("resolveRemoteUri: $uri -> $base/$path")
-                return android.net.Uri.parse("$base/$path")
-            } else {
-                println("resolveRemoteUri: server not found for $serverId")
-            }
-        }
-        return uri
     }
 
     fun onCase(mediaItem: YosMediaItem) {
