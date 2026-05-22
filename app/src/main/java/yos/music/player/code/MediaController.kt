@@ -630,15 +630,15 @@ class YosPlaybackService : MediaSessionService() {
                     }
                 }
 
-                /** TAGLIB 来源可覆盖所有字段；其他来源只填充空字段 */
+                /** TAGLIB 来源可覆盖所有字段；其他来源永不覆盖已有数据 */
                 private fun applyTags(item: yos.music.player.data.libraries.YosMediaItem, source: String, title: String?, artist: String?, album: String?, thumb: android.net.Uri?, year: Int?, lyrics: String?) {
                     val cur = musicPlaying.value ?: return
-                    val overwrite = source == "TAGLIB"
+                    val overwrite = source != "EXOPLAYER"
                     val u = cur.copy(
-                        title = if (overwrite && title != null) title else (title ?: cur.title),
-                        artists = if (overwrite && artist != null) artist else (artist ?: cur.artists),
-                        album = if (overwrite && album != null) album else (album ?: cur.album),
-                        thumb = if (overwrite && thumb != null) thumb else (thumb ?: cur.thumb),
+                        title = if (overwrite && title != null) title else cur.title,
+                        artists = if (overwrite && artist != null) artist else cur.artists,
+                        album = if (overwrite && album != null) album else cur.album,
+                        thumb = if (overwrite && thumb != null) thumb else cur.thumb,
                         releaseYear = year ?: cur.releaseYear, recordingYear = year ?: cur.recordingYear
                     )
                     musicPlaying.value = u
