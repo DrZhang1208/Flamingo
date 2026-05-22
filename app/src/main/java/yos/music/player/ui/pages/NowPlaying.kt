@@ -244,7 +244,9 @@ fun NowPlaying(
     nowPageLambda: () -> String,
     showMiniPlayer: () -> Boolean,
     nowPageOnChanged: (String) -> Unit
-) =
+) {
+    val thisMusicPlaying = musicPlaying
+    key(thisMusicPlaying.value?.title, thisMusicPlaying.value?.artists) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,
@@ -255,10 +257,6 @@ fun NowPlaying(
         val lrcEntries: MutableState<List<List<Pair<Float, String>>>> =
             MediaViewModelObject.lrcEntries
         val bitmap: MutableState<Uri?> = MediaViewModelObject.bitmap
-
-        val thisMusicPlaying = remember("NowPlaying_thisMusicPlaying") {
-            musicPlaying
-        }
 
         val isSwitchingTrack = remember("NowPlaying_isSwitching") { mutableStateOf(false) }
         val lastClickTime = rememberSaveable(key = "NowPlaying_lastClickTime") {
@@ -448,7 +446,6 @@ fun NowPlaying(
                                                 isSwitching = { isSwitchingTrack.value },
                                                 isVisible = { isVisible }
                                             )
-                                            key(thisMusicPlaying.value?.title) {
                                             AnimatedContent(
                                                 targetState = thisMusicPlaying.value,
                                                 transitionSpec = {
@@ -497,7 +494,6 @@ fun NowPlaying(
                                         }
                                     }
                                 }
-                                            }
 
                             Lyric ->
                                 Column(Modifier.fillMaxSize()) {
@@ -677,6 +673,8 @@ fun NowPlaying(
 
         }
     }
+    }
+}
 
 @Composable
 private fun ColumnScope.Album(
