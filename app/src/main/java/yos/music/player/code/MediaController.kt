@@ -247,10 +247,9 @@ object MediaController {
 
             val itemList = playbackList.map { it.toMediaItem() }
 
-            // 必须在 setMediaItems 之前设置，确保 onMediaItemTransition 回调能匹配 serverId
-            playingMusicList.value = playbackList
-
             withContext(Dispatchers.Main) {
+                // 必须在 setMediaItems 之前设置，确保 onMediaItemTransition 回调能匹配 serverId
+                playingMusicList.value = playbackList
                 mediaControl?.shuffleModeEnabled = false
                 mediaControl?.setMediaItems(itemList, startIndex, position)
                 mediaControl?.prepare()
