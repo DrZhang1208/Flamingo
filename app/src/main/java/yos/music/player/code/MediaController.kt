@@ -630,6 +630,29 @@ class YosPlaybackService : MediaSessionService() {
                     }
                 }
 
+                /** TAGLIB 来源可覆盖所有字段；其他来源只填充空字段 */
+                private fun applyTags(item: yos.music.player.data.libraries.YosMediaItem, source: String, title: String?, artist: String?, album: String?, thumb: android.net.Uri?, year: Int?, lyrics: String?) {
+                    val cur = musicPlaying.value ?: return
+                    val overwrite = source == "TAGLIB"
+                    val u = cur.copy(
+                        title = if (overwrite && title != null) title else (title ?: cur.title),
+                        artists = if (overwrite && artist != null) artist else (artist ?: cur.artists),
+                        album = if (overwrite && album != null) album else (album ?: cur.album),
+                        thumb = if (overwrite && thumb != null) thumb else (thumb ?: cur.thumb),
+                        releaseYear = year ?: cur.releaseYear, recordingYear = year ?: cur.recordingYear
+                    )
+                    musicPlaying.value = u
+                    if (!lyrics.isNullOrBlank()) {
+                        val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
+                        val e = lrcF.formatLrcEntries(lyrics)
+                        if (e.isNotEmpty()) MediaViewModelObject.lrcEntries.value = e
+                        else { val l = lyrics.lines().filter { it.isNotBlank() }; if (l.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it }) }
+                    }
+                    if (item.serverId != null) yos.music.player.data.remote.RemoteTagDatabase.put(item.uri?.toString() ?: "", yos.music.player.data.remote.CachedTags(
+                        uri = item.uri?.toString() ?: "", title = u.title, artist = u.artists, album = u.album, coverPath = u.thumb?.toString(), lyrics = lyrics))
+                    yos.music.player.data.objects.LibraryObject.updateSongInTargetList(u)
+                }
+
                 private fun setLrcClip(msg: String) {
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         yos.music.player.code.MediaController.appContext?.let { ctx ->
@@ -645,43 +668,12 @@ class YosPlaybackService : MediaSessionService() {
                         // 优先从数据库加载缓存标签
                         if (yosItem.serverId != null) {
                             val cached = yos.music.player.data.remote.RemoteTagDatabase.get(yosItem.uri?.toString() ?: "")
+                            MediaViewModelObject.lrcEntries.value = listOf()
+                            musicPlaying.value = yosItem
                             if (cached != null) {
-                                val withCached = yosItem.copy(
-                                    title = cached.title ?: yosItem.title,
-                                    artists = cached.artist ?: yosItem.artists,
-                                    album = cached.album ?: yosItem.album,
-                                    thumb = cached.coverPath?.let { android.net.Uri.parse(it) } ?: yosItem.thumb
-                                )
-                                musicPlaying.value = withCached
-                                if (!cached.lyrics.isNullOrBlank()) {
-                                    val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
-                                    val entries = lrcFactory.formatLrcEntries(cached.lyrics)
-                                    if (entries.isNotEmpty()) {
-                                        MediaViewModelObject.lrcEntries.value = entries
-                                        setLrcClip("onMediaItemTransition cached SET lrc")
-                                    } else {
-                                        val lines = cached.lyrics.lines().filter { it.isNotBlank() }
-                                        if (lines.isNotEmpty()) {
-                                            MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
-                                            setLrcClip("onMediaItemTransition cached SET plain lrc")
-                                        } else {
-                                            MediaViewModelObject.lrcEntries.value = listOf()
-                                            setLrcClip("onMediaItemTransition cached NO lrc CLEAR")
-                                        }
-                                    }
-                                } else {
-                                    MediaViewModelObject.lrcEntries.value = listOf()
-                                    setLrcClip("onMediaItemTransition cached NULL lrc CLEAR")
-                                }
-                                yos.music.player.code.MediaController.onCase(withCached)
+                                applyTags(yosItem, "DB_CACHE", cached.title, cached.artist, cached.album, cached.coverPath?.let { android.net.Uri.parse(it) }, cached.year, cached.lyrics)
                             } else {
-                                // 无缓存：先初始化播放状态，再异步拉取头部提取标签
-                                MediaViewModelObject.lrcEntries.value = listOf()
-                                setLrcClip("onMediaItemTransition nocache CLEAR")
-                                yos.music.player.code.MediaController.onCase(yosItem)
-                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                    extractAndApplyTags(yosItem)
-                                }
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { extractAndApplyTags(yosItem) }
                             }
                         } else {
                             yos.music.player.code.MediaController.onCase(yosItem)
@@ -746,26 +738,11 @@ class YosPlaybackService : MediaSessionService() {
                             coverPath = thumbUri?.toString(), lyrics = lyricText
                         ))
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            // 取消待处理的 refresh 避免覆写
                             yos.music.player.code.MediaController.refreshJob?.cancel()
-                            // 更新播放状态
-                            musicPlaying.value = updated
-                            // 加载歌词
-                            val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
-                            if (!lyricText.isNullOrBlank()) {
-                                val entries = lrcFactory.formatLrcEntries(lyricText)
-                                if (entries.isNotEmpty()) MediaViewModelObject.lrcEntries.value = entries
-                                else {
-                                    val lines = lyricText.lines().filter { it.isNotBlank() }
-                                    if (lines.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
-                                }
-                            }
-                            // 更新全局歌曲列表 + 当前浏览列表
-                            val allSongs = MusicLibrary.songs.toMutableList()
-                            val idx = allSongs.indexOfFirst { it.uri == updated.uri }
-                            if (idx >= 0) { allSongs[idx] = updated; MusicLibrary.updateSongSaver(allSongs) }
-                            yos.music.player.data.objects.LibraryObject.updateSongInTargetList(updated)
-                            uiRefreshTrigger++
+                            applyTags(item, "TAGLIB", title ?: item.title, artist ?: item.artists, album ?: item.album, thumbUri, year, lyricText)
+                            val all = MusicLibrary.songs.toMutableList()
+                            val i = all.indexOfFirst { it.uri == item.uri }
+                            if (i >= 0) { all[i] = musicPlaying.value!!; MusicLibrary.updateSongSaver(all) }
                         }
                     } catch (_: Exception) {}
                 }
@@ -803,36 +780,10 @@ class YosPlaybackService : MediaSessionService() {
                                   (newArtist != null && newArtist != current.artists) ||
                                   (newAlbum != null && newAlbum != current.album) ||
                                   (newArtwork != null && newArtwork != current.thumb)
-                    // 诊断：复制到剪贴板
-                    val diagMsg = "onMeta: changed=$changed curTitle=${current.title} curArtist=${current.artists} curThumb=${current.thumb} newTitle=$newTitle newArtist=$newArtist newAlbum=$newAlbum newArtwork=$newArtwork serverId=${current.serverId}"
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        yos.music.player.code.MediaController.appContext?.let { ctx ->
-                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            cm.setPrimaryClip(android.content.ClipData.newPlainText("meta", diagMsg))
-                            android.widget.Toast.makeText(ctx, "onMeta 已复制", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    }
                     if (changed) {
-                        // 实时数据不覆盖已加载的非空值（TagLib/DB 优先于 ExoPlayer）
-                        val updated = current.copy(
-                            title = if (current.title != null && current.title != newTitle && newTitle != null) current.title else (newTitle ?: current.title),
-                            artists = if (current.artists != null && current.artists != newArtist && newArtist != null) current.artists else (newArtist ?: current.artists),
-                            album = if (current.album != null && current.album != newAlbum && newAlbum != null) current.album else (newAlbum ?: current.album),
-                            thumb = if (current.thumb != null && current.thumb != newArtwork && newArtwork != null) current.thumb else (newArtwork ?: current.thumb),
-                            releaseYear = current.releaseYear ?: metadata.releaseYear,
-                            recordingYear = current.recordingYear ?: metadata.recordingYear,
-                            trackNumber = current.trackNumber ?: metadata.trackNumber,
-                            genre = current.genre ?: metadata.genre?.toString()
-                        )
-                        musicPlaying.value = updated
-                        uiRefreshTrigger++
-                        if (current.serverId != null) {
-                            val uri = current.uri?.toString() ?: ""
-                            yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(
-                                uri = uri, title = updated.title, artist = updated.artists,
-                                album = updated.album, coverPath = updated.thumb?.toString()
-                            ))
-                        }
+                        // EXOPLAYER 源只填充空字段，不覆盖已有标签
+                        applyTags(current, "EXOPLAYER", newTitle, newArtist, newAlbum, newArtwork,
+                            metadata.releaseYear ?: metadata.recordingYear, null)
                     }
                 }
 
@@ -842,7 +793,6 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    android.util.Log.e("FlamingoDS", "ExoPlayer error: ${error.message} code=${error.errorCode}")
                     super.onPlayerError(error)
                 }
 
