@@ -341,24 +341,7 @@ object MediaController {
 
     fun onCase(mediaItem: YosMediaItem) {
         MusicLibrary.incrementPlayCount(mediaItem.uri)
-        // 远程文件：ExoPlayer 提取标签后更新数据库
-        if (mediaItem.serverId != null && mediaItem.title != null) {
-            val uri = mediaItem.uri?.toString() ?: ""
-            val cached = yos.music.player.data.remote.RemoteTagDatabase.get(uri)
-            if (cached?.title != mediaItem.title || cached?.artist != mediaItem.artists) {
-                yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(
-                    uri = uri,
-                    title = mediaItem.title,
-                    artist = mediaItem.artists,
-                    album = mediaItem.album,
-                    year = mediaItem.releaseYear ?: mediaItem.recordingYear,
-                    duration = if (mediaItem.duration > 0) mediaItem.duration else null
-                ))
-            }
-        }
-        CoroutineScope(Dispatchers.IO).launch {
-            refresh(mediaItem)
-        }
+        refresh(mediaItem)
     }
 
     internal var refreshJob: CompletableJob? = null
