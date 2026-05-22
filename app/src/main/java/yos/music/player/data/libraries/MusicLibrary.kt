@@ -217,9 +217,25 @@ object MusicLibrary {
     }
 
     fun YosMediaItem.toMediaItem(): MediaItem {
+        // 远程文件：字符串前缀匹配转为真实 HTTP URL
+        val rawUri = this.uri?.toString() ?: ""
+        val resolvedUri = if (rawUri.startsWith("webdav://") || rawUri.startsWith("smb://")) {
+            val scheme = rawUri.substringBefore("://")
+            val serverId = rawUri.substringAfter("$scheme://").substringBefore("/")
+            val path = rawUri.substringAfter("$scheme://$serverId/")
+            var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+            if (cfg == null) {
+                val saved = loadRemoteServers()
+                if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
+                cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+            }
+            cfg?.let { android.net.Uri.parse("${it.host.trimEnd('/')}/$path") } ?: this.uri
+        } else {
+            this.uri
+        }
         return MediaItem.Builder()
-            .setUri(this.uri)
-            .setMediaId(this.mediaId ?: this.uri?.toString() ?: this.uri?.lastPathSegment ?: "0")
+            .setUri(resolvedUri)
+            .setMediaId(this.mediaId ?: resolvedUri?.toString() ?: resolvedUri?.lastPathSegment ?: "0")
             .setMimeType(this.mimeType)
             .setMediaMetadata(
                 MediaMetadata.Builder()
