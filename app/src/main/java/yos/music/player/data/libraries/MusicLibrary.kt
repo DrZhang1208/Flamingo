@@ -184,6 +184,13 @@ object MusicLibrary {
     }
 
     fun MediaItem.toYosMediaItem(): YosMediaItem {
+        // 从 URI 提取远程 serverId
+        val rawUri = this.localConfiguration?.uri?.toString() ?: ""
+        val serverId = when {
+            rawUri.startsWith("webdav://") -> rawUri.substringAfter("webdav://").substringBefore("/")
+            rawUri.startsWith("smb://") -> rawUri.substringAfter("smb://").substringBefore("/")
+            else -> null
+        }
         return YosMediaItem(
             uri = this.localConfiguration?.uri,
             mediaId = this.mediaId,
@@ -210,9 +217,8 @@ object MusicLibrary {
             addDate = this.addDate,
             duration = this.duration,
             modifiedDate = this.modifiedDate,
-            cdTrackNumber = this.cdTrackNumber
-            //samplingRate = this.samplingRate,
-            //bitrate = this.bitrate
+            cdTrackNumber = this.cdTrackNumber,
+            serverId = serverId
         )
     }
 
