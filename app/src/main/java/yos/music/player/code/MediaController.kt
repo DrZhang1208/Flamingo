@@ -606,9 +606,9 @@ class YosPlaybackService : MediaSessionService() {
 
                         if (parsedEntries.isNotEmpty()) {
                             lrcEntries.value = parsedEntries
-                            android.util.Log.w("LRCTRACE", "onTracksChanged SET lyrics size=${parsedEntries.size}")
+                            setLrcClip("onTracksChanged SET")
                         } else {
-                            android.util.Log.w("LRCTRACE", "onTracksChanged SKIP empty, keeping lrc size=${lrcEntries.value.size}")
+                            setLrcClip("onTracksChanged SKIP empty")
                         }
 
                         if (thisPath != null) {
@@ -627,6 +627,15 @@ class YosPlaybackService : MediaSessionService() {
                         MediaViewModelObject.bitrate.intValue = bitrate
 
                         println("质量分析 采样率：${MediaViewModelObject.samplingRate.intValue}，比特率：${MediaViewModelObject.bitrate.intValue}")
+                    }
+                }
+
+                private fun setLrcClip(msg: String) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        yos.music.player.code.MediaController.appContext?.let { ctx ->
+                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("lrc", "${System.currentTimeMillis() % 100000}: $msg"))
+                        }
                     }
                 }
 
@@ -649,12 +658,12 @@ class YosPlaybackService : MediaSessionService() {
                                     val entries = lrcFactory.formatLrcEntries(cached.lyrics)
                                     if (entries.isNotEmpty()) {
                                         MediaViewModelObject.lrcEntries.value = entries
-                                        android.util.Log.w("LRCTRACE", "onMediaItemTransition cached SET lyrics size=${entries.size}")
+                                        setLrcClip("onMediaItemTransition cached SET lrc")
                                     } else {
                                         val lines = cached.lyrics.lines().filter { it.isNotBlank() }
                                         if (lines.isNotEmpty()) {
                                             MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
-                                            android.util.Log.w("LRCTRACE", "onMediaItemTransition cached SET plain lyrics lines=${lines.size}")
+                                            setLrcClip("onMediaItemTransition cached SET plain lrc")
                                         }
                                     }
                                 }
@@ -662,7 +671,7 @@ class YosPlaybackService : MediaSessionService() {
                             } else {
                                 // 无缓存：先初始化播放状态，再异步拉取头部提取标签
                                 MediaViewModelObject.lrcEntries.value = listOf()
-                                android.util.Log.w("LRCTRACE", "onMediaItemTransition nocache CLEAR lyrics")
+                                setLrcClip("onMediaItemTransition nocache CLEAR")
                                 yos.music.player.code.MediaController.onCase(yosItem)
                                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                                     extractAndApplyTags(yosItem)
