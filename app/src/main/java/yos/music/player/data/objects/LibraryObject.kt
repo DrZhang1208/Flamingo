@@ -38,6 +38,7 @@ object LibraryObject {
     fun setTargetListWithTitle(title: String, list: List<YosMediaItem>) {
         targetListTitle.value = title
         targetList.value = list
+        refreshTrigger.value++
     }
 
     fun updateSongInTargetList(updated: YosMediaItem) {
