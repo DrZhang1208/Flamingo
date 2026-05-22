@@ -262,6 +262,13 @@ object SettingsLibrary {
         initialValue = false
     )
 
+    @Stable
+    var RemoteCacheSizeMB by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "remote_cache_size_mb",
+        initialValue = 512
+    )
+
     /**
      * 排除一分钟以内的歌曲
      */

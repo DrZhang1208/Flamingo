@@ -32,10 +32,24 @@ object LibraryObject {
     private val targetList: MutableState<List<YosMediaItem>> = mutableStateOf(emptyList())
     @Stable
     private val targetListTitle = mutableStateOf("")
+    @Stable
+    val refreshTrigger = mutableStateOf(0)
+
     fun setTargetListWithTitle(title: String, list: List<YosMediaItem>) {
         targetListTitle.value = title
         targetList.value = list
     }
+
+    fun updateSongInTargetList(updated: YosMediaItem) {
+        val current = targetList.value.toMutableList()
+        val idx = current.indexOfFirst { it.uri == updated.uri }
+        if (idx >= 0) {
+            current[idx] = updated
+            targetList.value = current
+            refreshTrigger.value++
+        }
+    }
+
     fun getTargetListWithTitle(): Pair<String, List<YosMediaItem>> {
         return Pair(targetListTitle.value, targetList.value)
     }

@@ -41,8 +41,10 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import yos.music.player.code.MediaController
 import yos.music.player.data.libraries.Folder
 import yos.music.player.data.libraries.MusicLibrary
+import yos.music.player.data.objects.LibraryObject
 import yos.music.player.data.remote.RemoteFile
 import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
@@ -117,11 +119,24 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     source = sourceLabel, serverId = serverId
                                 )
                                 MusicLibrary.mountRemoteFolder(folder)
-                                RemoteMetadataScanner.startBackgroundScan(songs, serverId) { updated ->
-                                    // Update song in library when background scan completes
-                                    val allSongs = MusicLibrary.songs.toMutableList()
-                                    val idx = allSongs.indexOfFirst { it.uri == updated.uri }
-                                    if (idx >= 0) allSongs[idx] = updated
+                                // 播放中的歌曲优先扫描
+                                val playingUri = MediaController.musicPlaying.value?.uri
+                                val scanQueue = if (playingUri != null) {
+                                    val p = songs.indexOfFirst { it.uri == playingUri }
+                                    if (p > 0) listOf(songs[p]) + songs.filterIndexed { i, _ -> i != p } else songs
+                                } else songs
+                                RemoteMetadataScanner.startBackgroundScan(scanQueue, serverId) { updated ->
+                                    // 更新全局列表
+                                    val all = MusicLibrary.songs.toMutableList()
+                                    val aIdx = all.indexOfFirst { it.uri == updated.uri }
+                                    if (aIdx >= 0) { all[aIdx] = updated; MusicLibrary.updateSongSaver(all) }
+                                    // 更新文件夹内列表
+                                    MusicLibrary.updateFolderSongs(serverId, folderName, updated)
+                                    // 更新正在播放 + 当前浏览列表
+                                    if (MediaController.musicPlaying.value?.uri == updated.uri) {
+                                        MediaController.musicPlaying.value = updated
+                                    }
+                                    LibraryObject.updateSongInTargetList(updated)
                                 }
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(context, "已挂载「${folderName}」到资料库 (${songs.size} 首)", Toast.LENGTH_SHORT).show()

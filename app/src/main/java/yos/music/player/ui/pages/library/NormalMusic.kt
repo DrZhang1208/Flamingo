@@ -127,7 +127,7 @@ fun NormalMusic(navController: NavController) {
             val list: MutableState<List<YosMediaItem>> = remember { mutableStateOf(musicList.sortX()) }
 
             YosWrapper {
-                LaunchedEffect(searchText.value, SongSort, EnableDescending) {
+                LaunchedEffect(searchText.value, SongSort, EnableDescending, LibraryObject.refreshTrigger.value) {
                     withContext(Dispatchers.IO) {
                         // if (list.value.isEmpty()) delay(320)
                         val filteredList = withContext(Dispatchers.IO) {

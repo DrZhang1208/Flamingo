@@ -25,7 +25,7 @@ class WebDavDataSource(
     override fun open(dataSpec: DataSpec): Long {
         val serverId = serverConfig.id
 
-        val client = OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor { chain ->
@@ -37,13 +37,21 @@ class WebDavDataSource(
                 }
                 chain.proceed(req.build())
             }
-            .build()
+        if (serverConfig.skipSslVerify) {
+            val trustAll = object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(c: Array<java.security.cert.X509Certificate>, a: String) {}
+                override fun checkServerTrusted(c: Array<java.security.cert.X509Certificate>, a: String) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+            }
+            val ssl = javax.net.ssl.SSLContext.getInstance("TLS")
+            ssl.init(null, arrayOf(trustAll), java.security.SecureRandom())
+            builder.sslSocketFactory(ssl.socketFactory, trustAll)
+            builder.hostnameVerifier { _, _ -> true }
+        }
+        val client = builder.build()
 
-        val base = serverConfig.basePath.trimEnd('/')
-        val cleanPath = remotePath.trimStart('/')
-        val scheme = if (serverConfig.port == 443) "https" else "http"
-        val authority = if (serverConfig.port == 80 || serverConfig.port == 443) serverConfig.host else "${serverConfig.host}:${serverConfig.port}"
-        val url = "$scheme://$authority$base/$cleanPath"
+        // serverConfig.host 已是完整 URL（如 http://192.168.1.1:8080/dav），直接拼接
+        val url = "${serverConfig.host.trimEnd('/')}/${remotePath.trimStart('/')}"
 
         val request = Request.Builder().url(url)
         if (dataSpec.position > 0 || dataSpec.length != -1L) {

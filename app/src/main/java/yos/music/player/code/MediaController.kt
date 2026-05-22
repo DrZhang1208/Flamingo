@@ -25,8 +25,12 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import yos.music.player.code.datasource.RemoteDataSourceFactory
+import java.io.File
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
@@ -89,6 +93,9 @@ object MediaController {
 
     @Stable
     var mediaSession: MediaSession? = null
+
+    @Stable
+    var appContext: android.content.Context? = null
 
     /** 应用层随机播放标志。ExoPlayer 始终工作在顺序模式。 */
     @Stable
@@ -332,6 +339,21 @@ object MediaController {
 
     fun onCase(mediaItem: YosMediaItem) {
         MusicLibrary.incrementPlayCount(mediaItem.uri)
+        // 远程文件：ExoPlayer 提取标签后更新数据库
+        if (mediaItem.serverId != null && mediaItem.title != null) {
+            val uri = mediaItem.uri?.toString() ?: ""
+            val cached = yos.music.player.data.remote.RemoteTagDatabase.get(uri)
+            if (cached?.title != mediaItem.title || cached?.artist != mediaItem.artists) {
+                yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(
+                    uri = uri,
+                    title = mediaItem.title,
+                    artist = mediaItem.artists,
+                    album = mediaItem.album,
+                    year = mediaItem.releaseYear ?: mediaItem.recordingYear,
+                    duration = if (mediaItem.duration > 0) mediaItem.duration else null
+                ))
+            }
+        }
         CoroutineScope(Dispatchers.IO).launch {
             refresh(mediaItem)
         }
@@ -500,10 +522,16 @@ class YosPlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        yos.music.player.code.MediaController.appContext = this
         val audioAttributes: AudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
+        // 音频缓存（可配置大小 LRU）
+        val cacheDir = File(cacheDir, "audio_cache")
+        val cacheSizeBytes = SettingsLibrary.RemoteCacheSizeMB.toLong() * 1024L * 1024L
+        val cache = SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(cacheSizeBytes), androidx.media3.database.StandaloneDatabaseProvider(this))
+
         val player = ExoPlayer.Builder(
             this,
             YosRenderFactory(this)
@@ -523,7 +551,9 @@ class YosPlaybackService : MediaSessionService() {
                 )
         )
             .setMediaSourceFactory(
-                ProgressiveMediaSource.Factory(RemoteDataSourceFactory(this))
+                ProgressiveMediaSource.Factory(
+                    CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(RemoteDataSourceFactory(this))
+                )
             )
             .setAudioAttributes(
                 audioAttributes,

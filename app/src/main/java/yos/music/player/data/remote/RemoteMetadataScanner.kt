@@ -110,6 +110,15 @@ object RemoteMetadataScanner {
                         recordingYear = tags.year ?: item.recordingYear,
                         tagScanStatus = "COMPLETE"
                     )
+                    // 存入标签数据库
+                    RemoteTagDatabase.put(item.uri?.toString() ?: "", CachedTags(
+                        uri = item.uri?.toString() ?: "",
+                        title = updated.title,
+                        artist = updated.artists,
+                        album = updated.album,
+                        year = updated.releaseYear ?: updated.recordingYear,
+                        duration = if (updated.duration > 0) updated.duration else null
+                    ))
                     onItemUpdated(updated)
                 } catch (_: Exception) {
                     val failed = item.copy(tagScanStatus = "FAILED")

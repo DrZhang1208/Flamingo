@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Parcelable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.util.fastMap
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -233,18 +234,28 @@ object MusicLibrary {
         } else {
             this.uri
         }
+        // 远程文件：优先从标签数据库加载缓存标签
+        val cachedTags = if (serverId != null) {
+            yos.music.player.data.remote.RemoteTagDatabase.get(this.uri?.toString() ?: "")
+        } else null
+
+        val displayTitle = cachedTags?.title ?: this.title
+        val displayArtist = cachedTags?.artist ?: this.artists
+        val displayAlbum = cachedTags?.album ?: this.album
+        val displayYear = cachedTags?.year ?: this.releaseYear ?: this.recordingYear
+
         return MediaItem.Builder()
             .setUri(resolvedUri)
             .setMediaId(this.mediaId ?: resolvedUri?.toString() ?: resolvedUri?.lastPathSegment ?: "0")
             .setMimeType(this.mimeType)
             .setMediaMetadata(
                 MediaMetadata.Builder()
-                    .setTitle(this.title)
+                    .setTitle(displayTitle)
                     .setWriter(this.writer)
                     .setCompilation(this.compilation)
                     .setComposer(this.composer)
-                    .setArtist(this.artists)
-                    .setAlbumTitle(this.album)
+                    .setArtist(displayArtist)
+                    .setAlbumTitle(displayAlbum)
                     .setAlbumArtist(this.albumArtists)
                     .setArtworkUri(this.thumb)
                     .setTrackNumber(this.trackNumber)
@@ -252,8 +263,8 @@ object MusicLibrary {
                     .setGenre(this.genre)
                     .setRecordingDay(this.recordingDay)
                     .setRecordingMonth(this.recordingMonth)
-                    .setRecordingYear(this.recordingYear)
-                    .setReleaseYear(this.releaseYear)
+                    .setRecordingYear(displayYear ?: this.recordingYear)
+                    .setReleaseYear(displayYear ?: this.releaseYear)
                     .setExtras(Bundle().apply {
                         this@toMediaItem.artistId?.let { putLong("ArtistId", it) }
                         this@toMediaItem.albumId?.let { putLong("AlbumId", it) }
@@ -303,9 +314,27 @@ object MusicLibrary {
         return loadData<String>(remoteServersKey)
     }
 
+    fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs }
+
+    fun updateFolderSongs(serverId: String, folderName: String, updatedSong: YosMediaItem) {
+        val idx = folders.indexOfFirst { it.serverId == serverId && it.name == folderName }
+        if (idx >= 0) {
+            val songs = folders[idx].songs.toMutableList()
+            val sIdx = songs.indexOfFirst { it.uri == updatedSong.uri }
+            if (sIdx >= 0) {
+                songs[sIdx] = updatedSong
+                folders = folders.toMutableList().also { it[idx] = it[idx].copy(songs = songs) }
+            }
+        }
+    }
+
+    @Stable
+    val folderListVersion = mutableStateOf(0)
+
     fun mountRemoteFolder(folder: Folder) {
         folders = folders + folder
         songSaver = songSaver + folder.songs
+        folderListVersion.value++
     }
 
     fun unmountRemoteFolder(folderName: String, serverId: String) {
