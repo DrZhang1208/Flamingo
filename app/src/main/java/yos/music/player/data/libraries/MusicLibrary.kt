@@ -331,10 +331,29 @@ object MusicLibrary {
     @Stable
     val folderListVersion = mutableStateOf(0)
 
+    // 远程文件夹独立追踪（绕开 mutableDataSaverListStateOf 的 Gson 序列化问题）
+    private val remoteFolders = mutableListOf<Folder>()
+    val allFolders: List<Folder> get() = folders + remoteFolders
+
     fun mountRemoteFolder(folder: Folder) {
-        folders = folders + folder
+        remoteFolders.add(folder)
+        folders = folders + folder.copy(serverId = null)  // folders 存储时去掉 serverId 避免序列化问题
         songSaver = songSaver + folder.songs
         folderListVersion.value++
+    }
+
+    fun rebuildRemoteFolders() {
+        // 从 songSaver 中 serverId != null 的歌曲重建远程文件夹
+        remoteFolders.clear()
+        val remoteSongs = songSaver.filter { it.serverId != null }
+        val grouped = remoteSongs.groupBy { it.serverId to it.uri?.path?.substringBeforeLast('/') }
+        for ((key, songs) in grouped) {
+            val (sid, path) = key
+            if (sid != null && path != null) {
+                val name = path.substringAfterLast('/').ifEmpty { path }
+                remoteFolders.add(Folder(name, path, songs, serverId = sid))
+            }
+        }
     }
 
     fun unmountRemoteFolder(folderName: String, serverId: String) {

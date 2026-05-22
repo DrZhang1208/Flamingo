@@ -119,6 +119,14 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     source = sourceLabel, serverId = serverId
                                 )
                                 MusicLibrary.mountRemoteFolder(folder)
+                                // 诊断：确认 folders 是否正确
+                                val fCount = MusicLibrary.folders.size
+                                val remoteFolders = MusicLibrary.folders.filter { it.serverId != null }.joinToString(", ") { "${it.name}(${it.songs.size})" }
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("mount", "folders=$fCount remote=[$remoteFolders]"))
+                                    Toast.makeText(context, "挂载完成 folders=$fCount", Toast.LENGTH_SHORT).show()
+                                }
                                 // 播放中的歌曲优先扫描
                                 val playingUri = MediaController.musicPlaying.value?.uri
                                 val scanQueue = if (playingUri != null) {
@@ -126,13 +134,10 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     if (p > 0) listOf(songs[p]) + songs.filterIndexed { i, _ -> i != p } else songs
                                 } else songs
                                 RemoteMetadataScanner.startBackgroundScan(scanQueue, serverId) { updated ->
-                                    // 更新全局列表
                                     val all = MusicLibrary.songs.toMutableList()
                                     val aIdx = all.indexOfFirst { it.uri == updated.uri }
                                     if (aIdx >= 0) { all[aIdx] = updated; MusicLibrary.updateSongSaver(all) }
-                                    // 更新文件夹内列表
                                     MusicLibrary.updateFolderSongs(serverId, folderName, updated)
-                                    // 更新正在播放 + 当前浏览列表
                                     if (MediaController.musicPlaying.value?.uri == updated.uri) {
                                         MediaController.musicPlaying.value = updated
                                     }

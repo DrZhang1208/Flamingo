@@ -45,6 +45,8 @@ class YosBasicApplication : Application() {
         // 初始化远程标签数据库 + 清理过期数据
         yos.music.player.data.remote.RemoteTagDatabase.init(this)
         yos.music.player.data.remote.RemoteTagDatabase.cleanup(30)
+        // 从已持久化的 songSaver 重建远程文件夹列表
+        yos.music.player.data.libraries.MusicLibrary.rebuildRemoteFolders()
 
         val gson =
             GsonBuilder()

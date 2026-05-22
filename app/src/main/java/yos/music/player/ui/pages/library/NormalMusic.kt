@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -85,6 +86,7 @@ import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
 fun NormalMusic(navController: NavController) {
+    val context = LocalContext.current
     Column(
         Modifier
             .fillMaxSize()
@@ -128,8 +130,9 @@ fun NormalMusic(navController: NavController) {
 
             YosWrapper {
                 LaunchedEffect(searchText.value, SongSort, EnableDescending, LibraryObject.refreshTrigger.value) {
+                    val trigger = LibraryObject.refreshTrigger.value
                     withContext(Dispatchers.IO) {
-                        // if (list.value.isEmpty()) delay(320)
+                        val currentMusicList = LibraryObject.getTargetListWithTitle().second
                         val filteredList = withContext(Dispatchers.IO) {
                             if (useSearch.value) {
                                 songs.asSequence().filter { song ->
@@ -145,10 +148,15 @@ fun NormalMusic(navController: NavController) {
                                             }
                                 }.toList()
                             } else {
-                                musicList
+                                currentMusicList
                             }
                         }
                         list.value = filteredList.sortX()
+                        withContext(Dispatchers.Main) {
+                            val sample = filteredList.take(3).joinToString(" | ") { "${it.title}" }
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("list", "trigger=$trigger size=${filteredList.size} titles=[$sample]"))
+                        }
                     }
                 }
             }
