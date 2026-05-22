@@ -249,7 +249,7 @@ fun NowPlaying(
     val thisMusicPlaying = musicPlaying
     // 强制观察元数据刷新
     val metaVer = metadataRefreshTrigger
-    key(thisMusicPlaying.value?.title, thisMusicPlaying.value?.artists, metaVer) {
+    key(thisMusicPlaying.value?.title, thisMusicPlaying.value?.artists, thisMusicPlaying.value?.thumb, metaVer) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,

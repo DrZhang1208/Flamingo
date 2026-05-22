@@ -142,8 +142,13 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                             // 更新歌词
                                             val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
                                             if (!cached?.lyrics.isNullOrBlank()) {
-                                                val lrc = yos.music.player.code.utils.lrc.YosLrcFactory().formatLrcEntries(cached!!.lyrics)
-                                                if (lrc.isNotEmpty()) MediaViewModelObject.lrcEntries.value = lrc
+                                                val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
+                                            val lrc = lrcF.formatLrcEntries(cached!!.lyrics)
+                                            if (lrc.isNotEmpty()) MediaViewModelObject.lrcEntries.value = lrc
+                                            else {
+                                                val lines = cached.lyrics.lines().filter { it.isNotBlank() }
+                                                if (lines.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
+                                            }
                                             }
                                         }
                                     }

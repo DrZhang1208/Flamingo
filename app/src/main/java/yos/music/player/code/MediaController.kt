@@ -667,12 +667,18 @@ class YosPlaybackService : MediaSessionService() {
                                     thumb = cached.coverPath?.let { android.net.Uri.parse(it) } ?: yosItem.thumb
                                 )
                                 musicPlaying.value = withCached
-                                // 加载缓存的歌词
+                                // 加载缓存的歌词（支持 LRC 和纯文本）
                                 if (!cached.lyrics.isNullOrBlank()) {
                                     val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
                                     val entries = lrcFactory.formatLrcEntries(cached.lyrics)
                                     if (entries.isNotEmpty()) {
                                         MediaViewModelObject.lrcEntries.value = entries
+                                    } else {
+                                        // 纯文本歌词：每行作为一条无时间戳的条目
+                                        val lines = cached.lyrics.lines().filter { it.isNotBlank() }
+                                        if (lines.isNotEmpty()) {
+                                            MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
+                                        }
                                     }
                                 }
                                 yos.music.player.code.MediaController.onCase(withCached)
