@@ -13,12 +13,13 @@ data class CachedTags(
     val year: Int? = null,
     val duration: Long? = null,
     val coverPath: String? = null,
+    val lyrics: String? = null,
     val updatedAt: Long = System.currentTimeMillis() / 1000
 )
 
 object RemoteTagDatabase {
     private const val DB_NAME = "remote_tags.db"
-    private const val DB_VERSION = 1
+    private const val DB_VERSION = 2
     private var db: SQLiteDatabase? = null
 
     fun init(context: Context) {
@@ -38,6 +39,7 @@ object RemoteTagDatabase {
                 year = c.getInt(c.getColumnIndexOrThrow("year")).takeIf { it != 0 },
                 duration = c.getLong(c.getColumnIndexOrThrow("duration")).takeIf { it != 0L },
                 coverPath = c.getString(c.getColumnIndexOrThrow("cover_path")),
+                lyrics = c.getString(c.getColumnIndexOrThrow("lyrics")),
                 updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
             )
         } else null
@@ -55,6 +57,7 @@ object RemoteTagDatabase {
             tags.year?.let { put("year", it) }
             tags.duration?.let { put("duration", it) }
             tags.coverPath?.let { put("cover_path", it) }
+            tags.lyrics?.let { put("lyrics", it) }
             put("updated_at", System.currentTimeMillis() / 1000)
         }
         d.insertWithOnConflict("remote_tags", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
@@ -80,14 +83,14 @@ object RemoteTagDatabase {
                     year INTEGER,
                     duration INTEGER,
                     cover_path TEXT,
+                    lyrics TEXT,
                     updated_at INTEGER
                 )
             """.trimIndent())
         }
 
         override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            db.execSQL("DROP TABLE IF EXISTS remote_tags")
-            onCreate(db)
+            if (old < 2) db.execSQL("ALTER TABLE remote_tags ADD COLUMN lyrics TEXT")
         }
     }
 }

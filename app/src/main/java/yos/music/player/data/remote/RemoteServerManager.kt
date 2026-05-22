@@ -71,7 +71,11 @@ object RemoteServerManager {
         "mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus", "ape", "aiff", "alac", "dsf", "dff"
     )
 
+    @Volatile var appContext: Context? = null
+        private set
+
     fun init(context: Context) {
+        appContext = context.applicationContext
         if (credPrefs == null) {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)

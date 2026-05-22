@@ -11,6 +11,7 @@ import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
@@ -56,6 +57,7 @@ import yos.music.player.MainActivity
 import yos.music.player.R
 import yos.music.player.code.MediaController.mediaControl
 import yos.music.player.code.MediaController.mediaSession
+import yos.music.player.code.MediaController.metadataRefreshTrigger
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.onServiceRunning
 import yos.music.player.code.MediaController.playingMusicList
@@ -96,6 +98,10 @@ object MediaController {
 
     @Stable
     var appContext: android.content.Context? = null
+
+    /** UI 刷新触发器，每次 ExoPlayer 提取到新元数据时自增 */
+    @Stable
+    val metadataRefreshTrigger = mutableIntStateOf(0)
 
     /** 应用层随机播放标志。ExoPlayer 始终工作在顺序模式。 */
     @Stable
@@ -649,14 +655,34 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    /*mediaSession?.let { MediaController.sendNotification(it,context) }*/
                     mediaItem?.let {
-                        yos.music.player.code.MediaController.onCase(
-                            it.toYosMediaItem()
-                        )
+                        val yosItem = it.toYosMediaItem()
+                        // 优先从数据库加载缓存标签
+                        if (yosItem.serverId != null) {
+                            val uri = yosItem.uri?.toString() ?: ""
+                            val cached = yos.music.player.data.remote.RemoteTagDatabase.get(uri)
+                            if (cached != null) {
+                                val withCached = yosItem.copy(
+                                    title = cached.title ?: yosItem.title,
+                                    artists = cached.artist ?: yosItem.artists,
+                                    album = cached.album ?: yosItem.album,
+                                    thumb = cached.coverPath?.let { android.net.Uri.parse(it) } ?: yosItem.thumb
+                                )
+                                musicPlaying.value = withCached
+                                // 加载缓存的歌词
+                                if (!cached.lyrics.isNullOrBlank()) {
+                                    val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
+                                    val entries = lrcFactory.formatLrcEntries(cached.lyrics)
+                                    if (entries.isNotEmpty()) {
+                                        MediaViewModelObject.lrcEntries.value = entries
+                                    }
+                                }
+                                yos.music.player.code.MediaController.onCase(withCached)
+                                return@let
+                            }
+                        }
+                        yos.music.player.code.MediaController.onCase(yosItem)
                     }
-
-                    println("更新 $mediaItem")
                     super.onMediaItemTransition(mediaItem, reason)
                 }
 
@@ -685,17 +711,37 @@ class YosPlaybackService : MediaSessionService() {
                 override fun onMediaMetadataChanged(metadata: androidx.media3.common.MediaMetadata) {
                     super.onMediaMetadataChanged(metadata)
                     val current = musicPlaying.value ?: return
-                    val updated = current.copy(
-                        title = metadata.title?.toString() ?: current.title,
-                        artists = metadata.artist?.toString() ?: current.artists,
-                        album = metadata.albumTitle?.toString() ?: current.album,
-                        thumb = metadata.artworkUri ?: current.thumb,
-                        releaseYear = metadata.releaseYear ?: current.releaseYear,
-                        recordingYear = metadata.recordingYear ?: current.recordingYear,
-                        trackNumber = metadata.trackNumber ?: current.trackNumber,
-                        genre = metadata.genre?.toString() ?: current.genre
-                    )
-                    musicPlaying.value = updated
+                    val newTitle = metadata.title?.toString()
+                    val newArtist = metadata.artist?.toString()
+                    val newAlbum = metadata.albumTitle?.toString()
+                    val newArtwork = metadata.artworkUri
+                    // 仅当实时标签与当前值不同时才更新
+                    val changed = (newTitle != null && newTitle != current.title) ||
+                                  (newArtist != null && newArtist != current.artists) ||
+                                  (newAlbum != null && newAlbum != current.album) ||
+                                  (newArtwork != null && newArtwork != current.thumb)
+                    if (changed) {
+                        val updated = current.copy(
+                            title = newTitle ?: current.title,
+                            artists = newArtist ?: current.artists,
+                            album = newAlbum ?: current.album,
+                            thumb = newArtwork ?: current.thumb,
+                            releaseYear = metadata.releaseYear ?: current.releaseYear,
+                            recordingYear = metadata.recordingYear ?: current.recordingYear,
+                            trackNumber = metadata.trackNumber ?: current.trackNumber,
+                            genre = metadata.genre?.toString() ?: current.genre
+                        )
+                        musicPlaying.value = updated
+                        metadataRefreshTrigger.intValue++
+                        // 更新数据库（实时数据优先级更高）
+                        if (current.serverId != null) {
+                            val uri = current.uri?.toString() ?: ""
+                            yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(
+                                uri = uri, title = updated.title, artist = updated.artists,
+                                album = updated.album, coverPath = updated.thumb?.toString()
+                            ))
+                        }
+                    }
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {

@@ -163,6 +163,7 @@ import kotlinx.coroutines.withContext
 import yos.music.player.R
 import yos.music.player.code.MediaController
 import yos.music.player.code.MediaController.mediaControl
+import yos.music.player.code.MediaController.metadataRefreshTrigger
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.playingMusicList
 import yos.music.player.code.MediaController.shuffleEnabled
@@ -246,7 +247,9 @@ fun NowPlaying(
     nowPageOnChanged: (String) -> Unit
 ) {
     val thisMusicPlaying = musicPlaying
-    key(thisMusicPlaying.value?.title, thisMusicPlaying.value?.artists) {
+    // 强制观察元数据刷新
+    val metaVer = metadataRefreshTrigger.intValue
+    key(thisMusicPlaying.value?.title, thisMusicPlaying.value?.artists, metaVer) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,
