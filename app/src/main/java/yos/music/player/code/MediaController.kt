@@ -682,6 +682,36 @@ class YosPlaybackService : MediaSessionService() {
                     super.onPlaybackStateChanged(playbackState)
                 }*/
 
+                override fun onMediaMetadataChanged(metadata: androidx.media3.common.MediaMetadata) {
+                    super.onMediaMetadataChanged(metadata)
+                    val current = musicPlaying.value ?: return
+                    val updated = current.copy(
+                        title = metadata.title?.toString() ?: current.title,
+                        artists = metadata.artist?.toString() ?: current.artists,
+                        album = metadata.albumTitle?.toString() ?: current.album,
+                        thumb = metadata.artworkUri ?: current.thumb,
+                        releaseYear = metadata.releaseYear ?: current.releaseYear,
+                        recordingYear = metadata.recordingYear ?: current.recordingYear,
+                        trackNumber = metadata.trackNumber ?: current.trackNumber,
+                        genre = metadata.genre?.toString() ?: current.genre
+                    )
+                    musicPlaying.value = updated
+                    // 同步更新 songSaver 和 remoteFolders
+                    if (updated.serverId != null) {
+                        MusicLibrary.updateSongSaver(
+                            MusicLibrary.songs.toMutableList().also { list ->
+                                val idx = list.indexOfFirst { it.uri == updated.uri }
+                                if (idx >= 0) list[idx] = updated
+                            }
+                        )
+                        // 更新 remoteFolders
+                        val rf = MusicLibrary.allFolders.find { it.serverId == updated.serverId }
+                        if (rf != null) {
+                            MusicLibrary.updateFolderSongs(updated.serverId!!, rf.name, updated)
+                        }
+                    }
+                }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     super.onIsPlayingChanged(isPlaying)
                     MediaViewModelObject.isPlaying.value = isPlaying

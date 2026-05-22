@@ -128,36 +128,19 @@ fun NormalMusic(navController: NavController) {
             val useSearch = remember { derivedStateOf { searchText.value.isNotEmpty() } }
             val list: MutableState<List<YosMediaItem>> = remember { mutableStateOf(musicList.sortX()) }
 
-            YosWrapper {
-                LaunchedEffect(searchText.value, SongSort, EnableDescending, LibraryObject.refreshTrigger.value) {
-                    val trigger = LibraryObject.refreshTrigger.value
-                    withContext(Dispatchers.IO) {
-                        val currentMusicList = LibraryObject.getTargetListWithTitle().second
-                        val filteredList = withContext(Dispatchers.IO) {
-                            if (useSearch.value) {
-                                songs.asSequence().filter { song ->
-                                    (song.title ?: defaultTitle).contains(
-                                        searchText.value,
-                                        ignoreCase = true
-                                    ) ||
-                                            (song.artistsList ?: defaultArtists).any { artist ->
-                                                artist.contains(
-                                                    searchText.value,
-                                                    ignoreCase = true
-                                                )
-                                            }
-                                }.toList()
-                            } else {
-                                currentMusicList
-                            }
-                        }
-                        list.value = filteredList.sortX()
-                        withContext(Dispatchers.Main) {
-                            val sample = filteredList.take(3).joinToString(" | ") { "${it.title}" }
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("list", "trigger=$trigger size=${filteredList.size} titles=[$sample]"))
-                        }
+            val trigger = LibraryObject.refreshTrigger.value
+            LaunchedEffect(trigger) {
+                withContext(Dispatchers.IO) {
+                    val currentMusicList = LibraryObject.getTargetListWithTitle().second
+                    val filteredList = if (useSearch.value) {
+                        songs.asSequence().filter { song ->
+                            (song.title ?: defaultTitle).contains(searchText.value, ignoreCase = true) ||
+                            (song.artistsList ?: defaultArtists).any { it.contains(searchText.value, ignoreCase = true) }
+                        }.toList()
+                    } else {
+                        currentMusicList
                     }
+                    list.value = filteredList.sortX()
                 }
             }
 

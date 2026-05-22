@@ -317,14 +317,11 @@ object MusicLibrary {
     fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs }
 
     fun updateFolderSongs(serverId: String, folderName: String, updatedSong: YosMediaItem) {
-        val idx = folders.indexOfFirst { it.serverId == serverId && it.name == folderName }
-        if (idx >= 0) {
-            val songs = folders[idx].songs.toMutableList()
+        val rIdx = remoteFolders.indexOfFirst { it.serverId == serverId && it.name == folderName }
+        if (rIdx >= 0) {
+            val songs = remoteFolders[rIdx].songs.toMutableList()
             val sIdx = songs.indexOfFirst { it.uri == updatedSong.uri }
-            if (sIdx >= 0) {
-                songs[sIdx] = updatedSong
-                folders = folders.toMutableList().also { it[idx] = it[idx].copy(songs = songs) }
-            }
+            if (sIdx >= 0) { songs[sIdx] = updatedSong; remoteFolders[rIdx] = remoteFolders[rIdx].copy(songs = songs) }
         }
     }
 

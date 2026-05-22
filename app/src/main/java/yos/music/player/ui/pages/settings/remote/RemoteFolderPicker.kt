@@ -119,14 +119,6 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     source = sourceLabel, serverId = serverId
                                 )
                                 MusicLibrary.mountRemoteFolder(folder)
-                                // 诊断：确认 folders 是否正确
-                                val fCount = MusicLibrary.folders.size
-                                val remoteFolders = MusicLibrary.folders.filter { it.serverId != null }.joinToString(", ") { "${it.name}(${it.songs.size})" }
-                                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("mount", "folders=$fCount remote=[$remoteFolders]"))
-                                    Toast.makeText(context, "挂载完成 folders=$fCount", Toast.LENGTH_SHORT).show()
-                                }
                                 // 播放中的歌曲优先扫描
                                 val playingUri = MediaController.musicPlaying.value?.uri
                                 val scanQueue = if (playingUri != null) {
@@ -138,10 +130,14 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     val aIdx = all.indexOfFirst { it.uri == updated.uri }
                                     if (aIdx >= 0) { all[aIdx] = updated; MusicLibrary.updateSongSaver(all) }
                                     MusicLibrary.updateFolderSongs(serverId, folderName, updated)
+                                    // 直接刷新 targetList，确保 UI 看到最新标签
+                                    val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.name == folderName }
+                                    if (latest != null) {
+                                        LibraryObject.setTargetListWithTitle(folderName, latest.songs)
+                                    }
                                     if (MediaController.musicPlaying.value?.uri == updated.uri) {
                                         MediaController.musicPlaying.value = updated
                                     }
-                                    LibraryObject.updateSongInTargetList(updated)
                                 }
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(context, "已挂载「${folderName}」到资料库 (${songs.size} 首)", Toast.LENGTH_SHORT).show()
