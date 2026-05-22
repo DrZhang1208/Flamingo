@@ -212,9 +212,6 @@ object MediaController {
         play: Boolean = true
     ) {
         println("prepare $music")
-        val remoteCount = thisMusicList.count { it.serverId != null }
-        if (remoteCount > 0) android.util.Log.e("FlamingoURI", "prepare: ${thisMusicList.size} songs, $remoteCount remote, firstUri=${thisMusicList.firstOrNull()?.uri}, firstServerId=${thisMusicList.firstOrNull()?.serverId}")
-        // 保留已有随机状态，除非调用方显式要求开启
         val effectiveShuffle = shuffleModeEnabled || shuffleEnabled.value
         shuffleEnabled.value = effectiveShuffle
 
@@ -240,7 +237,6 @@ object MediaController {
             val itemList = playbackList.map { it.toMediaItem() }
 
             withContext(Dispatchers.Main) {
-                // 始终顺序播放
                 mediaControl?.shuffleModeEnabled = false
                 mediaControl?.setMediaItems(itemList, startIndex, position)
                 mediaControl?.prepare()

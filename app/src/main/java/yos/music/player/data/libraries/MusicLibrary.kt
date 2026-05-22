@@ -216,36 +216,32 @@ object MusicLibrary {
         )
     }
 
-    /** 将远程 song URI 解析为 ExoPlayer 可播放的真实 URL */
-    private fun resolveRemoteMediaUri(uri: android.net.Uri, serverId: String): android.net.Uri? {
-        val scheme = uri.scheme ?: return null
-        val path = uri.path?.trimStart('/') ?: return null
-        if (scheme == "webdav") {
-            var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-            if (cfg == null) {
-                val saved = loadRemoteServers()
-                if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
-                cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
-            }
-            if (cfg != null) {
-                val base = cfg.host.trimEnd('/')
-                android.util.Log.d("FlamingoURI", "resolved $uri -> $base/$path")
-                return android.net.Uri.parse("$base/$path")
-            } else {
-                android.util.Log.e("FlamingoURI", "server not found for id=$serverId uri=$uri")
-            }
-        } else {
-            android.util.Log.e("FlamingoURI", "unsupported scheme=$scheme for id=$serverId")
+    /** 通过 serverId 查找服务器配置，拼接 HTTP URL */
+    private fun resolveRemoteMediaUri(serverId: String, path: String): android.net.Uri? {
+        var cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
+        if (cfg == null) {
+            val saved = loadRemoteServers()
+            if (!saved.isNullOrBlank()) yos.music.player.data.remote.RemoteServerManager.loadConfigs(saved)
+            cfg = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)
         }
-        return null
+        return cfg?.let { android.net.Uri.parse("${it.host.trimEnd('/')}/$path") }
     }
 
     fun YosMediaItem.toMediaItem(): MediaItem {
-        // 远程文件：将 webdav:// smb:// URI 解析为真实 URL
-        val resolvedUri = if (serverId != null && uri != null) {
-            resolveRemoteMediaUri(uri, serverId!!) ?: uri
-        } else {
-            uri
+        // 远程文件：字符串前缀匹配（不依赖 Uri.scheme）
+        val rawUri = this.uri?.toString() ?: ""
+        val resolvedUri = when {
+            rawUri.startsWith("webdav://") -> {
+                val serverId = rawUri.substringAfter("webdav://").substringBefore("/")
+                val path = rawUri.substringAfter("webdav://$serverId/")
+                resolveRemoteMediaUri(serverId, path) ?: this.uri
+            }
+            rawUri.startsWith("smb://") -> {
+                val serverId = rawUri.substringAfter("smb://").substringBefore("/")
+                val path = rawUri.substringAfter("smb://$serverId/")
+                resolveRemoteMediaUri(serverId, path) ?: this.uri
+            }
+            else -> this.uri
         }
         return MediaItem.Builder()
             .setUri(resolvedUri)
