@@ -137,7 +137,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     }
                                     if (MediaController.musicPlaying.value?.uri == updated.uri) {
                                         MediaController.musicPlaying.value = updated
-                                        MediaController.metadataRefreshTrigger.intValue++
+                                        MediaController.metadataRefreshTrigger++
                                     }
                                 }
                                 withContext(Dispatchers.Main) {

@@ -11,7 +11,6 @@ import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
@@ -100,8 +99,7 @@ object MediaController {
     var appContext: android.content.Context? = null
 
     /** UI 刷新触发器，每次 ExoPlayer 提取到新元数据时自增 */
-    @Stable
-    val metadataRefreshTrigger = mutableIntStateOf(0)
+    @Volatile var metadataRefreshTrigger = 0
 
     /** 应用层随机播放标志。ExoPlayer 始终工作在顺序模式。 */
     @Stable
@@ -732,7 +730,7 @@ class YosPlaybackService : MediaSessionService() {
                             genre = metadata.genre?.toString() ?: current.genre
                         )
                         musicPlaying.value = updated
-                        metadataRefreshTrigger.intValue++
+                        metadataRefreshTrigger++
                         // 更新数据库（实时数据优先级更高）
                         if (current.serverId != null) {
                             val uri = current.uri?.toString() ?: ""

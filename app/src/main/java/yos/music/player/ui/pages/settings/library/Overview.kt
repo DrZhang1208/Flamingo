@@ -60,7 +60,7 @@ import yos.music.player.ui.widgets.basic.yosRoundColumn
 fun LibraryOverview(navController: NavController) =
     SettingBackground {
     // 观察 folderListVersion 确保远程文件夹变更时重组
-    @Suppress("UNUSED_VARIABLE") val fv = MusicLibrary.folderListVersion.value
+    @Suppress("UNUSED_VARIABLE") val fv = MusicLibrary.folderListVersion
     val folders = allFolders.sortedBy { it.name }
     Title(title = stringResource(id = R.string.settings_library_overview),
         onBack = {

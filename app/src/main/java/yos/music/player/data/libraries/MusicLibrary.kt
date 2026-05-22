@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Parcelable
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.util.fastMap
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -325,8 +324,7 @@ object MusicLibrary {
         }
     }
 
-    @Stable
-    val folderListVersion = mutableStateOf(0)
+    @Volatile var folderListVersion = 0
 
     // 远程文件夹独立追踪（绕开 mutableDataSaverListStateOf 的 Gson 序列化问题）
     private val remoteFolders = mutableListOf<Folder>()
@@ -336,7 +334,7 @@ object MusicLibrary {
         remoteFolders.add(folder)
         folders = folders + folder.copy(serverId = null)  // folders 存储时去掉 serverId 避免序列化问题
         songSaver = songSaver + folder.songs
-        folderListVersion.value++
+        folderListVersion++
     }
 
     fun rebuildRemoteFolders() {
