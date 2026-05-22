@@ -22,13 +22,19 @@ object RemoteTagDatabase {
     private const val DB_VERSION = 2
     private var db: SQLiteDatabase? = null
 
-    fun init(context: Context) {
-        if (db != null) return
-        db = TagDBHelper(context).writableDatabase
+    private var ctx: Context? = null
+
+    fun init(context: Context) { ctx = context.applicationContext }
+
+    private fun ensureDb(): SQLiteDatabase? {
+        if (db == null && ctx != null) {
+            try { db = TagDBHelper(ctx!!).writableDatabase } catch (_: Exception) {}
+        }
+        return db
     }
 
     fun get(uri: String): CachedTags? {
-        val d = db ?: return null
+        val d = ensureDb() ?: return null
         val c = d.query("remote_tags", null, "uri=?", arrayOf(uri), null, null, null)
         val result = if (c.moveToFirst()) {
             CachedTags(
@@ -48,7 +54,7 @@ object RemoteTagDatabase {
     }
 
     fun put(uri: String, tags: CachedTags) {
-        val d = db ?: return
+        val d = ensureDb() ?: return
         val cv = ContentValues().apply {
             put("uri", uri)
             tags.title?.let { put("title", it) }
@@ -64,12 +70,12 @@ object RemoteTagDatabase {
     }
 
     fun delete(uri: String) {
-        db?.delete("remote_tags", "uri=?", arrayOf(uri))
+        ensureDb()?.delete("remote_tags", "uri=?", arrayOf(uri))
     }
 
     fun cleanup(maxDays: Int = 30) {
         val cutoff = System.currentTimeMillis() / 1000 - maxDays * 86400L
-        db?.delete("remote_tags", "updated_at < ?", arrayOf(cutoff.toString()))
+        ensureDb()?.delete("remote_tags", "updated_at < ?", arrayOf(cutoff.toString()))
     }
 
     private class TagDBHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {

@@ -100,8 +100,8 @@ object RemoteMetadataScanner {
                     tmpFile.writeBytes(header)
                     var tags: ExtractedTags? = null
                     var lyricText: String? = null
+                    var coverBytes: ByteArray? = null
                     try {
-                        // 用 TagLib 读取标签（支持 MP3/FLAC/M4A/OGG 等全部格式）
                         val fd = android.os.ParcelFileDescriptor.open(tmpFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
                         try {
                             val meta = com.kyant.taglib.TagLib.getMetadata(fd.dup().detachFd(), false)
@@ -119,44 +119,45 @@ object RemoteMetadataScanner {
                                 discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull(),
                                 composer = map["COMPOSER"]?.lastOrNull()
                             )
-                            // 提取内嵌歌词
+                            // 内嵌歌词
                             val uslt = map.entries.firstOrNull { (k, _) -> k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") } }
                             lyricText = uslt?.value?.lastOrNull()
                         } finally {
                             fd.close()
                         }
-                    } catch (_: Exception) {
-                        // TagLib 失败，回退到 MediaMetadataRetriever
+                    } catch (_: Exception) {}
+                    // 封面：始终用 MediaMetadataRetriever（TagLib 不易提取）
+                    try {
                         val retriever = android.media.MediaMetadataRetriever()
                         try {
                             retriever.setDataSource(tmpFile.absolutePath)
-                            tags = ExtractedTags(
-                                title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE),
-                                artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST),
-                                album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
-                                albumArtist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
-                                genre = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_GENRE),
-                                year = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull(),
-                                duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
-                                trackNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull(),
-                                discNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)?.toIntOrNull(),
-                                composer = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_COMPOSER),
-                                coverBytes = retriever.embeddedPicture
-                            )
-                        } finally {
-                            retriever.release()
-                        }
-                    }
+                            coverBytes = retriever.embeddedPicture
+                            if (tags == null) {
+                                tags = ExtractedTags(
+                                    title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE),
+                                    artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST),
+                                    album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
+                                    albumArtist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
+                                    genre = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_GENRE),
+                                    year = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull(),
+                                    duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
+                                    trackNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull(),
+                                    discNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)?.toIntOrNull(),
+                                    composer = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_COMPOSER)
+                                )
+                            }
+                        } finally { retriever.release() }
+                    } catch (_: Exception) {}
                     tmpFile.delete()
 
                     // 保存封面到本地缓存
                     var thumbUri: android.net.Uri? = null
-                    if (tags?.coverBytes != null && tags.coverBytes!!.isNotEmpty()) {
+                    if (coverBytes != null && coverBytes.isNotEmpty()) {
                         val ctx = RemoteServerManager.appContext ?: return@launch
                         val coverDir = java.io.File(ctx.cacheDir, "remote_covers")
                         coverDir.mkdirs()
                         val coverFile = java.io.File(coverDir, "${item.uri.toString().hashCode()}.jpg")
-                        coverFile.writeBytes(tags.coverBytes!!)
+                        coverFile.writeBytes(coverBytes)
                         thumbUri = android.net.Uri.fromFile(coverFile)
                     }
 
@@ -376,7 +377,6 @@ object RemoteMetadataScanner {
         val duration: Long? = null,
         val trackNumber: Int? = null,
         val discNumber: Int? = null,
-        val composer: String? = null,
-        val coverBytes: ByteArray? = null
+        val composer: String? = null
     )
 }
