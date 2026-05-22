@@ -664,8 +664,14 @@ class YosPlaybackService : MediaSessionService() {
                                         if (lines.isNotEmpty()) {
                                             MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
                                             setLrcClip("onMediaItemTransition cached SET plain lrc")
+                                        } else {
+                                            MediaViewModelObject.lrcEntries.value = listOf()
+                                            setLrcClip("onMediaItemTransition cached NO lrc CLEAR")
                                         }
                                     }
+                                } else {
+                                    MediaViewModelObject.lrcEntries.value = listOf()
+                                    setLrcClip("onMediaItemTransition cached NULL lrc CLEAR")
                                 }
                                 yos.music.player.code.MediaController.onCase(withCached)
                             } else {
