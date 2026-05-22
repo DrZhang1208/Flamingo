@@ -678,8 +678,9 @@ class YosPlaybackService : MediaSessionService() {
                                 }
                                 yos.music.player.code.MediaController.onCase(withCached)
                             } else {
-                                // 无缓存：异步拉取头部提取标签（和扫描器同样的方法）
+                                // 无缓存：先初始化播放状态，再异步拉取头部提取标签
                                 MediaViewModelObject.lrcEntries.value = listOf()
+                                yos.music.player.code.MediaController.onCase(yosItem)
                                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                                     extractAndApplyTags(yosItem)
                                 }
@@ -747,9 +748,11 @@ class YosPlaybackService : MediaSessionService() {
                             coverPath = thumbUri?.toString(), lyrics = lyricText
                         ))
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            // 更新播放状态
                             musicPlaying.value = updated
+                            // 加载歌词
+                            val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
                             if (!lyricText.isNullOrBlank()) {
-                                val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
                                 val entries = lrcFactory.formatLrcEntries(lyricText)
                                 if (entries.isNotEmpty()) MediaViewModelObject.lrcEntries.value = entries
                                 else {
@@ -757,6 +760,11 @@ class YosPlaybackService : MediaSessionService() {
                                     if (lines.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
                                 }
                             }
+                            // 更新全局歌曲列表 + 当前浏览列表
+                            val allSongs = MusicLibrary.songs.toMutableList()
+                            val idx = allSongs.indexOfFirst { it.uri == updated.uri }
+                            if (idx >= 0) { allSongs[idx] = updated; MusicLibrary.updateSongSaver(allSongs) }
+                            yos.music.player.data.objects.LibraryObject.updateSongInTargetList(updated)
                             uiRefreshTrigger++
                         }
                     } catch (_: Exception) {}
