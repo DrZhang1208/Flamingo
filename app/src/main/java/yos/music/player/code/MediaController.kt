@@ -361,7 +361,7 @@ object MediaController {
         }
     }
 
-    private var refreshJob: CompletableJob? = null
+    internal var refreshJob: CompletableJob? = null
 
     private fun refresh(music: YosMediaItem) {
         refreshJob?.cancel()
@@ -748,6 +748,8 @@ class YosPlaybackService : MediaSessionService() {
                             coverPath = thumbUri?.toString(), lyrics = lyricText
                         ))
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            // 取消待处理的 refresh 避免覆写
+                            yos.music.player.code.MediaController.refreshJob?.cancel()
                             // 更新播放状态
                             musicPlaying.value = updated
                             // 加载歌词
