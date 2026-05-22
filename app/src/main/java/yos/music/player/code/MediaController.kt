@@ -813,15 +813,16 @@ class YosPlaybackService : MediaSessionService() {
                         }
                     }
                     if (changed) {
+                        // 实时数据不覆盖已加载的非空值（TagLib/DB 优先于 ExoPlayer）
                         val updated = current.copy(
-                            title = newTitle ?: current.title,
-                            artists = newArtist ?: current.artists,
-                            album = newAlbum ?: current.album,
-                            thumb = newArtwork ?: current.thumb,
-                            releaseYear = metadata.releaseYear ?: current.releaseYear,
-                            recordingYear = metadata.recordingYear ?: current.recordingYear,
-                            trackNumber = metadata.trackNumber ?: current.trackNumber,
-                            genre = metadata.genre?.toString() ?: current.genre
+                            title = if (current.title != null && current.title != newTitle && newTitle != null) current.title else (newTitle ?: current.title),
+                            artists = if (current.artists != null && current.artists != newArtist && newArtist != null) current.artists else (newArtist ?: current.artists),
+                            album = if (current.album != null && current.album != newAlbum && newAlbum != null) current.album else (newAlbum ?: current.album),
+                            thumb = if (current.thumb != null && current.thumb != newArtwork && newArtwork != null) current.thumb else (newArtwork ?: current.thumb),
+                            releaseYear = current.releaseYear ?: metadata.releaseYear,
+                            recordingYear = current.recordingYear ?: metadata.recordingYear,
+                            trackNumber = current.trackNumber ?: metadata.trackNumber,
+                            genre = current.genre ?: metadata.genre?.toString()
                         )
                         musicPlaying.value = updated
                         uiRefreshTrigger++
