@@ -685,31 +685,28 @@ class YosPlaybackService : MediaSessionService() {
                 override fun onMediaMetadataChanged(metadata: androidx.media3.common.MediaMetadata) {
                     super.onMediaMetadataChanged(metadata)
                     val current = musicPlaying.value ?: return
+                    val title = metadata.title?.toString()
+                    val artist = metadata.artist?.toString()
+                    val album = metadata.albumTitle?.toString()
+                    val artwork = metadata.artworkUri
+                    // 复制关键信息到剪贴板
+                    val msg = "onMeta: title=$title artist=$artist album=$album artwork=$artwork currentTitle=${current.title}"
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        val ctx = yos.music.player.code.MediaController.appContext ?: return@post
+                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("meta", msg))
+                    }
                     val updated = current.copy(
-                        title = metadata.title?.toString() ?: current.title,
-                        artists = metadata.artist?.toString() ?: current.artists,
-                        album = metadata.albumTitle?.toString() ?: current.album,
-                        thumb = metadata.artworkUri ?: current.thumb,
+                        title = title ?: current.title,
+                        artists = artist ?: current.artists,
+                        album = album ?: current.album,
+                        thumb = artwork ?: current.thumb,
                         releaseYear = metadata.releaseYear ?: current.releaseYear,
                         recordingYear = metadata.recordingYear ?: current.recordingYear,
                         trackNumber = metadata.trackNumber ?: current.trackNumber,
                         genre = metadata.genre?.toString() ?: current.genre
                     )
                     musicPlaying.value = updated
-                    // 同步更新 songSaver 和 remoteFolders
-                    if (updated.serverId != null) {
-                        MusicLibrary.updateSongSaver(
-                            MusicLibrary.songs.toMutableList().also { list ->
-                                val idx = list.indexOfFirst { it.uri == updated.uri }
-                                if (idx >= 0) list[idx] = updated
-                            }
-                        )
-                        // 更新 remoteFolders
-                        val rf = MusicLibrary.allFolders.find { it.serverId == updated.serverId }
-                        if (rf != null) {
-                            MusicLibrary.updateFolderSongs(updated.serverId!!, rf.name, updated)
-                        }
-                    }
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {

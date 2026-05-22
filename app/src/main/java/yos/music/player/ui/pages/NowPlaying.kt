@@ -448,6 +448,7 @@ fun NowPlaying(
                                                 isSwitching = { isSwitchingTrack.value },
                                                 isVisible = { isVisible }
                                             )
+                                            key(thisMusicPlaying.value?.title) {
                                             AnimatedContent(
                                                 targetState = thisMusicPlaying.value,
                                                 transitionSpec = {
@@ -496,6 +497,7 @@ fun NowPlaying(
                                         }
                                     }
                                 }
+                                            }
 
                             Lyric ->
                                 Column(Modifier.fillMaxSize()) {
