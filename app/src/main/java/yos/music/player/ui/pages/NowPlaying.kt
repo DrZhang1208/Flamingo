@@ -247,9 +247,7 @@ fun NowPlaying(
     nowPageOnChanged: (String) -> Unit
 ) {
     val thisMusicPlaying = musicPlaying
-    // 强制观察元数据刷新
-    val uiVer = uiRefreshTrigger
-    key(uiVer) {
+    key(thisMusicPlaying.value) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,

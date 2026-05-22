@@ -676,17 +676,90 @@ class YosPlaybackService : MediaSessionService() {
                                         }
                                     }
                                 }
-                                uiRefreshTrigger++
                                 yos.music.player.code.MediaController.onCase(withCached)
-                                return@let
+                            } else {
+                                // 无缓存：异步拉取头部提取标签（和扫描器同样的方法）
+                                MediaViewModelObject.lrcEntries.value = listOf()
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                    extractAndApplyTags(yosItem)
+                                }
                             }
-                            // 无缓存：清空歌词避免显示上一首歌的
-                            MediaViewModelObject.lrcEntries.value = listOf()
-                            uiRefreshTrigger++
+                        } else {
+                            yos.music.player.code.MediaController.onCase(yosItem)
                         }
-                        yos.music.player.code.MediaController.onCase(yosItem)
                     }
                     super.onMediaItemTransition(mediaItem, reason)
+                }
+
+                private suspend fun extractAndApplyTags(item: yos.music.player.data.libraries.YosMediaItem) {
+                    val path = item.uri?.path ?: return
+                    val serverId = item.serverId ?: return
+                    val uri = item.uri?.toString() ?: return
+                    try {
+                        val header = yos.music.player.data.remote.RemoteServerManager.readFileBytes(serverId, path, 0, 512 * 1024)
+                        val tmpFile = java.io.File.createTempFile("ply_", ".tmp")
+                        tmpFile.writeBytes(header)
+                        var title: String? = null; var artist: String? = null; var album: String? = null
+                        var year: Int? = null; var duration: Long? = null
+                        var lyricText: String? = null; var coverBytes: ByteArray? = null
+                        try {
+                            val fd = android.os.ParcelFileDescriptor.open(tmpFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                            try {
+                                val meta = com.kyant.taglib.TagLib.getMetadata(fd.dup().detachFd(), false)
+                                val map = meta?.propertyMap ?: emptyMap()
+                                title = map["TITLE"]?.lastOrNull(); artist = map["ARTIST"]?.lastOrNull()
+                                album = map["ALBUM"]?.lastOrNull()
+                                year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull()
+                                val uslt = map.entries.firstOrNull { (k, _) -> k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") } }
+                                lyricText = uslt?.value?.lastOrNull()
+                            } finally { fd.close() }
+                        } catch (_: Exception) {}
+                        try {
+                            val retriever = android.media.MediaMetadataRetriever()
+                            try {
+                                retriever.setDataSource(tmpFile.absolutePath)
+                                coverBytes = retriever.embeddedPicture
+                                if (title == null) title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)
+                                if (artist == null) artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                                if (album == null) album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                                if (duration == null) duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                            } finally { retriever.release() }
+                        } catch (_: Exception) {}
+                        tmpFile.delete()
+                        var thumbUri: android.net.Uri? = null
+                        if (coverBytes != null && coverBytes.isNotEmpty()) {
+                            val ctx = yos.music.player.data.remote.RemoteServerManager.appContext ?: return
+                            val coverDir = java.io.File(ctx.cacheDir, "remote_covers"); coverDir.mkdirs()
+                            val coverFile = java.io.File(coverDir, "${uri.hashCode()}.jpg")
+                            coverFile.writeBytes(coverBytes); thumbUri = android.net.Uri.fromFile(coverFile)
+                        }
+                        val updated = item.copy(
+                            title = title ?: item.title, artists = artist ?: item.artists,
+                            album = album ?: item.album, releaseYear = year ?: item.releaseYear,
+                            recordingYear = year ?: item.recordingYear,
+                            duration = duration ?: item.duration, thumb = thumbUri ?: item.thumb,
+                            tagScanStatus = "COMPLETE"
+                        )
+                        yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(
+                            uri = uri, title = updated.title, artist = updated.artists,
+                            album = updated.album, year = updated.releaseYear ?: updated.recordingYear,
+                            duration = if (updated.duration > 0) updated.duration else null,
+                            coverPath = thumbUri?.toString(), lyrics = lyricText
+                        ))
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            musicPlaying.value = updated
+                            if (!lyricText.isNullOrBlank()) {
+                                val lrcFactory = yos.music.player.code.utils.lrc.YosLrcFactory()
+                                val entries = lrcFactory.formatLrcEntries(lyricText)
+                                if (entries.isNotEmpty()) MediaViewModelObject.lrcEntries.value = entries
+                                else {
+                                    val lines = lyricText.lines().filter { it.isNotBlank() }
+                                    if (lines.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
+                                }
+                            }
+                            uiRefreshTrigger++
+                        }
+                    } catch (_: Exception) {}
                 }
 
                 /*override fun onIsPlayingChanged(isPlaying: Boolean) {
