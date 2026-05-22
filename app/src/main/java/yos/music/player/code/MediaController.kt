@@ -353,19 +353,11 @@ object MediaController {
         val scope = CoroutineScope(Dispatchers.IO + refreshJob!!)
 
         scope.launch {
-            println("prepare 刷新UI状态 $music")
             musicPlaying.value = music
-            println(musicPlaying.value)
         }
 
         scope.launch {
-            // val bitmap: MutableState<String?> = MediaViewModelObject.bitmap
-            // bitmap.value = music.thumb
             MediaViewModelObject.bitmap.value = music.thumb
-        }
-
-        scope.launch {
-            MainViewModelObject.syncLyricIndex.intValue = -1
         }
     }
 }
