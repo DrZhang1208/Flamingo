@@ -633,7 +633,7 @@ class YosPlaybackService : MediaSessionService() {
                         var parsedEntries = lrcFactory.formatLrcEntries(finalLrcContent)
                         println("歌词解析 完成，共 ${parsedEntries.size} 行")
 
-                        lrcEntries.value = parsedEntries
+                        if (parsedEntries.isNotEmpty()) lrcEntries.value = parsedEntries
 
                         if (thisPath != null) {
                             if (samplingRate == 0 || bitrate == 0) {

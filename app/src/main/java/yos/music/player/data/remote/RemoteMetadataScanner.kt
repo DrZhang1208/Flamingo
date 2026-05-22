@@ -94,38 +94,60 @@ object RemoteMetadataScanner {
                 _scanProgress.value = ScanProgress(serverId, pending.size, i, item.title ?: path, true)
 
                 try {
-                    // 读取文件头部 512KB → 写临时文件 → MediaMetadataRetriever 提取全部标签
+                    // 读取文件头部 512KB → 写临时文件 → TagLib 提取标签（兼容全部格式）
                     val header = RemoteServerManager.readFileBytes(serverId, path, 0, 512 * 1024)
                     val tmpFile = java.io.File.createTempFile("rmt_", ".tmp")
                     tmpFile.writeBytes(header)
-                    val retriever = android.media.MediaMetadataRetriever()
                     var tags: ExtractedTags? = null
                     var lyricText: String? = null
                     try {
-                        retriever.setDataSource(tmpFile.absolutePath)
-                        // 尝试提取内嵌歌词（TagLib 从临时文件读取）
-                        lyricText = yos.music.player.code.AudioMetadataUtils.extractEmbeddedLyrics(tmpFile.absolutePath)
-                        // 如果用临时文件提取失败，用原始路径重试
-                        if (lyricText.isNullOrBlank()) {
-                            // 歌词可能不在头部 512KB 中，跳过
+                        // 用 TagLib 读取标签（支持 MP3/FLAC/M4A/OGG 等全部格式）
+                        val fd = android.os.ParcelFileDescriptor.open(tmpFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                        try {
+                            val meta = com.kyant.taglib.TagLib.getMetadata(fd.dup().detachFd(), false)
+                            val props = com.kyant.taglib.TagLib.getAudioProperties(fd.dup().detachFd(), com.kyant.taglib.AudioPropertiesReadStyle.Fast)
+                            val map = meta?.propertyMap ?: emptyMap()
+                            tags = ExtractedTags(
+                                title = map["TITLE"]?.lastOrNull(),
+                                artist = map["ARTIST"]?.lastOrNull(),
+                                album = map["ALBUM"]?.lastOrNull(),
+                                albumArtist = map["ALBUMARTIST"]?.lastOrNull(),
+                                genre = map["GENRE"]?.lastOrNull(),
+                                year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull(),
+                                duration = props?.length?.toLong()?.times(1000L),
+                                trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull(),
+                                discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull(),
+                                composer = map["COMPOSER"]?.lastOrNull()
+                            )
+                            // 提取内嵌歌词
+                            val uslt = map.entries.firstOrNull { (k, _) -> k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") } }
+                            lyricText = uslt?.value?.lastOrNull()
+                        } finally {
+                            fd.close()
                         }
-                        tags = ExtractedTags(
-                            title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE),
-                            artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST),
-                            album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
-                            albumArtist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
-                            genre = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_GENRE),
-                            year = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull(),
-                            duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
-                            trackNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull(),
-                            discNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)?.toIntOrNull(),
-                            composer = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_COMPOSER),
-                            coverBytes = retriever.embeddedPicture
-                        )
-                    } finally {
-                        retriever.release()
-                        tmpFile.delete()
+                    } catch (_: Exception) {
+                        // TagLib 失败，回退到 MediaMetadataRetriever
+                        val retriever = android.media.MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(tmpFile.absolutePath)
+                            tags = ExtractedTags(
+                                title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE),
+                                artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST),
+                                album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
+                                albumArtist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
+                                genre = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_GENRE),
+                                year = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull(),
+                                duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
+                                trackNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull(),
+                                discNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)?.toIntOrNull(),
+                                composer = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_COMPOSER),
+                                coverBytes = retriever.embeddedPicture
+                            )
+                        } finally {
+                            retriever.release()
+                        }
                     }
+                    tmpFile.delete()
 
                     // 保存封面到本地缓存
                     var thumbUri: android.net.Uri? = null
@@ -153,7 +175,6 @@ object RemoteMetadataScanner {
                         thumb = thumbUri ?: item.thumb,
                         tagScanStatus = "COMPLETE"
                     )
-                    // 存入标签数据库（含歌词）
                     RemoteTagDatabase.put(item.uri?.toString() ?: "", CachedTags(
                         uri = item.uri?.toString() ?: "",
                         title = updated.title,
