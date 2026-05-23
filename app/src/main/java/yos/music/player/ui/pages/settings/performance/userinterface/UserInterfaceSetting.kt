@@ -114,6 +114,18 @@ fun UserInterfaceSetting(navController: NavController) =
                         }
 
                         ListHeader(content = stringResource(id = R.string.settings_performance_ui_nowplaying_background_effect_desc))
+                        GroupSpacerMedium()
+
+                        RoundColumn {
+                            SwitchItem(
+                                title = "歌词页自动隐藏控制按钮",
+                                onClick = {
+                                    SettingsLibrary.LyricsHideControls = !SettingsLibrary.LyricsHideControls
+                                },
+                                checkedLambda = { SettingsLibrary.LyricsHideControls }
+                            )
+                        }
+                        ListHeader(content = "开启后，在歌词页面几秒无操作后自动隐藏播放控制按钮")
 
                         GroupSpacer()
                     }

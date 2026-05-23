@@ -64,7 +64,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             var remainingLine =
                 line.replace(Regex("([\\[\\]]){2,}"), "$1").replace(Regex("<([^>]+)>"), "[$1]")
                     .replace(Regex("(\\[\\d{2}:\\d{2}\\.\\d{2,3}]){2,}"), "$1")
-            println("歌词处理：$remainingLine")
+            // println("歌词处理：$remainingLine")
             val currentLinePairs = mutableListOf<Pair<Float, String>>()
             while (remainingLine.isNotEmpty()) {
                 /*val timeIndex = remainingLine.indexOf("]")
@@ -296,8 +296,12 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
 
-        MediaViewModelObject.otherSideForLines.clear()
-        MediaViewModelObject.otherSideForLines.addAll(otherSideResult)
+        // 复制一份后投递到主线程，避免与 Compose 读取冲突
+        val snapshot = otherSideResult.toList()
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            MediaViewModelObject.otherSideForLines.clear()
+            MediaViewModelObject.otherSideForLines.addAll(snapshot)
+        }
         return filteredLrcEntries
     }
 }

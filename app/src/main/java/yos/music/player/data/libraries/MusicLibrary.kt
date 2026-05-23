@@ -156,9 +156,10 @@ object MusicLibrary {
             it.artistsList ?: defaultArtists
         }
             .distinct()
+            .sorted()
 
     val albums
-        get() = songs.distinctBy { it.album ?: defaultAlbum }.map { it.album ?: defaultAlbum }
+        get() = songs.distinctBy { it.album ?: defaultAlbum }.map { it.album ?: defaultAlbum }.sorted()
 
     @Stable
     object Album {
@@ -305,6 +306,13 @@ object MusicLibrary {
 
     fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs }
 
+    /** 直接更新 songSaver 中某首歌，绕过 hideSongs/hideFolders 过滤 */
+    fun updateSongInFullList(updated: YosMediaItem) {
+        val all = songSaver.toMutableList()
+        val i = all.indexOfFirst { it.uri == updated.uri }
+        if (i >= 0) { all[i] = updated; songSaver = all }
+    }
+
     fun updateFolderSongs(serverId: String, folderName: String, updatedSong: YosMediaItem) {
         val rIdx = remoteFolders.indexOfFirst { it.serverId == serverId && it.name == folderName }
         if (rIdx >= 0) {
@@ -342,10 +350,13 @@ object MusicLibrary {
     }
 
     fun unmountRemoteFolder(folderName: String, serverId: String) {
-        folders = folders.filter { !(it.name == folderName && it.serverId == serverId) }
-        // Also remove songs from songSaver
-        val urisToRemove = folders.find { it.name == folderName && it.serverId == serverId }?.songs?.mapNotNull { it.uri?.toString() } ?: emptyList()
+        // 从 remoteFolders 查找实际的歌曲 URI（folders 中 serverId 为 null，无法匹配）
+        val rf = remoteFolders.find { it.name == folderName && it.serverId == serverId }
+        val urisToRemove = rf?.songs?.mapNotNull { it.uri?.toString() } ?: emptyList()
+        remoteFolders.removeAll { it.name == folderName && it.serverId == serverId }
+        folders = folders.filter { it.name != folderName }
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
+        folderListVersion++
     }
 
     private inline fun <reified T> updateData(key: String, value: T) {

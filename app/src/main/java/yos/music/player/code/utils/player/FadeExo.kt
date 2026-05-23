@@ -12,7 +12,7 @@ import yos.music.player.data.objects.MediaViewModelObject.isPlaying
 object FadeExo {
     private var fadeVolumeAnimator: ValueAnimator? = null
     private var fadeAnimationDuration: Long = 200L
-    var targetStatus: Int = 0
+    @Volatile var targetStatus: Int = 0
 
     private fun fadeVolume(
         player: ExoPlayer,
@@ -23,6 +23,8 @@ object FadeExo {
         onEnd: (() -> Unit)? = null
     ) {
         FadeExo.targetStatus = targetStatus
+        fadeVolumeAnimator?.removeAllListeners()
+        fadeVolumeAnimator?.removeAllUpdateListeners()
         fadeVolumeAnimator?.cancel()
         fadeVolumeAnimator = ValueAnimator.ofFloat(from, to)
         fadeVolumeAnimator?.duration = duration
@@ -51,6 +53,8 @@ object FadeExo {
         onEnd: (() -> Unit)? = null
     ) {
         FadeExo.targetStatus = targetStatus
+        fadeVolumeAnimator?.removeAllListeners()
+        fadeVolumeAnimator?.removeAllUpdateListeners()
         fadeVolumeAnimator?.cancel()
         fadeVolumeAnimator = ValueAnimator.ofFloat(from, to)
         fadeVolumeAnimator?.duration = duration

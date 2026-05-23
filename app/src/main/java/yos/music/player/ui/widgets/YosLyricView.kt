@@ -501,11 +501,11 @@ fun YosLyricView(
 
                             YosWrapper {
                                 LaunchedEffect(currentLyricIndex.intValue) {
-                                    if (visibleItems.value.isEmpty()) {
-                                        //println(mainLyric.value.text+" 未设置")
+                                    if (visibleItems.value.isEmpty()) return@LaunchedEffect
+                                    if (!SettingsLibrary.LyricElasticAnim) {
+                                        thisTargetHeight.value = if (show.value) space else 0.dp
                                         return@LaunchedEffect
                                     }
-                                    //println(mainLyric.value.text+" "+(index >= currentLyricIndex.intValue && showStateAnimation.value && show.value))
                                     if (index >= currentLyricIndex.intValue - 1 && showStateAnimation.value && show.value) {
                                         val weight =
                                             (1f - ((index - (nowFirst.value)) / visibleItems.value.size))

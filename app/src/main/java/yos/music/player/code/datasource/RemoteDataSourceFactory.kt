@@ -38,7 +38,7 @@ class RemoteDataSource(
             rawUri.startsWith("smb://") -> "smb"
             else -> null
         }
-        delegate = when (scheme) {
+        delegate = (when (scheme) {
             "smb" -> createSmbSource(uri)
             "webdav" -> createWebDavSource(uri)
             "http", "https" -> {
@@ -52,7 +52,7 @@ class RemoteDataSource(
                 }
             }
             else -> defaultFactory.createDataSource()
-        }
+        }) ?: defaultFactory.createDataSource()
         listener?.let { delegate?.addTransferListener(it) }
         return delegate!!.open(dataSpec)
     }

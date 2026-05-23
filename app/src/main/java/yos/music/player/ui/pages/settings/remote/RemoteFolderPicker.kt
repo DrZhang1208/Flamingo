@@ -1,6 +1,7 @@
 package yos.music.player.ui.pages.settings.remote
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.code.MediaController
@@ -68,10 +71,12 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
     var entries by remember { mutableStateOf<List<RemoteFile>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var pathStack by remember { mutableStateOf(listOf("")) }
+    var loadJob by remember { mutableStateOf<Job?>(null) }
 
     fun loadFolder(path: String) {
+        loadJob?.cancel()
         loading = true
-        scope.launch(Dispatchers.IO) {
+        loadJob = scope.launch(Dispatchers.IO) {
             val connected = RemoteServerManager.isConnected(serverId)
             if (!connected) { RemoteServerManager.connect(serverId) }
             val files = RemoteServerManager.listFolder(serverId, path)
@@ -83,21 +88,28 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
 
     LaunchedEffect(Unit) { loadFolder("") }
 
+    fun goToParent() {
+        if (currentPath.isEmpty()) {
+            navController.popBackStack()
+        } else if (!currentPath.contains('/')) {
+            // 单层目录 → 返回根
+            pathStack = listOf("")
+            loadFolder("")
+        } else {
+            val parent = currentPath.substringBeforeLast('/')
+            pathStack = pathStack.dropLastWhile { it != parent } + parent
+            loadFolder(parent)
+        }
+    }
+
+    // 系统返回键与左上角返回按钮行为一致
+    BackHandler(enabled = true) { goToParent() }
+
     val folderName = currentPath.substringAfterLast('/').ifEmpty { config.label }
     val sourceLabel = if (config.type == ServerType.SMB) "SMB" else "WebDAV"
 
     SettingBackground {
-        Title(title = folderName.ifEmpty { config.label }, onBack = {
-            if (currentPath.isNotEmpty()) {
-                // 返回上级目录
-                val parent = currentPath.substringBeforeLast('/')
-                val newStack = if (parent.isEmpty()) listOf("") else pathStack.dropLastWhile { it != parent } + parent
-                pathStack = newStack
-                loadFolder(parent)
-            } else {
-                navController.popBackStack()
-            }
-        }) {
+        Title(title = folderName.ifEmpty { config.label }, onBack = { goToParent() }) {
             item("mount_btn") {
                 RoundColumn {
                     Row(
@@ -160,7 +172,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                         }.padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.PlaylistAdd, null, Modifier.size(22.dp), tint = Color(0xFF007AFF))
+                        Icon(Icons.Filled.PlaylistAdd, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text("挂载此文件夹到资料库", fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -171,25 +183,31 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                 GroupSpacer()
             }
 
-            // Breadcrumb
-            if (currentPath.isNotEmpty()) {
-                item("breadcrumb") {
-                    val parts = currentPath.split('/').filter { it.isNotEmpty() }
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        Text(config.label, fontSize = 13.sp, modifier = Modifier.clickable {
-                            pathStack = listOf(""); loadFolder("")
-                        }.alpha(0.6f).padding(end = 4.dp), color = Color(0xFF007AFF))
+            // 面包屑始终显示
+            item("breadcrumb") {
+                val parts = currentPath.split('/').filter { it.isNotEmpty() }
+                val accent = MaterialTheme.colorScheme.primary
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    Text(config.label, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.clickable {
+                        pathStack = listOf(""); loadFolder("")
+                    }.alpha(0.6f).padding(end = 4.dp), color = accent)
+                    if (currentPath.isEmpty()) {
+                        Text(" › ", fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.alpha(0.4f))
+                        Text("/", fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.alpha(0.9f), color = accent)
+                    } else {
                         for ((i, part) in parts.withIndex()) {
-                            Text(" › ", fontSize = 13.sp, modifier = Modifier.alpha(0.4f))
-                            Text(part, fontSize = 13.sp,
+                            Text(" › ", fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.alpha(0.4f))
+                            Text(part, fontSize = 13.sp, lineHeight = 20.sp,
                                 modifier = if (i < parts.size - 1) Modifier.clickable {
                                     val targetPath = parts.take(i + 1).joinToString("/")
-                                    pathStack = pathStack + targetPath; loadFolder(targetPath)
+                                    val idx = pathStack.indexOfLast { it == targetPath }
+                                    pathStack = if (idx >= 0) pathStack.take(idx + 1) else pathStack + targetPath
+                                    loadFolder(targetPath)
                                 }.alpha(0.6f).padding(end = 4.dp) else Modifier.alpha(0.9f),
-                                color = if (i < parts.size - 1) Color(0xFF007AFF) else Color.Unspecified
+                                color = if (i < parts.size - 1) accent else Color.Unspecified
                             )
                         }
                     }
@@ -220,7 +238,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                             Icon(
                                 if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.MusicNote,
                                 null, Modifier.size(if (entry.isDirectory) 28.dp else 24.dp),
-                                tint = if (entry.isDirectory) Color(0xFF007AFF) else Color(0xFF888888)
+                                tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else Color(0xFF888888)
                             )
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {

@@ -40,6 +40,12 @@ import androidx.navigation.NavController
 import io.github.alexzhirkevich.cupertino.CupertinoSwitch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.R
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.Folder
@@ -97,8 +103,14 @@ fun LibraryOverview(navController: NavController) =
     )
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
+    var showUnmount by remember { mutableStateOf(false) }
+    val isRemote = folder.serverId != null
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
     Row(
         modifier = Modifier
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
@@ -155,31 +167,42 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             )
         }
 
-        YosWrapper {
-            val scope = rememberCoroutineScope()
-            val context = LocalContext.current
-
-            /*Switch(checkedLambda = { !hideFolders.any { it == folder.path } }, onValueChange = {
-                scope.launch(Dispatchers.IO) {
-                    Vibrator.click(context)
-                    if (it) {
-                        MusicLibrary.unHideFolder(folder)
-                    } else {
-                        MusicLibrary.hideFolder(folder)
-                    }
+        CupertinoSwitch(checked = !hideFolders.any { it == folder.path }, onCheckedChange = {
+            scope.launch(Dispatchers.IO) {
+                Vibrator.click(context)
+                if (it) {
+                    MusicLibrary.unHideFolder(folder)
+                } else {
+                    MusicLibrary.hideFolder(folder)
                 }
-            }, switchHeight = 24.dp, switchWidth = 46.dp)*/
+            }
+        })
 
-            CupertinoSwitch(checked = !hideFolders.any { it == folder.path }, onCheckedChange = {
-                scope.launch(Dispatchers.IO) {
-                    Vibrator.click(context)
-                    if (it) {
-                        MusicLibrary.unHideFolder(folder)
-                    } else {
-                        MusicLibrary.hideFolder(folder)
-                    }
-                }
-            })
+        // 远程文件夹：卸载按钮
+        if (isRemote) {
+            Text(
+                "卸载", fontSize = 12.sp, color = Color.Red.copy(alpha = 0.6f),
+                modifier = Modifier.clickable { showUnmount = true }.padding(horizontal = 4.dp)
+            )
+
+            if (showUnmount) {
+                OptionDialog(
+                    icon = { Spacer(Modifier.size(0.dp)) },
+                    title = "卸载远程文件夹",
+                    subTitle = "确定要从资料库中移除「${folder.name}」吗？",
+                    content = null,
+                    positiveContent = "卸载",
+                    onPositive = {
+                        scope.launch(Dispatchers.IO) {
+                            MusicLibrary.unmountRemoteFolder(folder.name, folder.serverId ?: "")
+                            withContext(Dispatchers.Main) { showUnmount = false }
+                        }
+                    },
+                    negativeContent = "取消",
+                    onNegative = { showUnmount = false },
+                    onDismissRequest = { showUnmount = false }
+                )
+            }
         }
 
         Icon(
@@ -187,7 +210,7 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             modifier = Modifier
                 .height(12.dp)
                 .alpha(0.3f)
-                .padding(horizontal = 8.dp), tint = MaterialTheme.colorScheme.onBackground
+                .padding(horizontal = 4.dp), tint = MaterialTheme.colorScheme.onBackground
         )
     }
 }

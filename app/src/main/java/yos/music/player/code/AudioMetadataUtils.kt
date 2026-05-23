@@ -46,7 +46,7 @@ object AudioMetadataUtils {
             val file = File(filePath)
             if (!file.exists()) return@runCatching null
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                val metadata = TagLib.getMetadata(fd.dup().detachFd(), false)
+                val metadata = TagLib.getMetadata(fd.fd, false)
                 val propertyMap = metadata?.propertyMap ?: return@runCatching null
                 // USLT frame keys typically contain "USLT" or "UNSYNCEDLYRICS"
                 val lyricEntry = propertyMap.entries.firstOrNull { (key, _) ->
@@ -181,7 +181,7 @@ object AudioMetadataUtils {
         println("质量分析 Taglib 实现获取")
 
         ParcelFileDescriptor.open(songFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-            val audioProperties = TagLib.getAudioProperties(fd.dup().detachFd(), AudioPropertiesReadStyle.Fast)
+            val audioProperties = TagLib.getAudioProperties(fd.fd, AudioPropertiesReadStyle.Fast)
             bitrate = audioProperties?.bitrate ?: -1
             sampleRate = audioProperties?.sampleRate ?: -1
         }

@@ -222,7 +222,7 @@ fun Modifier.overScrollOutOfBound(
             ): Offset {
                 // Found fling behavior in the wrong direction.
                 if (source != NestedScrollSource.UserInput) {
-                    return dispatcher.dispatchPreScroll(available, source)
+                    return dispatcher.dispatchPostScroll(consumed, available, source)
                 }
                 val realAvailable = when {
                     nestedScrollToParent -> available - dispatcher.dispatchPostScroll(

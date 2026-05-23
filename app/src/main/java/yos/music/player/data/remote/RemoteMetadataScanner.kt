@@ -94,86 +94,22 @@ object RemoteMetadataScanner {
                 _scanProgress.value = ScanProgress(serverId, pending.size, i, item.title ?: path, true)
 
                 try {
-                    // 读取文件头部 512KB → 写临时文件 → TagLib 提取标签（兼容全部格式）
-                    val header = RemoteServerManager.readFileBytes(serverId, path, 0, 512 * 1024)
-                    val tmpFile = java.io.File.createTempFile("rmt_", ".tmp")
-                    tmpFile.writeBytes(header)
-                    var tags: ExtractedTags? = null
-                    var lyricText: String? = null
-                    var coverBytes: ByteArray? = null
-                    try {
-                        val fd = android.os.ParcelFileDescriptor.open(tmpFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-                        try {
-                            val meta = com.kyant.taglib.TagLib.getMetadata(fd.dup().detachFd(), false)
-                            val props = com.kyant.taglib.TagLib.getAudioProperties(fd.dup().detachFd(), com.kyant.taglib.AudioPropertiesReadStyle.Fast)
-                            val map = meta?.propertyMap ?: emptyMap()
-                            tags = ExtractedTags(
-                                title = map["TITLE"]?.lastOrNull(),
-                                artist = map["ARTIST"]?.lastOrNull(),
-                                album = map["ALBUM"]?.lastOrNull(),
-                                albumArtist = map["ALBUMARTIST"]?.lastOrNull(),
-                                genre = map["GENRE"]?.lastOrNull(),
-                                year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull(),
-                                duration = props?.length?.toLong()?.times(1000L),
-                                trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull(),
-                                discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull(),
-                                composer = map["COMPOSER"]?.lastOrNull()
-                            )
-                            // 内嵌歌词
-                            val uslt = map.entries.firstOrNull { (k, _) -> k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") } }
-                            lyricText = uslt?.value?.lastOrNull()
-                        } finally {
-                            fd.close()
-                        }
-                    } catch (_: Exception) {}
-                    // 封面：始终用 MediaMetadataRetriever（TagLib 不易提取）
-                    try {
-                        val retriever = android.media.MediaMetadataRetriever()
-                        try {
-                            retriever.setDataSource(tmpFile.absolutePath)
-                            coverBytes = retriever.embeddedPicture
-                            if (tags == null) {
-                                tags = ExtractedTags(
-                                    title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE),
-                                    artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST),
-                                    album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
-                                    albumArtist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
-                                    genre = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_GENRE),
-                                    year = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull(),
-                                    duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
-                                    trackNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull(),
-                                    discNumber = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)?.toIntOrNull(),
-                                    composer = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_COMPOSER)
-                                )
-                            }
-                        } finally { retriever.release() }
-                    } catch (_: Exception) {}
-                    tmpFile.delete()
-
-                    // 保存封面到本地缓存
-                    var thumbUri: android.net.Uri? = null
-                    if (coverBytes != null && coverBytes.isNotEmpty()) {
-                        val ctx = RemoteServerManager.appContext ?: return@launch
-                        val coverDir = java.io.File(ctx.cacheDir, "remote_covers")
-                        coverDir.mkdirs()
-                        val coverFile = java.io.File(coverDir, "${item.uri.toString().hashCode()}.jpg")
-                        coverFile.writeBytes(coverBytes)
-                        thumbUri = android.net.Uri.fromFile(coverFile)
-                    }
-
+                    val result = RemoteTagExtractor.extract(
+                        serverId, path, item.uri?.toString() ?: path
+                    )
                     val updated = item.copy(
-                        duration = tags?.duration ?: item.duration,
-                        title = tags?.title ?: item.title,
-                        artists = tags?.artist ?: item.artists,
-                        albumArtists = tags?.albumArtist ?: item.albumArtists,
-                        album = tags?.album ?: item.album,
-                        genre = tags?.genre ?: item.genre,
-                        releaseYear = tags?.year ?: item.releaseYear,
-                        recordingYear = tags?.year ?: item.recordingYear,
-                        trackNumber = tags?.trackNumber ?: item.trackNumber,
-                        discNumber = tags?.discNumber ?: item.discNumber,
-                        composer = tags?.composer ?: item.composer,
-                        thumb = thumbUri ?: item.thumb,
+                        duration = result.duration ?: item.duration,
+                        title = result.title ?: item.title,
+                        artists = result.artist ?: item.artists,
+                        albumArtists = result.albumArtist ?: item.albumArtists,
+                        album = result.album ?: item.album,
+                        genre = result.genre ?: item.genre,
+                        releaseYear = result.year ?: item.releaseYear,
+                        recordingYear = result.year ?: item.recordingYear,
+                        trackNumber = result.trackNumber ?: item.trackNumber,
+                        discNumber = result.discNumber ?: item.discNumber,
+                        composer = result.composer ?: item.composer,
+                        thumb = result.coverUri ?: item.thumb,
                         tagScanStatus = "COMPLETE"
                     )
                     RemoteTagDatabase.put(item.uri?.toString() ?: "", CachedTags(
@@ -183,8 +119,8 @@ object RemoteMetadataScanner {
                         album = updated.album,
                         year = updated.releaseYear ?: updated.recordingYear,
                         duration = if (updated.duration > 0) updated.duration else null,
-                        coverPath = thumbUri?.toString(),
-                        lyrics = lyricText
+                        coverPath = result.coverUri?.toString(),
+                        lyrics = result.lyrics
                     ))
                     onItemUpdated(updated)
                 } catch (_: Exception) {
@@ -220,163 +156,4 @@ object RemoteMetadataScanner {
         }
     }
 
-    /**
-     * 从字节缓冲区解析基本 ID3v2 标签（TIT2, TPE1, TALB, TYER/TDRC）。
-     * 对于 FLAC/OGG，仅依赖文件名（Vorbis Comment 解析太复杂，播放时由 ExoPlayer 补充）。
-     */
-    private fun parseBasicTags(header: ByteArray, fileName: String): BasicTags {
-        if (header.size < 10) return BasicTags()
-
-        // FLAC: 解析 Vorbis Comment
-        if (header[0] == 0x66.toByte() && header[1] == 0x4C.toByte() && header[2] == 0x61.toByte() && header[3] == 0x43.toByte()) {
-            return parseFlacTags(header)
-        }
-
-        // 检查 ID3v2 头
-        if (header[0] != 0x49.toByte() || header[1] != 0x44.toByte() || header[2] != 0x33.toByte()) {
-            return BasicTags()
-        }
-
-        val id3Size = ((header[6].toInt() and 0x7F) shl 21) or
-                      ((header[7].toInt() and 0x7F) shl 14) or
-                      ((header[8].toInt() and 0x7F) shl 7) or
-                      (header[9].toInt() and 0x7F) + 10
-
-        val end = minOf(header.size, id3Size)
-        var pos = 10
-
-        // 跳过扩展头
-        val flags = header[5].toInt() and 0xFF
-        if (flags and 0x40 != 0) {
-            val extSize = ((header[pos].toInt() and 0x7F) shl 21) or
-                          ((header[pos + 1].toInt() and 0x7F) shl 14) or
-                          ((header[pos + 2].toInt() and 0x7F) shl 7) or
-                          (header[pos + 3].toInt() and 0x7F)
-            pos += extSize + 4
-        }
-
-        val tags = BasicTags()
-
-        while (pos + 10 <= end) {
-            val frameId = String(header, pos, 4, Charsets.UTF_8)
-            val frameSize = if (header[5].toInt() and 0x10 != 0) { // ID3v2.4 uses synchsafe
-                ((header[pos + 4].toInt() and 0x7F) shl 21) or
-                ((header[pos + 5].toInt() and 0x7F) shl 14) or
-                ((header[pos + 6].toInt() and 0x7F) shl 7) or
-                (header[pos + 7].toInt() and 0x7F)
-            } else {
-                ((header[pos + 4].toInt() and 0xFF) shl 24) or
-                ((header[pos + 5].toInt() and 0xFF) shl 16) or
-                ((header[pos + 6].toInt() and 0xFF) shl 8) or
-                (header[pos + 7].toInt() and 0xFF)
-            }
-
-            if (frameSize <= 0 || pos + 10 + frameSize > end) break
-
-            val encoding = header[pos + 10].toInt() and 0xFF
-            val contentStart = pos + 11
-
-            if (frameId[0].code == 0) break // padding reached
-
-            when (frameId) {
-                "TIT2" -> tags.title = readId3String(header, contentStart, frameSize - 1, encoding)
-                "TPE1" -> tags.artist = readId3String(header, contentStart, frameSize - 1, encoding)
-                "TALB" -> tags.album = readId3String(header, contentStart, frameSize - 1, encoding)
-                "TYER" -> tags.year = readId3String(header, contentStart, frameSize - 1, encoding)?.toIntOrNull()
-                "TDRC" -> tags.year = readId3String(header, contentStart, frameSize - 1, encoding)?.take(4)?.toIntOrNull()
-            }
-
-            pos += 10 + frameSize
-        }
-
-        return tags
-    }
-
-    private fun parseFlacTags(header: ByteArray): BasicTags {
-        val tags = BasicTags()
-        try {
-            var pos = 4 // skip "fLaC"
-            while (pos + 4 <= header.size) {
-                val isLast = (header[pos].toInt() and 0x80) != 0
-                val blockType = header[pos].toInt() and 0x7F
-                val blockSize = ((header[pos + 1].toInt() and 0xFF) shl 16) or
-                                ((header[pos + 2].toInt() and 0xFF) shl 8) or
-                                (header[pos + 3].toInt() and 0xFF)
-                pos += 4
-                if (pos + blockSize > header.size) break
-                if (blockType == 4 && blockSize > 4) { // Vorbis Comment
-                    // Skip vendor string
-                    val vendorLen = (header[pos].toInt() and 0xFF) or
-                                    ((header[pos + 1].toInt() and 0xFF) shl 8) or
-                                    ((header[pos + 2].toInt() and 0xFF) shl 16) or
-                                    ((header[pos + 3].toInt() and 0xFF) shl 24)
-                    var p = pos + 4 + vendorLen
-                    if (p + 4 > header.size) break
-                    val numComments = (header[p].toInt() and 0xFF) or
-                                      ((header[p + 1].toInt() and 0xFF) shl 8) or
-                                      ((header[p + 2].toInt() and 0xFF) shl 16) or
-                                      ((header[p + 3].toInt() and 0xFF) shl 24)
-                    p += 4
-                    for (i in 0 until minOf(numComments, 50)) {
-                        if (p + 4 > header.size) break
-                        val len = (header[p].toInt() and 0xFF) or
-                                  ((header[p + 1].toInt() and 0xFF) shl 8) or
-                                  ((header[p + 2].toInt() and 0xFF) shl 16) or
-                                  ((header[p + 3].toInt() and 0xFF) shl 24)
-                        p += 4
-                        if (p + len > header.size) break
-                        val comment = String(header, p, len, Charsets.UTF_8)
-                        val eq = comment.indexOf('=')
-                        if (eq > 0) {
-                            val key = comment.substring(0, eq).uppercase()
-                            val value = comment.substring(eq + 1)
-                            when (key) {
-                                "TITLE" -> tags.title = value
-                                "ARTIST" -> tags.artist = value
-                                "ALBUM" -> tags.album = value
-                                "DATE" -> tags.year = value.take(4).toIntOrNull() ?: tags.year
-                                "YEAR" -> tags.year = value.toIntOrNull() ?: tags.year
-                            }
-                        }
-                        p += len
-                    }
-                }
-                if (isLast) break
-                pos += blockSize
-            }
-        } catch (_: Exception) { return tags }
-        return tags
-    }
-
-    private fun readId3String(data: ByteArray, start: Int, len: Int, encoding: Int): String? {
-        if (start >= data.size || len <= 0) return null
-        val end = minOf(start + len, data.size)
-        return when (encoding) {
-            0 -> String(data, start + 1, end - start - 1, Charsets.ISO_8859_1).trimEnd(' ')
-            1 -> String(data, start + 3, end - start - 3, Charsets.UTF_16).trimEnd(' ')
-            2 -> String(data, start + 3, end - start - 3, Charsets.UTF_16BE).trimEnd(' ')
-            3 -> String(data, start + 1, end - start - 1, Charsets.UTF_8).trimEnd(' ')
-            else -> null
-        }
-    }
-
-    private class BasicTags(
-        var title: String? = null,
-        var artist: String? = null,
-        var album: String? = null,
-        var year: Int? = null
-    )
-
-    private class ExtractedTags(
-        val title: String? = null,
-        val artist: String? = null,
-        val album: String? = null,
-        val albumArtist: String? = null,
-        val genre: String? = null,
-        val year: Int? = null,
-        val duration: Long? = null,
-        val trackNumber: Int? = null,
-        val discNumber: Int? = null,
-        val composer: String? = null
-    )
 }

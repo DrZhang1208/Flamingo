@@ -29,7 +29,7 @@
 # -keep class yos.music.player.data.libraries.MusicLibrary { *; }
 # -keep class yos.music.player.data.libraries.PlayListBean { *; }
 # -keep class yos.music.player.data.libraries.Folder { *; }
--keepnames class yos.music.player.data.libraries.** { *; }
+-keep class yos.music.player.data.libraries.** { *; }
 
 -keepattributes Signature
 -keep class com.google.gson.reflect.TypeToken { *; }
@@ -40,7 +40,8 @@
     public static *** d(...);
     public static *** e(...);
     public static *** i(...);
-    public static *** v(...);    public static *** println(...);
+    public static *** v(...);
+    public static *** println(...);
     public static *** w(...);
     public static *** wtf(...);
 }

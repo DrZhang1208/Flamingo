@@ -15,3 +15,6 @@
 local.properties
 /app/debug/
 /app/release/
+WIKI.md
+CLAUDE.md
+/build-output/

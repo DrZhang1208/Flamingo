@@ -124,6 +124,48 @@ class YosBasicApplication : Application() {
                         } else {
                             println("prepare 无历史播放列表，跳过恢复")
                         }
+
+                        // 清理过期标签缓存（超过 30 天未更新的标签）
+                        try { yos.music.player.data.remote.RemoteTagDatabase.cleanup(30) } catch (_: Exception) {}
+
+                        // 重建远程文件夹并恢复未完成的扫描
+                        try {
+                            MusicLibrary.rebuildRemoteFolders()
+                            // 加载服务器配置并连接
+                            val savedConfigs = MusicLibrary.loadRemoteServers()
+                            if (!savedConfigs.isNullOrBlank()) {
+                                yos.music.player.data.remote.RemoteServerManager.loadConfigs(savedConfigs)
+                            }
+                            val pendingSongs = MusicLibrary.songs.filter { it.serverId != null && it.tagScanStatus == "PENDING" }
+                            if (pendingSongs.isNotEmpty()) {
+                                println("prepare 恢复扫描 ${pendingSongs.size} 首 PENDING 歌曲")
+                                val groups = pendingSongs.groupBy { it.serverId!! }
+                                for ((serverId, items) in groups) {
+                                    // 先连接服务器
+                                    try { yos.music.player.data.remote.RemoteServerManager.connect(serverId) } catch (_: Exception) {}
+                                    yos.music.player.data.remote.RemoteMetadataScanner.startBackgroundScan(
+                                        items, serverId
+                                    ) { updated ->
+                                        // 仅在提取到有效数据时才存储
+                                        if (updated.title != null) {
+                                            MusicLibrary.updateSongInFullList(updated)
+                                            yos.music.player.data.remote.RemoteTagDatabase.put(
+                                                updated.uri?.toString() ?: "", yos.music.player.data.remote.CachedTags(
+                                                    uri = updated.uri?.toString() ?: "",
+                                                    title = updated.title, artist = updated.artists,
+                                                    album = updated.album,
+                                                    year = updated.releaseYear ?: updated.recordingYear,
+                                                    duration = if (updated.duration > 0) updated.duration else null,
+                                                    coverPath = updated.thumb?.toString()
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }

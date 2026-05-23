@@ -50,8 +50,9 @@ class WebDavDataSource(
         }
         val client = builder.build()
 
-        // serverConfig.host 已是完整 URL（如 http://192.168.1.1:8080/dav），直接拼接
-        val url = "${serverConfig.host.trimEnd('/')}/${remotePath.trimStart('/')}"
+        // 对路径中的特殊字符进行编码
+        val encodedPath = remotePath.trimStart('/').split('/').joinToString("/") { Uri.encode(it) }
+        val url = "${serverConfig.host.trimEnd('/')}/$encodedPath"
 
         val request = Request.Builder().url(url)
         if (dataSpec.position > 0 || dataSpec.length != -1L) {
@@ -78,7 +79,7 @@ class WebDavDataSource(
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (bytesRemaining <= 0) return C.RESULT_END_OF_INPUT
-        val bytesToRead = minOf(length, bytesRemaining.toInt().coerceAtMost(buffer.size - offset))
+        val bytesToRead = minOf(length.toLong(), bytesRemaining).coerceAtMost((buffer.size - offset).toLong().coerceAtLeast(0)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val bytesRead = inputStream?.read(buffer, offset, bytesToRead) ?: return C.RESULT_END_OF_INPUT
         if (bytesRead > 0) bytesRemaining -= bytesRead
         return if (bytesRead <= 0) C.RESULT_END_OF_INPUT else bytesRead
@@ -87,7 +88,7 @@ class WebDavDataSource(
     override fun getUri(): Uri? = openedUri
 
     override fun close() {
-        runCatching { inputStream?.close() }
+        try { inputStream?.close() } catch (_: IOException) {}
         inputStream = null
         bytesRemaining = 0
     }

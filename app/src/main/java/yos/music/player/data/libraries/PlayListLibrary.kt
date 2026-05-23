@@ -28,25 +28,33 @@ object PlayListLibrary {
         private set
 
     fun PlayList.addMusic(music: YosMediaItem) {
-        playList += copy(songDataList = songDataList.toMutableList().apply {
-            music.uri?.let { add(it) }
-        })
-        playList -= this
+        val id = this.listID
+        val index = playList.indexOfFirst { it.listID == id }
+        if (index < 0) return
+        val new = playList.toMutableList().also {
+            it[index] = it[index].copy(songDataList = it[index].songDataList.toMutableList().apply { music.uri?.let { add(it) } })
+        }
+        playList = new
     }
 
     fun PlayList.removeMusic(music: YosMediaItem) {
-        playList += copy(songDataList = songDataList.toMutableList().apply {
-            val songToRemove = songDataList.find { data ->
-                music.uri == data
-            }
-            remove(songToRemove)
-        })
-        playList -= this
+        val id = this.listID
+        val index = playList.indexOfFirst { it.listID == id }
+        if (index < 0) return
+        val new = playList.toMutableList().also {
+            it[index] = it[index].copy(songDataList = it[index].songDataList.toMutableList().apply {
+                removeAll { it == music.uri }
+            })
+        }
+        playList = new
     }
 
     fun PlayList.rename(name: String) {
-        playList += this.copy(name = name)
-        playList -= this
+        val id = this.listID
+        val index = playList.indexOfFirst { it.listID == id }
+        if (index < 0) return
+        val new = playList.toMutableList().also { it[index] = it[index].copy(name = name) }
+        playList = new
     }
 
     fun create(name: String) {

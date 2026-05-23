@@ -100,8 +100,7 @@ fun RecommendCard(imageViewModel: ImageViewModel) {
         }
 
         YosWrapper {
-            LaunchedEffect(showRecommend.value) {
-                if (randomMusicList.value.isNotEmpty()) return@LaunchedEffect
+            LaunchedEffect(showRecommend.value, musicList.size) {
                 randomMusicList.value = musicList.shuffled().take(5)
             }
         }
@@ -156,26 +155,29 @@ fun RecommendCardItem(subTitle: String, music: YosMediaItem, onClick: () -> Unit
         }
 
         val context = LocalContext.current
-        val imageLoader = ImageLoader(context)
+        val imageLoader = remember { ImageLoader(context) }
         YosWrapper {
             LaunchedEffect(Unit) {
                 if (music.thumb == null) return@LaunchedEffect
 
-                delay(200)
-                val request = ImageRequest.Builder(context)
-                    .data(music.thumb)
-                    .build()
-                val thisBitmap = imageLoader.execute(request).drawable?.toBitmap()?.run {
-                    BitmapResolver.bitmapCompress(this, lowQuality = true)
-                }
+                try {
+                    delay(200)
+                    val request = ImageRequest.Builder(context)
+                        .data(music.thumb)
+                        .build()
+                    val thisBitmap = imageLoader.execute(request).drawable?.toBitmap()?.run {
+                        BitmapResolver.bitmapCompress(this, lowQuality = true)
+                    }
 
-                if (thisBitmap != null) {
-                    drawable.value = imageResolve(
-                        thisBitmap
-                    ).toDrawable(context.resources)
-                    thisBitmap.recycle()
+                    if (thisBitmap != null) {
+                        drawable.value = imageResolve(
+                            thisBitmap
+                        ).toDrawable(context.resources)
+                        thisBitmap.recycle()
+                    }
+                } finally {
+                    imageLoader.shutdown()
                 }
-                imageLoader.shutdown()
             }
         }
 

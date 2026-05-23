@@ -286,13 +286,14 @@ fun NowPlaying(
             isSwitchingTrack.value = false
         }
 
-        // 触摸超时
+        // 触摸超时：仅在歌词页面且开启自动隐藏时隐藏控件
         YosWrapper {
             LaunchedEffect(showControl.value, nowPageLambda(), lastClickTime.longValue) {
                 if (nowPageLambda() != Lyric && !showControl.value) {
                     showControl.value = true
+                    return@LaunchedEffect
                 }
-                if (showControl.value) {
+                if (showControl.value && nowPageLambda() == Lyric && SettingsLibrary.LyricsHideControls) {
                     val time = 2500L
                     delay(time)
                     withContext(Dispatchers.Main) {
@@ -434,7 +435,8 @@ fun NowPlaying(
                                 ) {
                                     YosWrapper {
                                         Column(Modifier.fillMaxHeight(0.595f)) {
-                                            val isVisible = nowPageLambda() == Album
+                                            // 仅在 NowPlaying 对用户可见时才播放封面交叉渐变
+                                            val isVisible = nowPageLambda() == Album && !showMiniPlayer()
 
                                             Album(
                                                 modifier = Modifier.sharedElementWithCallerManagedVisibility(
@@ -739,16 +741,22 @@ private fun ColumnScope.Album(
                 .padding(start = dp, end = dp, bottom = dp)
                 .then(modifier)
         ) {
-            // Layer 0 (bottom): new image
+            // Layer 0 (bottom): new image（占位图避免透明矩形）
             currentUrl.value?.let { url ->
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
+                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false)
+                        .placeholder(R.drawable.placeholder_music_default_artwork).build(),
                     contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
                 )
-            }
-            // Layer 1 (top): old image fading out
-            prevUrl.value?.let { url ->
+            } ?: AsyncImage(
+                model = R.drawable.placeholder_music_default_artwork,
+                contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
+            )
+            // Layer 1 (top): old image fading out（仅页面可见时渲染）
+            if (isVisible() && prevUrl.value != null) {
+                val url = prevUrl.value!!
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
                     contentDescription = null, contentScale = ContentScale.Crop,
@@ -1377,10 +1385,13 @@ private fun PlayingBar(
         withContext(Dispatchers.Default) {
             runCatching {
                 val loader = ImageLoader.Builder(ctx).crossfade(true).build()
-                val req = ImageRequest.Builder(ctx).data(url).size(128).build()
-                val bmp = loader.execute(req).drawable?.toBitmap()?.asImageBitmap()
-                loader.shutdown()
-                withContext(Dispatchers.Main) { if (bmp != null) thumbBitmap.value = bmp }
+                try {
+                    val req = ImageRequest.Builder(ctx).data(url).size(128).build()
+                    val bmp = loader.execute(req).drawable?.toBitmap()?.asImageBitmap()
+                    withContext(Dispatchers.Main) { if (bmp != null) thumbBitmap.value = bmp }
+                } finally {
+                    loader.shutdown()
+                }
             }
         }
     }
@@ -1759,7 +1770,7 @@ private fun PlayerControl(
                                         onClick = {
                                             Vibrator.click(context)
                                             isPlayingOnChanged(!isPlayingLambda())
-                                            onStatus(isPlayingLambda())
+                                            onStatus(!isPlayingLambda())
                                         }),
                                 contentAlignment = Alignment.Center
                             ) {

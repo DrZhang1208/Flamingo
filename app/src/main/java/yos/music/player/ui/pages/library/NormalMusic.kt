@@ -42,6 +42,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -87,30 +88,32 @@ import yos.music.player.ui.widgets.basic.YosWrapper
 @Composable
 fun NormalMusic(navController: NavController) {
     val context = LocalContext.current
+    // 捕获首次进入时的标题，后续 refreshTrigger 变化不改变标题
+    val pageTitle = rememberSaveable { LibraryObject.getTargetListWithTitle().first }
+
     Column(
         Modifier
             .fillMaxSize()
         /*.statusBarsPadding()*/
     ) {
-        val pageInfo = LibraryObject.getTargetListWithTitle()
+        val currentList = LibraryObject.getTargetListWithTitle().second
 
-        val musicList = pageInfo.second
         val searchText = remember("NormalMusic_searchText") {
             mutableStateOf("")
         }
 
         val showMusic = remember("NormalMusic_showMusic") {
             derivedStateOf {
-                musicList.isEmpty()
+                currentList.isEmpty()
             }
         }
         if (showMusic.value) {
             val message =
-                if (musicList == null) stringResource(id = R.string.tip_scanning) else stringResource(
+                if (currentList == null) stringResource(id = R.string.tip_scanning) else stringResource(
                     id = R.string.tip_no_song
                 )
             Title(
-                title = pageInfo.first, onBack = {
+                title = pageTitle, onBack = {
                     navController.popBackStack()
                 }
             ) {
@@ -126,10 +129,11 @@ fun NormalMusic(navController: NavController) {
             }
         } else {
             val useSearch = remember { derivedStateOf { searchText.value.isNotEmpty() } }
-            val list: MutableState<List<YosMediaItem>> = remember { mutableStateOf(musicList.sortX()) }
+            val list: MutableState<List<YosMediaItem>> = remember { mutableStateOf(currentList.sortX()) }
 
             val trigger = LibraryObject.refreshTrigger.value
-            LaunchedEffect(trigger) {
+            // 加入排序和搜索关键字作为 key，确保这些变更时立即重新过滤/排序
+            LaunchedEffect(trigger, searchText.value, SettingsLibrary.SongSort, SettingsLibrary.EnableDescending) {
                 withContext(Dispatchers.IO) {
                     val currentMusicList = LibraryObject.getTargetListWithTitle().second
                     val filteredList = if (useSearch.value) {
@@ -157,7 +161,7 @@ fun NormalMusic(navController: NavController) {
                 }
 
                 Title(
-                    title = pageInfo.first, onBack = {
+                    title = pageTitle, onBack = {
                         navController.popBackStack()
                     },
                     rightBarIcon = {
@@ -205,11 +209,14 @@ fun NormalMusic(navController: NavController) {
                                 label = stringResource(id = R.string.normal_button_play),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                scope.launch(Dispatchers.IO) {
-                                    MediaController.prepare(
-                                        list.value.first(),
-                                        list.value
-                                    )
+                                val items = list.value
+                                if (items.isNotEmpty()) {
+                                    scope.launch(Dispatchers.IO) {
+                                        MediaController.prepare(
+                                            items.first(),
+                                            items
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.width(15.dp))
@@ -218,12 +225,15 @@ fun NormalMusic(navController: NavController) {
                                 label = stringResource(id = R.string.normal_button_shuffle),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                scope.launch(Dispatchers.IO) {
-                                    MediaController.prepare(
-                                        list.value.random(),
-                                        list.value,
-                                        shuffleModeEnabled = true
-                                    )
+                                val items = list.value
+                                if (items.isNotEmpty()) {
+                                    scope.launch(Dispatchers.IO) {
+                                        MediaController.prepare(
+                                            items.random(),
+                                            items,
+                                            shuffleModeEnabled = true
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -245,7 +255,7 @@ fun NormalMusic(navController: NavController) {
                         }
 
                         key(index) {
-                            val needDivider = index < musicList.size - 1
+                            val needDivider = index < currentList.size - 1
                             if (needDivider) {
                                 Spacer(
                                     modifier = Modifier
@@ -272,16 +282,18 @@ private fun List<YosMediaItem>.sortX() =
     this.sortedBy { song ->
         when (SongSort) {
             SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal -> Pinyin.toPinyin(
-                (song.title ?: defaultTitle)[0]
+                (song.title ?: defaultTitle).firstOrNull() ?: ' '
             )
 
             SettingsLibrary.SongSortEnum.MUSIC_DURATION.ordinal -> song.duration
             SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal -> Pinyin.toPinyin(
-                (song.artistsList ?: defaultArtists).first()[0]
+                (song.artistsList ?: defaultArtists).firstOrNull()?.firstOrNull() ?: ' '
             )
 
             SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal -> song.modifiedDate ?: 0
-            else -> Pinyin.toPinyin((song.title ?: defaultTitle)[0])
+            SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal -> song.addDate ?: 0
+            SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal -> Pinyin.toPinyin((song.album?.firstOrNull()) ?: ' ')
+            else -> Pinyin.toPinyin((song.title ?: defaultTitle).firstOrNull() ?: ' ')
         }.toString()
     }.let {
         if (EnableDescending) {
@@ -404,6 +416,20 @@ fun FloatingMenu(
                                 SongSort =
                                     SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal
                                 println("SongSort: $SongSort")
+                            }
+                            FloatingMenuDivider()
+                            FloatingMenuItem(
+                                label = "添加时间",
+                                icon = Icons.Outlined.AccessTime
+                            ) {
+                                SongSort = SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal
+                            }
+                            FloatingMenuDivider()
+                            FloatingMenuItem(
+                                label = "专辑名称",
+                                icon = Icons.AutoMirrored.Outlined.QueueMusic
+                            ) {
+                                SongSort = SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal
                             }
                             FloatingMenuDivider()
                             FloatingMenuItem(

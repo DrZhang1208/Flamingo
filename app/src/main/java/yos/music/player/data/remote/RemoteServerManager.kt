@@ -59,10 +59,10 @@ object RemoteServerManager {
     private var credPrefs: android.content.SharedPreferences? = null
 
     // Connections
-    private val smbClients = mutableMapOf<String, SMBClient>()
-    private val smbSessions = mutableMapOf<String, Session>()
-    private val smbShares = mutableMapOf<String, DiskShare>()
-    private val webDavClients = mutableMapOf<String, OkHttpClient>()
+    private val smbClients = java.util.concurrent.ConcurrentHashMap<String, SMBClient>()
+    private val smbSessions = java.util.concurrent.ConcurrentHashMap<String, Session>()
+    private val smbShares = java.util.concurrent.ConcurrentHashMap<String, DiskShare>()
+    private val webDavClients = java.util.concurrent.ConcurrentHashMap<String, OkHttpClient>()
 
     var lastListBody: String = ""
         private set
@@ -323,7 +323,15 @@ object RemoteServerManager {
         val req = Request.Builder().url(url)
         if (length > 0) req.header("Range", "bytes=$offset-${offset + length - 1}")
         val resp = client.newCall(req.build()).execute()
-        return resp.body?.bytes() ?: ByteArray(0)
+        return try {
+            if (!resp.isSuccessful) throw java.io.IOException("WebDAV read failed: HTTP ${resp.code}")
+            val body = resp.body ?: throw java.io.IOException("WebDAV empty body")
+            val full = body.bytes()
+            // 如果服务器不支持 Range 返回了完整文件，只取需要的部分
+            if (length > 0 && full.size > length) full.copyOf(length) else full
+        } finally {
+            resp.close()
+        }
     }
 
     private fun openWebDavStream(serverId: String, path: String): InputStream {

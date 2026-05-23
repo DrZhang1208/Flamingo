@@ -1,22 +1,30 @@
 package yos.music.player.ui.pages.settings.performance
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -24,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import io.github.alexzhirkevich.cupertino.CupertinoSlider
 import yos.music.player.R
+import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.pages.settings.GroupSpacer
 import yos.music.player.ui.pages.settings.GroupSpacerMedium
@@ -61,49 +70,21 @@ fun LyricSetting(navController: NavController) =
 
                         ListHeader(content = "字重 — ${weightName(weightSlider.floatValue)}")
                         RoundColumn {
-                            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                                CupertinoSlider(
-                                    value = weightSlider.floatValue,
-                                    onValueChange = {
-                                        weightSlider.floatValue = it
-                                        SettingsLibrary.LyricFontWeight = weightName(it)
-                                    },
-                                    valueRange = 0f..8f,
-                                    steps = 7
-                                )
-                            }
+                            SliderRow(weightSlider.floatValue, { weightSlider.floatValue = it; SettingsLibrary.LyricFontWeight = weightName(it) }, 0f..8f, 1f)
                         }
 
                         GroupSpacer()
 
                         ListHeader(content = "主歌词字号 — ${mainSizeSlider.floatValue.toInt()}sp")
                         RoundColumn {
-                            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                                CupertinoSlider(
-                                    value = mainSizeSlider.floatValue,
-                                    onValueChange = {
-                                        mainSizeSlider.floatValue = it
-                                        SettingsLibrary.LyricFontSize = it.toInt()
-                                    },
-                                    valueRange = 24f..44f
-                                )
-                            }
+                            SliderRow(mainSizeSlider.floatValue, { mainSizeSlider.floatValue = it; SettingsLibrary.LyricFontSize = it.toInt() }, 24f..44f, 1f)
                         }
 
                         GroupSpacer()
 
                         ListHeader(content = "翻译字号 — ${transSizeSlider.floatValue.toInt()}sp")
                         RoundColumn {
-                            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                                CupertinoSlider(
-                                    value = transSizeSlider.floatValue,
-                                    onValueChange = {
-                                        transSizeSlider.floatValue = it
-                                        SettingsLibrary.TranslationFontSize = it.toInt()
-                                    },
-                                    valueRange = 16f..32f
-                                )
-                            }
+                            SliderRow(transSizeSlider.floatValue, { transSizeSlider.floatValue = it; SettingsLibrary.TranslationFontSize = it.toInt() }, 16f..32f, 1f)
                         }
 
                         GroupSpacerMedium()
@@ -120,6 +101,15 @@ fun LyricSetting(navController: NavController) =
                         GroupSpacer()
 
                         ListHeader(content = stringResource(id = R.string.settings_performance_lyric_others))
+                        RoundColumn {
+                            SwitchItem(
+                                title = "歌词弹性动画",
+                                onClick = { SettingsLibrary.LyricElasticAnim = !SettingsLibrary.LyricElasticAnim },
+                                checkedLambda = { SettingsLibrary.LyricElasticAnim }
+                            )
+                        }
+                        ListHeader(content = "开启后，歌词行间距随播放进度弹性变化")
+                        GroupSpacer()
                         RoundColumn {
                             SwitchItem(
                                 title = stringResource(id = R.string.settings_performance_lyric_blur_effect),
@@ -205,5 +195,21 @@ private fun LyricPreview(mainSize: Float, transSize: Float, weightName: String) 
                 )
             }
         }
+    }
+}
+
+@Composable
+fun SliderRow(value: Float, onValueChange: (Float) -> Unit, range: ClosedFloatingPointRange<Float>, step: Float) {
+    val ctx = LocalContext.current
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(painterResource(R.drawable.ic_tips_minus), null, Modifier.size(12.dp).alpha(0.45f).clickable(
+            remember { MutableInteractionSource() }, null) {
+            if (value > range.start) { Vibrator.click(ctx); onValueChange((value - step).coerceAtLeast(range.start)) }
+        })
+        CupertinoSlider(value, onValueChange, Modifier.weight(1f).padding(horizontal = 10.dp), valueRange = range)
+        Icon(painterResource(R.drawable.ic_tips_plus), null, Modifier.size(14.dp).alpha(0.45f).clickable(
+            remember { MutableInteractionSource() }, null) {
+            if (value < range.endInclusive) { Vibrator.click(ctx); onValueChange((value + step).coerceAtMost(range.endInclusive)) }
+        })
     }
 }

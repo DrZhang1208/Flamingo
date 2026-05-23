@@ -19,8 +19,8 @@
     <string name="settings_library_refresh_now">Refresh Media Library</string>
     <string name="settings_library_refresh_now_desc">Refresh the media library immediately.</string>
     <string name="settings_library_overview">Media Library Overview</string>
-    <string name="settings_remote_title">Remote</string>
-    <string name="settings_remote_server_management">Remote Server Management</string>
+    <string name="settings_remote_title">外部服务器</string>
+    <string name="settings_remote_server_management">远程服务器管理</string>
     <string name="settings_audio">Audio</string>
     <string name="settings_audio_fade_in_out">Fade In / Fade Out</string>
     <string name="settings_audio_exoplayer">ExoPlayer Options</string>

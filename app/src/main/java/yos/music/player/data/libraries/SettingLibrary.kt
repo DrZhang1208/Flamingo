@@ -59,7 +59,7 @@ object SettingsLibrary {
 
     @Stable
     enum class SongSortEnum {
-        MUSIC_TITLE, MUSIC_DURATION, ARTIST_NAME, MODIFIED_DATE
+        MUSIC_TITLE, MUSIC_DURATION, ARTIST_NAME, MODIFIED_DATE, MUSIC_ADD_DATE, MUSIC_ALBUM
     }
 
     /**
@@ -99,7 +99,7 @@ object SettingsLibrary {
     var LyricFontWeight by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_lyric_font_weight",
-        initialValue = "ExtraBold"
+        initialValue = "Bold"
     )
 
     /**
@@ -109,7 +109,7 @@ object SettingsLibrary {
     var LyricFontSize by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_lyric_font_size",
-        initialValue = 34
+        initialValue = 32
     )
 
     /**
@@ -119,7 +119,7 @@ object SettingsLibrary {
     var TranslationFontSize by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_translation_font_size",
-        initialValue = 26
+        initialValue = 20
     )
 
     /**
@@ -130,6 +130,16 @@ object SettingsLibrary {
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_lyric_line_balance",
         initialValue = false
+    )
+
+    /**
+     * 歌词弹性动画
+     */
+    @Stable
+    var LyricElasticAnim by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_elastic_anim",
+        initialValue = true
     )
 
     /**
@@ -160,6 +170,16 @@ object SettingsLibrary {
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_ui_blur_effect",
         initialValue = false
+    )
+
+    /**
+     * 歌词页自动隐藏控制按钮
+     */
+    @Stable
+    var LyricsHideControls by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_ui_lyrics_hide_controls",
+        initialValue = true
     )
 
     /**
