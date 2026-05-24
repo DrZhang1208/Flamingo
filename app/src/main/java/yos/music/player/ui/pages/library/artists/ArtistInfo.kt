@@ -134,6 +134,7 @@ fun ArtistInfo(navController: NavController) {
             itemsIndexed(albums, key = { _, album -> album }) { _, album ->
                 val albumSongs = songs.value.filter { it.album == album }
                 val albumCover = albumSongs.firstOrNull()?.thumb
+                val year = albumSongs.mapNotNull { it.releaseYear ?: it.recordingYear }.maxOrNull()
                 Row(
                     Modifier.fillMaxWidth().clickable {
                         yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
@@ -149,7 +150,11 @@ fun ArtistInfo(navController: NavController) {
                     Spacer(Modifier.width(14.dp))
                     Column {
                         Text(album, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${albumSongs.size} 首", fontSize = 12.sp, modifier = Modifier.alpha(0.4f).padding(top = 2.dp))
+                        val info = buildString {
+                            append("${albumSongs.size} 首")
+                            if (year != null) append(" · $year")
+                        }
+                        Text(info, fontSize = 12.sp, modifier = Modifier.alpha(0.4f).padding(top = 2.dp))
                     }
                 }
             }

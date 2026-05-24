@@ -244,6 +244,7 @@ private val MaterialFadeOutTransitionSpec
 */
 
 @ExperimentalSharedTransitionApi
+@OptIn(ExperimentalMaterial3Api::class)
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun NowPlaying(
@@ -274,6 +275,7 @@ fun NowPlaying(
             mutableLongStateOf(0L)
         }
 
+        val showArtistPickerFromAlbum = remember { mutableStateOf(false) }
         val showControl = rememberSaveable(key = "NowPlaying_showControl") {
             mutableStateOf(true)
         }
@@ -385,6 +387,7 @@ fun NowPlaying(
                         lrcEntries = { lrcEntries.value },
                         weightLambda = { showControl.value },
                         translationLambda = { true },
+                        userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric,
                         onBackClick = {
                             showControl.value = true
                             lastClickTime.longValue =
@@ -478,7 +481,18 @@ fun NowPlaying(
                                                             fontSize = 19.5.sp,
                                                             lineHeight = 26.sp,
                                                             maxLines = 1,
-                                                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                                                            modifier = Modifier
+                                                                .basicMarquee(iterations = Int.MAX_VALUE)
+                                                                .clickable(
+                                                                    indication = null,
+                                                                    interactionSource = remember { MutableInteractionSource() }
+                                                                ) {
+                                                                    it?.album?.let { album ->
+                                                                        yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
+                                                                        closeSheet()
+                                                                        navController.toUI(UI.AlbumInfo)
+                                                                    }
+                                                                },
                                                             fontWeight = FontWeight.Medium
                                                         )
                                                         Text(
@@ -488,7 +502,22 @@ fun NowPlaying(
                                                             lineHeight = 24.sp,
                                                             modifier = Modifier
                                                                 .overlayEffect()
-                                                                .basicMarquee(iterations = Int.MAX_VALUE),
+                                                                .basicMarquee(iterations = Int.MAX_VALUE)
+                                                                .clickable(
+                                                                    indication = null,
+                                                                    interactionSource = remember { MutableInteractionSource() }
+                                                                ) {
+                                                                    val artists = it?.artistsList ?: emptyList()
+                                                                    if (artists.size > 1) {
+                                                                        showArtistPickerFromAlbum.value = true
+                                                                    } else {
+                                                                        artists.firstOrNull()?.let { artist ->
+                                                                            yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                                                            closeSheet()
+                                                                            navController.toUI(UI.ArtistInfo)
+                                                                        }
+                                                                    }
+                                                                },
                                                             maxLines = 1,
                                                             color = Color.White.copy(alpha = 0.35f)
                                                         )
@@ -581,6 +610,20 @@ fun NowPlaying(
                     ) {
 
                         YosWrapper {
+                            if (showControl.value) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(top = 40.dp)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { })
+                                )
+                            }
+                        }
+
+                        YosWrapper {
                             Column(
                                 Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom
@@ -663,6 +706,46 @@ fun NowPlaying(
             }
 
         }
+
+        // 封面页多歌手选择
+        if (showArtistPickerFromAlbum.value && thisMusicPlaying.value != null) {
+            val m = thisMusicPlaying.value!!
+            val artists = m.artistsList ?: emptyList()
+            OptionDialog(
+                icon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ShadowImageWithCache(
+                            dataLambda = { m.thumb }, contentDescription = null,
+                            modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                            shadowAlpha = 0f, imageQuality = ImageQuality.LOW
+                        )
+                    }
+                },
+                title = m.title ?: defaultTitle,
+                subTitle = m.artistsName ?: defaultArtistsName,
+                horizontalTitle = true,
+                content = { dismiss ->
+                    Column {
+                        artists.forEachIndexed { index, artist ->
+                            if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                            Row(
+                                Modifier.fillMaxWidth().height(48.dp).clickable {
+                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                    closeSheet()
+                                    navController.toUI(UI.ArtistInfo)
+                                    dismiss()
+                                }.padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                },
+                onDismissRequest = { showArtistPickerFromAlbum.value = false }
+            )
+        }
+
     }
 }
 
@@ -1075,6 +1158,7 @@ private fun Lyric(
     translationLambda: () -> Boolean,
     mainViewModel: MainViewModel,
     mediaViewModel: MediaViewModel,
+    userScrollEnabled: Boolean = true,
     onBackClick: () -> Unit
 ) = YosWrapper {
 
@@ -1096,6 +1180,7 @@ private fun Lyric(
                 liveTimeLambda = {
                     (mediaControl?.currentPosition ?: 0).toInt()
                 },
+                userScrollEnabled = userScrollEnabled,
                 mediaEvent = object : YosMediaEvent {
                     override fun onSeek(position: Int) {
                         mediaControl?.seekTo(position.toLong())
@@ -1326,19 +1411,6 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                                 MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
                                 Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
                             }
-                            dismiss()
-                        }),
-                        Triple("歌手", Icons.Filled.Person, {
-                            val artists = music.artistsList ?: emptyList()
-                            if (artists.size > 1 && navController != null) {
-                                dismiss(); showArtistPicker.value = true
-                            } else {
-                                artists.firstOrNull()?.let { artist -> yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist); closeSheet(); navController?.toUI(UI.ArtistInfo) }
-                                dismiss()
-                            }
-                        }),
-                        Triple("专辑", Icons.Filled.Album, {
-                            music.album?.let { album -> yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album); closeSheet(); navController?.toUI(UI.AlbumInfo) }
                             dismiss()
                         }),
                         Triple(if (FavPlayListLibrary.isFavorite(music)) "从喜爱移除" else "添加到喜爱",

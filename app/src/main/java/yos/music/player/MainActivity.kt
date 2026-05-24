@@ -23,13 +23,14 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutQuart
-import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -363,17 +364,7 @@ class MainActivity : BaseActivity() {
                                     }
 
                                     YosWrapper {
-                                        val animateSpeed = 260
-                                        val animationSpec: FiniteAnimationSpec<IntOffset> =
-                                            tween(
-                                                durationMillis = animateSpeed,
-                                                easing = EaseOutQuart
-                                            )
-                                        val fadeAnimationSpec: FiniteAnimationSpec<Float> =
-                                            tween(
-                                                durationMillis = animateSpeed,
-                                                easing = EaseOutQuart
-                                            )
+                                        val offsetSpec = spring<IntOffset>(stiffness = 300f, dampingRatio = 0.85f)
                                         AnimatedNavHost(
                                             modifier = Modifier.then(
                                                 if (SettingsLibrary.BarBlurEffect && !showNowPlaying.value) {
@@ -384,34 +375,11 @@ class MainActivity : BaseActivity() {
                                             ),
                                             navController = navController,
                                             startDestination = UI.HomePage,
-                                            enterTransition = {
-                                                fadeIn(animationSpec = fadeAnimationSpec) + slideInHorizontally(
-                                                    animationSpec = animationSpec
-                                                ) {
-                                                    it / 3
-                                                }
-                                            },
-                                            exitTransition = {
-                                                fadeOut(animationSpec = fadeAnimationSpec) + slideOutHorizontally(
-                                                    animationSpec = animationSpec
-                                                ) {
-                                                    -it / 3
-                                                }
-                                            },
-                                            popEnterTransition = {
-                                                fadeIn(animationSpec = fadeAnimationSpec) + slideInHorizontally(
-                                                    animationSpec = animationSpec
-                                                ) {
-                                                    -it / 3
-                                                }
-                                            },
-                                            popExitTransition = {
-                                                fadeOut(animationSpec = fadeAnimationSpec) + slideOutHorizontally(
-                                                    animationSpec = animationSpec
-                                                ) {
-                                                    it / 3
-                                                }
-                                            }) {
+                                            enterTransition = { slideInHorizontally(offsetSpec) { it } },
+                                            exitTransition = { slideOutHorizontally(offsetSpec) { -it } },
+                                            popEnterTransition = { slideInHorizontally(offsetSpec) { -it } },
+                                            popExitTransition = { slideOutHorizontally(offsetSpec) { it } }
+                                        ) {
 
                                             composable(UI.HomePage) {
                                                 HomeNav(

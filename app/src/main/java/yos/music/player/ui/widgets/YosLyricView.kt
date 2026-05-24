@@ -128,6 +128,7 @@ fun YosLyricView(
     uiConfig: YosUIConfig = YosUIConfig(),
     weightLambda: () -> Boolean,
     modifier: Modifier,
+    userScrollEnabled: Boolean = true,
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -281,6 +282,7 @@ fun YosLyricView(
         YosWrapper {
             LazyColumn(
                 state = scrollState,
+                userScrollEnabled = userScrollEnabled,
                 contentPadding = PaddingValues(vertical = 16.dp),/*
             verticalArrangement = Arrangement.spacedBy(5.dp),*/
                 modifier =
@@ -352,7 +354,7 @@ fun YosLyricView(
                         interactionSource = remember { MutableInteractionSource() }) {
                         onBackClick()
                     }
-                    .nestedScroll(nestedScrollConnection)
+                    .then(if (userScrollEnabled) Modifier.nestedScroll(nestedScrollConnection) else Modifier)
                     .onSizeChanged {
                         if (height.intValue == 0 && it.height != 0) {
                             height.intValue = it.height

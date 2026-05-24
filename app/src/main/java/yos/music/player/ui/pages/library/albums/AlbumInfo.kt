@@ -169,21 +169,6 @@ fun AlbumInfo(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Text(
-                            text = albumName.value,
-                            fontSize = 20.sp,
-                            /*modifier = Modifier.sharedElement(
-                                sharedTransitionScope.rememberSharedContentState(key = "album_name-$albumName"),
-                                animatedVisibilityScope = animatedContentScope
-                            ),*/
-                            textAlign = TextAlign.Center,
-                            lineHeight = 26.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        /*}*/
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Text(
                             text = mainArtistsName.value,
                             fontSize = 17.5.sp,
                             textAlign = TextAlign.Center,
@@ -191,8 +176,9 @@ fun AlbumInfo(
                             color = MaterialTheme.colorScheme.primary
                         )
 
+                        val albumYear = songs.firstOrNull()?.releaseYear ?: songs.firstOrNull()?.recordingYear
                         Text(
-                            text = "ALBUM",
+                            text = if (albumYear != null) "ALBUM · $albumYear" else "ALBUM",
                             fontSize = 11.5.sp,
                             modifier = Modifier
                                 .alpha(0.4f)
