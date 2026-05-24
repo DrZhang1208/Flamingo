@@ -80,7 +80,9 @@
     <string name="playlist_unavailable_desc">再生項目がありません。</string>
     <string name="normal_button_sort_by_name">名前</string>
     <string name="normal_button_sort_by_artist">アーティスト</string>
-    <string name="normal_button_sort_by_date">最近追加</string>
+    <string name="normal_button_sort_by_album">アルバム</string>
+    <string name="normal_button_sort_by_modify_date">変更日</string>
+    <string name="normal_button_sort_by_add_date">最近追加</string>
     <string name="normal_button_sort_ascending">昇順</string>
     <string name="normal_button_sort_descending">降順</string>
     <string name="settings_performance_lyric_blur_effect">歌詞のぼかし</string>

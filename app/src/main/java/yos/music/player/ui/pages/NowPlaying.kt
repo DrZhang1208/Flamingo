@@ -374,7 +374,6 @@ fun NowPlaying(
                 ) {
                     println("重组：YosLyricView 外层 3")
 
-                    key(lrcEntries.value.size) {
                     Lyric(
                         lrcEntries = { lrcEntries.value },
                         weightLambda = { showControl.value },
@@ -387,7 +386,6 @@ fun NowPlaying(
                         mainViewModel = mainViewModel,
                         mediaViewModel = mediaViewModel
                     )
-                    }
                 }
             }
 
@@ -576,24 +574,6 @@ fun NowPlaying(
                         println("重组：控制区域外部")
 
                         YosWrapper {
-                            if (showControl.value) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(top = 40.dp)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null,
-                                            onClick = {
-                                                //showControl.value = true
-                                                /*lastClickTime.longValue =
-                                                TimeUtils.getNowMills()*/
-                                            })
-                                )
-                            }
-                        }
-
-                        YosWrapper {
                             Column(
                                 Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom
@@ -710,25 +690,11 @@ private fun ColumnScope.Album(
     }
 
     val currentUrl = remember { mutableStateOf(albumUrl()) }
-    val prevUrl = remember { mutableStateOf<Uri?>(null) }
-    val prevAlpha = remember { Animatable(0f) }
 
     LaunchedEffect(albumUrl()) {
         val newUrl = albumUrl() ?: return@LaunchedEffect
         if (newUrl != currentUrl.value) {
-            if (currentUrl.value != null) {
-                if (isVisible()) {
-                    prevAlpha.snapTo(1f)
-                    prevUrl.value = currentUrl.value
-                    currentUrl.value = newUrl
-                    prevAlpha.animateTo(0f, tween(600, easing = FastOutSlowInEasing))
-                    prevUrl.value = null
-                } else {
-                    currentUrl.value = newUrl
-                }
-            } else {
-                currentUrl.value = newUrl
-            }
+            currentUrl.value = newUrl
         }
     }
 
@@ -741,11 +707,10 @@ private fun ColumnScope.Album(
                 .padding(start = dp, end = dp, bottom = dp)
                 .then(modifier)
         ) {
-            // Layer 0 (bottom): new image（占位图避免透明矩形）
+            // Coil crossfade 自动处理封面切换渐变，无需手动两层叠加
             currentUrl.value?.let { url ->
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false)
-                        .placeholder(R.drawable.placeholder_music_default_artwork).build(),
+                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(true).build(),
                     contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
                 )
@@ -754,17 +719,6 @@ private fun ColumnScope.Album(
                 contentDescription = null, contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
             )
-            // Layer 1 (top): old image fading out（仅页面可见时渲染）
-            if (isVisible() && prevUrl.value != null) {
-                val url = prevUrl.value!!
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
-                    contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth().aspectRatio(1f).clip(shape)
-                        .graphicsLayer { alpha = prevAlpha.value }
-                )
-            }
         }
     }
 }
@@ -1742,12 +1696,12 @@ private fun PlayerControl(
                                 modifier = Modifier
                                     .size(61.dp)
                                     .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
                                         indication = ripple(bounded = false),
-                                        onClick = {
-                                            Vibrator.click(context)
-                                            onPrevious()
-                                        }),
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        onPrevious()
+                                        Vibrator.click(context)
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1765,13 +1719,15 @@ private fun PlayerControl(
                                 modifier = Modifier
                                     .size(58.5.dp)
                                     .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
                                         indication = ripple(bounded = false),
-                                        onClick = {
-                                            Vibrator.click(context)
-                                            isPlayingOnChanged(!isPlayingLambda())
-                                            onStatus(!isPlayingLambda())
-                                        }),
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        val nowPlaying = isPlayingLambda()
+                                        if (nowPlaying) mediaControl?.fadePause()
+                                        else mediaControl?.fadePlay()
+                                        isPlayingOnChanged(!nowPlaying)
+                                        Vibrator.click(context)
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 AnimatedContent(targetState = isPlayingLambda(), transitionSpec = {
@@ -1805,12 +1761,12 @@ private fun PlayerControl(
                                 modifier = Modifier
                                     .size(61.dp)
                                     .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
                                         indication = ripple(bounded = false),
-                                        onClick = {
-                                            Vibrator.click(context)
-                                            onNext()
-                                        }),
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        onNext()
+                                        Vibrator.click(context)
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(

@@ -84,7 +84,9 @@
     <string name="playlist_unavailable_desc">No items to play.</string>
     <string name="normal_button_sort_by_name">Name</string>
     <string name="normal_button_sort_by_artist">Artist</string>
-    <string name="normal_button_sort_by_date">Recently Added</string>
+    <string name="normal_button_sort_by_album">Album</string>
+    <string name="normal_button_sort_by_modify_date">Modification Date</string>
+    <string name="normal_button_sort_by_add_date">Recently Added</string>
     <string name="normal_button_sort_ascending">Ascending</string>
     <string name="normal_button_sort_descending">Descending</string>
     <string name="settings_performance_lyric_blur_effect">Lyric Blur</string>

@@ -82,26 +82,19 @@ fun YosFloatingLight(
     showMiniPlayer: () -> Boolean
 ) {
     val context = LocalContext.current
-    val processedDrawable = remember { mutableStateOf<Drawable?>(null) }
-    val displayAlbum = remember { mutableStateOf<Uri?>(null) }
-    LaunchedEffect(album()) { album()?.let { displayAlbum.value = it } }
+    val bgBitmap = remember { mutableStateOf<ImageBitmap?>(null) }
     val imageLoader = remember { ImageLoader.Builder(context).crossfade(true).build() }
 
-    LaunchedEffect(displayAlbum.value) {
-        val uri = displayAlbum.value ?: return@LaunchedEffect
-        withContext(Dispatchers.Default) {
+    // 以 album() 的字符串值为 key，确保 Uri 不同时一定能触发重新加载
+    val albumKey = album()?.toString()
+    LaunchedEffect(albumKey) {
+        val uri = album() ?: return@LaunchedEffect
+        val drawable = withContext(Dispatchers.Default) {
             val request = ImageRequest.Builder(context).data(uri).size(256).build()
-            val bitmap = imageLoader.execute(request).drawable?.toBitmap() ?: return@withContext
+            val bitmap = imageLoader.execute(request).drawable?.toBitmap() ?: return@withContext null
             val processed = imageResolve(bitmap)
-            val drawable = BitmapDrawable(context.resources, processed)
-            withContext(Dispatchers.Main) { processedDrawable.value = drawable }
-        }
-    }
-
-    val bgBitmap = remember { mutableStateOf<ImageBitmap?>(value = null) }
-
-    LaunchedEffect(processedDrawable.value) {
-        val drawable = processedDrawable.value ?: return@LaunchedEffect
+            BitmapDrawable(context.resources, processed)
+        } ?: return@LaunchedEffect
         val bitmap = withContext(Dispatchers.Default) {
             drawable.toBitmap().asImageBitmap()
         }

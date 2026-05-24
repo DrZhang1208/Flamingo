@@ -326,7 +326,10 @@ object MusicLibrary {
 
     // 远程文件夹独立追踪（绕开 mutableDataSaverListStateOf 的 Gson 序列化问题）
     private val remoteFolders = mutableListOf<Folder>()
-    val allFolders: List<Folder> get() = folders + remoteFolders
+    val allFolders: List<Folder> get() {
+        val remotePaths = remoteFolders.map { it.path }.toSet()
+        return remoteFolders + folders.filter { it.path !in remotePaths }
+    }
 
     fun mountRemoteFolder(folder: Folder) {
         remoteFolders.add(folder)

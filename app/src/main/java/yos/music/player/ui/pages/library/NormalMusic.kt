@@ -391,6 +391,7 @@ fun FloatingMenu(
                                 }
                                 .background(Color(0xF2E9E9E9) withNight Color(0xFA161616), shape),
                         ) {
+                            // --- 排序方式 ---
                             FloatingMenuItem(
                                 label = stringResource(id = R.string.normal_button_sort_by_name),
                                 icon = Icons.AutoMirrored.Outlined.QueueMusic
@@ -408,29 +409,30 @@ fun FloatingMenu(
                                     SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal
                                 println("SongSort: $SongSort")
                             }
-                            FloatingMenuDivider()
+                            FloatingMenuItemDivider()
                             FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_date),
+                                label = stringResource(id = R.string.normal_button_sort_by_album),
+                                icon = Icons.AutoMirrored.Outlined.QueueMusic
+                            ) {
+                                SongSort = SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal
+                            }
+                            FloatingMenuItemDivider()
+                            FloatingMenuItem(
+                                label = stringResource(id = R.string.normal_button_sort_by_modify_date),
                                 icon = Icons.Outlined.AccessTime
                             ) {
                                 SongSort =
                                     SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal
                                 println("SongSort: $SongSort")
                             }
-                            FloatingMenuDivider()
+                            FloatingMenuItemDivider()
                             FloatingMenuItem(
-                                label = "添加时间",
+                                label = stringResource(id = R.string.normal_button_sort_by_add_date),
                                 icon = Icons.Outlined.AccessTime
                             ) {
                                 SongSort = SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal
                             }
-                            FloatingMenuDivider()
-                            FloatingMenuItem(
-                                label = "专辑名称",
-                                icon = Icons.AutoMirrored.Outlined.QueueMusic
-                            ) {
-                                SongSort = SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal
-                            }
+                            // --- 排序顺序 ---
                             FloatingMenuDivider()
                             FloatingMenuItem(
                                 label = stringResource(id = R.string.normal_button_sort_ascending),

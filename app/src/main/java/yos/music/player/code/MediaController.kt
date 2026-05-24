@@ -223,8 +223,8 @@ object MediaController {
         play: Boolean = true
     ) {
         println("prepare $music")
-        val effectiveShuffle = shuffleModeEnabled || shuffleEnabled.value
-        shuffleEnabled.value = effectiveShuffle
+        // 由调用者显式控制随机模式，不再与全局状态 OR
+        shuffleEnabled.value = shuffleModeEnabled
 
         if (thisMusicList != playingMusicList.value) {
 
@@ -232,14 +232,14 @@ object MediaController {
             sourceMusicList = thisMusicList
 
             // 应用层随机：打乱列表，保持当前曲目在首位
-            val playbackList = if (effectiveShuffle) {
+            val playbackList = if (shuffleModeEnabled) {
                 val others = thisMusicList.filter { it.uri != music.uri }.shuffled()
                 listOf(music) + others
             } else {
                 thisMusicList
             }
 
-            val startIndex = if (effectiveShuffle) {
+            val startIndex = if (shuffleModeEnabled) {
                 0
             } else {
                 playbackList.indexOfFirst { it.uri == music.uri }.coerceAtLeast(0)
@@ -656,7 +656,8 @@ class YosPlaybackService : MediaSessionService() {
                         tagScanStatus = if (overwrite) "COMPLETE" else cur.tagScanStatus
                     )
                     musicPlaying.value = u
-                    if (u.thumb != null) {
+                    // EXOPLAYER 源不覆盖 thumb，跳过 bitmap 更新避免 handler.post 时序覆盖问题
+                    if (u.thumb != null && source != "EXOPLAYER") {
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
                             MediaViewModelObject.bitmap.value = u.thumb
                         }

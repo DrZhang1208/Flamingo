@@ -116,9 +116,6 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .height(80.dp)
             .fillMaxWidth()
-            .clickable {
-                itemClick()
-            }
             .padding(start = 22.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -131,6 +128,7 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             modifier = Modifier
                 .size(64.dp)
                 .clip(shape)
+                .clickable { itemClick() }
                 .drawWithCache {
                     onDrawWithContent {
                         drawContent()
@@ -156,7 +154,8 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
         Column(
             Modifier
                 .padding(start = 16.dp)
-                .weight(1f)) {
+                .weight(1f)
+                .clickable { itemClick() }) {
             Text(
                 text = folder.name,
                 modifier = Modifier.padding(bottom = 1.dp),
@@ -167,18 +166,7 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             )
         }
 
-        CupertinoSwitch(checked = !hideFolders.any { it == folder.path }, onCheckedChange = {
-            scope.launch(Dispatchers.IO) {
-                Vibrator.click(context)
-                if (it) {
-                    MusicLibrary.unHideFolder(folder)
-                } else {
-                    MusicLibrary.hideFolder(folder)
-                }
-            }
-        })
-
-        // 远程文件夹：卸载按钮
+        // 远程文件夹：卸载按钮（放在开关左侧，保持开关对齐）
         if (isRemote) {
             Text(
                 "卸载", fontSize = 12.sp, color = Color.Red.copy(alpha = 0.6f),
@@ -204,6 +192,16 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
                 )
             }
         }
+
+        CupertinoSwitch(checked = !hideFolders.any { it == folder.path }, onCheckedChange = {
+            scope.launch(Dispatchers.IO) {
+                Vibrator.click(context)
+                withContext(Dispatchers.Main) {
+                    if (it) MusicLibrary.unHideFolder(folder)
+                    else MusicLibrary.hideFolder(folder)
+                }
+            }
+        })
 
         Icon(
             painter = painterResource(id = R.drawable.ic_action_next), contentDescription = null,

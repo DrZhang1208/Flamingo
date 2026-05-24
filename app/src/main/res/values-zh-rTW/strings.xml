@@ -80,7 +80,9 @@
     <string name="playlist_unavailable_desc">沒有播放項目。</string>
     <string name="normal_button_sort_by_name">名稱</string>
     <string name="normal_button_sort_by_artist">藝人</string>
-    <string name="normal_button_sort_by_date">最近添加</string>
+    <string name="normal_button_sort_by_album">專輯</string>
+    <string name="normal_button_sort_by_modify_date">修改日期</string>
+    <string name="normal_button_sort_by_add_date">最近添加</string>
     <string name="normal_button_sort_ascending">升序</string>
     <string name="normal_button_sort_descending">降序</string>
     <string name="settings_performance_lyric_blur_effect">歌詞模糊</string>
