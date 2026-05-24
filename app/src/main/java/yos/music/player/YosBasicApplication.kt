@@ -99,18 +99,14 @@ class YosBasicApplication : Application() {
                         val playListData = MusicLibrary.loadPlayList()
                         val playStatusData = MusicLibrary.loadPlayStatus()
 
-                        println("prepare 读取历史")
                         val savedMusic = playStatusData.music
                         val savedPlayingMusicList = playListData.playingMusicList
-                        println("prepare savedMusic=$savedMusic, savedPlayingMusicList size=${savedPlayingMusicList?.size}")
 
                         if (savedMusic != null) {
                             musicPlaying.value = savedMusic
-                            println("prepare 直接恢复 musicPlaying: ${savedMusic.title}")
                         }
 
                         if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
-                            println("prepare 准备调用")
                             if (savedMusic != null) {
                                 yos.music.player.code.MediaController.prepare(
                                     savedMusic, savedPlayingMusicList,
@@ -122,7 +118,6 @@ class YosBasicApplication : Application() {
                             }
                             playingMusicList.value = savedPlayingMusicList
                         } else {
-                            println("prepare 无历史播放列表，跳过恢复")
                         }
 
                         // 清理过期标签缓存（超过 30 天未更新的标签）
@@ -138,7 +133,6 @@ class YosBasicApplication : Application() {
                             }
                             val pendingSongs = MusicLibrary.songs.filter { it.serverId != null && it.tagScanStatus == "PENDING" }
                             if (pendingSongs.isNotEmpty()) {
-                                println("prepare 恢复扫描 ${pendingSongs.size} 首 PENDING 歌曲")
                                 val groups = pendingSongs.groupBy { it.serverId!! }
                                 for ((serverId, items) in groups) {
                                     // 先连接服务器

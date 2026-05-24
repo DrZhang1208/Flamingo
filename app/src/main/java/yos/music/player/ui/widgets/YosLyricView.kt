@@ -130,7 +130,6 @@ fun YosLyricView(
     modifier: Modifier,
     onBackClick: () -> Unit
 ) {
-    println("重组：YosLyricView")
     val context = LocalContext.current
     val mainTextBasicColor = Color(uiConfig.mainTextBasicColor)
     val subTextBasicColor = Color(uiConfig.subTextBasicColor)
@@ -141,10 +140,6 @@ fun YosLyricView(
 
     //val thisLyricLines = MediaViewModelObject.mainLyricLines
     if (lrcEntries.isEmpty() || otherSideForLines.isEmpty() /*|| thisLyricLines.isEmpty()*/) {
-        println(
-            lrcEntries.isEmpty()
-                .toString() + otherSideForLines.isEmpty()/* + thisLyricLines.isEmpty()*/
-        )
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -396,7 +391,7 @@ fun YosLyricView(
                         )
                     }
 
-                    key(lines, SettingsLibrary.LyricFontSize, SettingsLibrary.TranslationFontSize, SettingsLibrary.LyricFontWeight) {
+                    key(SettingsLibrary.LyricFontSize, SettingsLibrary.TranslationFontSize, SettingsLibrary.LyricFontWeight) {
                         val translation = remember(lines) {
                             val str = lines.last().second
                             str.ifBlank { null }
@@ -590,15 +585,8 @@ fun YosLyricView(
                             scrollDistance.value = currentOffset - targetOffset*/
                             scrollState.animateScrollBy(
                                 scrollDistance.value,
-                                /*animationSpec = tween(
-                                    durationMillis = abs(0.5 * currentOffset).toInt().coerceAtLeast(540)
-                                        .coerceAtMost(1200),
-                                    delayMillis = 0,
-                                    easing = yosEasing
-                                )*/
                                 animationSpec = tween(
-                                    durationMillis = 550,
-                                    //delayMillis = 15,
+                                    durationMillis = (abs(scrollDistance.value) / 0.45f).toInt().coerceIn(350, 1600),
                                     easing = yosEasing
                                 )
                                 /*spring(
@@ -874,9 +862,8 @@ fun LazyItemScope.LyricItem(
     liveTimeLambda: () -> Int,
     onClick: () -> Unit
 ) {
-    println("重组：歌词 $mainLyric")
 
-    val viewAlign = if (otherSide) Alignment.End else Alignment.Start
+    val viewAlign = Alignment.Start
 
     val focusedColor = Color(0xFFFFFFFF)
     val unfocusedColor = Color(0x2EFFFFFF)
@@ -1172,7 +1159,6 @@ fun LazyItemScope.LyricItem(
                                             // 是否已播放完？
                                             if (showHighLight.value) {
                                                 // 高亮
-                                                println("高亮：$mainLyric")
                                                 return@Line onDrawWithContent {
                                                     drawText(
                                                         textLayoutResult = measureResult,

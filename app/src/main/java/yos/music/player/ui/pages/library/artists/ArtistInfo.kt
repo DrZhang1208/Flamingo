@@ -1,6 +1,7 @@
 package yos.music.player.ui.pages.library.artists
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,9 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -47,11 +48,14 @@ import yos.music.player.R
 import yos.music.player.code.MediaController
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.YosMediaItem
+import yos.music.player.data.libraries.artistsList
 import yos.music.player.data.libraries.artistsName
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.SongMenuIcon
+import yos.music.player.ui.UI
+import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
@@ -63,6 +67,8 @@ fun ArtistInfo(navController: NavController) {
         mutableStateOf(MusicLibrary.Artist[artistName.value])
     }
     val scope = rememberCoroutineScope()
+
+    val albums = remember(songs.value) { songs.value.mapNotNull { it.album }.distinct().sorted() }
 
     val (songCount, totalMinutes) = rememberSaveable(songs.value) {
         val totalDuration = songs.value.sumOf { it.duration }
@@ -79,7 +85,7 @@ fun ArtistInfo(navController: NavController) {
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data(songs.value.getOrNull(0)?.thumb).crossfade(true).build(),
+                        .data(songs.value.maxByOrNull { MusicLibrary.getPlayCount(it.uri) }?.thumb).crossfade(true).build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(170.dp).clip(CircleShape)
@@ -115,7 +121,38 @@ fun ArtistInfo(navController: NavController) {
         item { ArtistDivider() }
 
         item("ArtistInfo_others") {
-            Text("$songCount Songs, about $totalMinutes minutes", fontSize = 15.sp, modifier = Modifier.alpha(0.4f).padding(horizontal = 18.dp).padding(top = 18.dp))
+            Text("$songCount 首歌曲，约 $totalMinutes 分钟", fontSize = 15.sp, modifier = Modifier.alpha(0.4f).padding(horizontal = 18.dp).padding(top = 18.dp))
+        }
+
+        // 参与专辑
+        if (albums.isNotEmpty()) {
+            item("ArtistAlbums_header") {
+                Spacer(Modifier.height(24.dp))
+                ArtistDivider()
+                Text("专辑", fontSize = 18.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 18.dp).padding(top = 16.dp, bottom = 8.dp))
+            }
+            itemsIndexed(albums, key = { _, album -> album }) { _, album ->
+                val albumSongs = songs.value.filter { it.album == album }
+                val albumCover = albumSongs.firstOrNull()?.thumb
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
+                        navController.toUI(UI.AlbumInfo)
+                    }.padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current).data(albumCover).size(96).build(),
+                        contentDescription = null, contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(52.dp).clip(RoundedCornerShape(5.dp))
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(album, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${albumSongs.size} 首", fontSize = 12.sp, modifier = Modifier.alpha(0.4f).padding(top = 2.dp))
+                    }
+                }
+            }
         }
     }
 }
@@ -138,18 +175,41 @@ private fun ArtistDivider() = Spacer(Modifier.fillMaxWidth().padding(horizontal 
 
 @Composable
 private fun ArtistSongsItem(music: YosMediaItem, artistName: String, onClick: () -> Unit) {
+    val isPlaying = MediaController.musicPlaying.value?.uri == music.uri
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val normalColor = Color.Black withNight Color.White
+
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(music.thumb).size(80).build(),
+            contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(4.dp))
+        )
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
-            Text(music.title ?: defaultTitle, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 20.sp)
-            music.artistsName?.let { name ->
-                if (name != artistName) {
-                    Text(name, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp, modifier = Modifier.alpha(0.4f))
-                }
+            Text(
+                music.title ?: defaultTitle, fontSize = 16.sp, maxLines = 1,
+                overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
+                modifier = if (isPlaying) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier,
+                lineHeight = 20.sp, color = if (isPlaying) highlightColor else normalColor
+            )
+            val subtitle = buildString {
+                val hasArtist = music.artistsName?.let { it != artistName } == true
+                if (hasArtist) append(music.artistsName!!)
+                music.album?.let { if (hasArtist) append(" · $it") else append(it) }
+            }
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    subtitle, fontSize = 11.sp, maxLines = 1,
+                    overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
+                    modifier = Modifier.alpha(0.4f).then(if (isPlaying) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
+                    lineHeight = 16.sp, color = if (isPlaying) highlightColor.copy(alpha = 0.7f) else normalColor.copy(alpha = 0.7f)
+                )
             }
         }
-        SongMenuIcon(music)
+        SongMenuIcon(music, showArtistMenuItem = false, showAlbumMenuItem = false)
     }
 }

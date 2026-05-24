@@ -101,6 +101,9 @@ object MediaController {
     /** 全局 UI 刷新计数器——扫描器/播放回调更新标签/歌词/封面后自增 */
     @Volatile var uiRefreshTrigger = 0
 
+    /** 当前正在追踪播放次数的歌曲 URI（切歌时重置，过半后计数并清空） */
+    internal var countingUri: String? = null
+
     /** 应用层随机播放标志。ExoPlayer 始终工作在顺序模式。 */
     @Stable
     var shuffleEnabled = mutableStateOf(false)
@@ -222,7 +225,6 @@ object MediaController {
         repeatMode: Int = REPEAT_MODE_ALL,
         play: Boolean = true
     ) {
-        println("prepare $music")
         // 由调用者显式控制随机模式，不再与全局状态 OR
         shuffleEnabled.value = shuffleModeEnabled
 
@@ -254,7 +256,6 @@ object MediaController {
                 mediaControl?.prepare()
             }
 
-            println("prepare 调用切列表")
             if (!play) {
                 musicPlaying.value = music
                 refresh(music)
@@ -275,7 +276,6 @@ object MediaController {
             syncState()
 
         } else {
-            println("prepare 调用非切列表")
             val index = thisMusicList.indexOf(music)
             withContext(Dispatchers.Main) {
                 mediaControl?.seekToDefaultPosition(index)
@@ -341,7 +341,6 @@ object MediaController {
     }
 
     fun onCase(mediaItem: YosMediaItem) {
-        MusicLibrary.incrementPlayCount(mediaItem.uri)
         refresh(mediaItem)
     }
 
@@ -492,14 +491,12 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     private fun saveData() {
-        println("持久化 尝试保存播放状态")
         val music = musicPlaying.value ?: return
         val playlist = playingMusicList.value ?: listOf(music)
         val control = mediaControl
         val pos = runCatching { control?.currentPosition ?: 0 }.getOrDefault(0)
         val shuffle = shuffleEnabled.value
         val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
-        println("持久化 保存播放状态 playlist=${playlist.size}")
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
         MusicLibrary.updatePlayList(PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist))
     }
@@ -573,7 +570,6 @@ class YosPlaybackService : MediaSessionService() {
 
                         val path = player.currentMediaItem?.uri
 
-                        println("质量分析 内置实现获取")
                         var samplingRate = 0
                         var bitrate = 0
                         var haveJOC = false
@@ -639,7 +635,6 @@ class YosPlaybackService : MediaSessionService() {
                             MediaViewModelObject.bitrate.intValue = bitrate
                         }
 
-                        println("质量分析 采样率：${MediaViewModelObject.samplingRate.intValue}，比特率：${MediaViewModelObject.bitrate.intValue}")
                     }
                 }
 
@@ -677,6 +672,8 @@ class YosPlaybackService : MediaSessionService() {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     mediaItem?.let {
                         val yosItem = it.toYosMediaItem()
+                        // 开始追踪新歌的播放次数
+                        yos.music.player.code.MediaController.countingUri = yosItem.uri?.toString()
                         val handler = android.os.Handler(android.os.Looper.getMainLooper())
                         if (yosItem.serverId != null) {
                             val cached = yos.music.player.data.remote.RemoteTagDatabase.get(yosItem.uri?.toString() ?: "")
@@ -788,6 +785,18 @@ class YosPlaybackService : MediaSessionService() {
 
                 override fun onEvents(player: Player, events: Player.Events) {
                     super.onEvents(player, events)
+
+                    // 播放次数统计：播放超过一半时长才算一次有效播放
+                    val counting = yos.music.player.code.MediaController.countingUri
+                    if (counting != null) {
+                        val duration = player.duration
+                        val position = player.currentPosition
+                        if (duration > 0 && position >= duration / 2) {
+                            val uri = player.currentMediaItem?.localConfiguration?.uri
+                            if (uri != null) MusicLibrary.incrementPlayCount(uri)
+                            yos.music.player.code.MediaController.countingUri = null
+                        }
+                    }
 
                     if (events.containsAny(
                             Player.EVENT_PLAY_WHEN_READY_CHANGED,

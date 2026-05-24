@@ -79,6 +79,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.R
 import yos.music.player.data.libraries.FavPlayListLibrary
+import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.MusicLibrary.songs
 import yos.music.player.data.libraries.PlayList
 import yos.music.player.data.libraries.PlayListLibrary
@@ -185,7 +186,10 @@ private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit
     var renameText by remember { mutableStateOf(playList.name) }
 
     val coverUri = remember(playList.songDataList) {
-        playList.songDataList.firstOrNull()?.let { uri -> songs.find { it.uri == uri }?.thumb }
+        playList.songDataList
+            .mapNotNull { uri -> songs.find { it.uri == uri } }
+            .maxByOrNull { MusicLibrary.getPlayCount(it.uri) }
+            ?.thumb
     }
 
     if (showRenameDialog) {

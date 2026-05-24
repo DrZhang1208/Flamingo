@@ -26,12 +26,12 @@ import androidx.compose.animation.core.EaseOutQuart
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,7 +84,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
@@ -194,7 +194,6 @@ class MainActivity : BaseActivity() {
                         }
                     }*/
 
-                    println("重组：底层载体")
 
                     /*Surface(
                         modifier = Modifier
@@ -202,7 +201,6 @@ class MainActivity : BaseActivity() {
                         color = Color.Transparent,
                         contentColor = Color.Black withNight Color.White
                     ) {*/
-                        println("重组：主载体")
                         val miniPlayerHeight = 62.dp
                         val height = remember("MainActivity_height") { mutableIntStateOf(0) }
 
@@ -315,7 +313,6 @@ class MainActivity : BaseActivity() {
 
                         // 主界面
                         YosWrapper {
-                            println("重组：主界面")
 
                             Surface(
                                 modifier = Modifier
@@ -366,15 +363,15 @@ class MainActivity : BaseActivity() {
                                     }
 
                                     YosWrapper {
-                                        val animateSpeed = 340
-                                        val animationSpec: FiniteAnimationSpec<IntSize> =
+                                        val animateSpeed = 260
+                                        val animationSpec: FiniteAnimationSpec<IntOffset> =
                                             tween(
                                                 durationMillis = animateSpeed,
                                                 easing = EaseOutQuart
                                             )
                                         val fadeAnimationSpec: FiniteAnimationSpec<Float> =
                                             tween(
-                                                durationMillis = animateSpeed - 160,
+                                                durationMillis = animateSpeed,
                                                 easing = EaseOutQuart
                                             )
                                         AnimatedNavHost(
@@ -382,46 +379,37 @@ class MainActivity : BaseActivity() {
                                                 if (SettingsLibrary.BarBlurEffect && !showNowPlaying.value) {
                                                     Modifier.haze(state = hazeState)
                                                 } else {
-                                                    //println("haze 父控件效果关闭")
                                                     Modifier
                                                 }
                                             ),
                                             navController = navController,
                                             startDestination = UI.HomePage,
                                             enterTransition = {
-                                                fadeIn(animationSpec = fadeAnimationSpec) + expandHorizontally(
-                                                    animationSpec = animationSpec,
-                                                    clip = false,
-                                                    expandFrom = Alignment.Start
+                                                fadeIn(animationSpec = fadeAnimationSpec) + slideInHorizontally(
+                                                    animationSpec = animationSpec
                                                 ) {
-                                                    -it / 2
+                                                    it / 3
                                                 }
                                             },
                                             exitTransition = {
-                                                fadeOut(animationSpec = fadeAnimationSpec) + shrinkHorizontally(
-                                                    animationSpec = animationSpec,
-                                                    clip = false,
-                                                    shrinkTowards = Alignment.End
+                                                fadeOut(animationSpec = fadeAnimationSpec) + slideOutHorizontally(
+                                                    animationSpec = animationSpec
                                                 ) {
-                                                    it / 2
+                                                    -it / 3
                                                 }
                                             },
                                             popEnterTransition = {
-                                                fadeIn(animationSpec = fadeAnimationSpec) + expandHorizontally(
-                                                    animationSpec = animationSpec,
-                                                    clip = false,
-                                                    expandFrom = Alignment.End
+                                                fadeIn(animationSpec = fadeAnimationSpec) + slideInHorizontally(
+                                                    animationSpec = animationSpec
                                                 ) {
-                                                    it / 2
+                                                    -it / 3
                                                 }
                                             },
                                             popExitTransition = {
-                                                fadeOut(animationSpec = fadeAnimationSpec) + shrinkHorizontally(
-                                                    animationSpec = animationSpec,
-                                                    clip = false,
-                                                    shrinkTowards = Alignment.Start
+                                                fadeOut(animationSpec = fadeAnimationSpec) + slideOutHorizontally(
+                                                    animationSpec = animationSpec
                                                 ) {
-                                                    -it / 2
+                                                    it / 3
                                                 }
                                             }) {
 
@@ -701,7 +689,6 @@ class MainActivity : BaseActivity() {
 
                                     val color = Color.White withNight Color(0xFF1C1C1E)
 
-                                    println("重组：播放条&播放界面 外层")
 
                                     val dragState = rememberDraggableState { delta ->
                                         scope.launch {
@@ -803,7 +790,6 @@ class MainActivity : BaseActivity() {
                                             },
                                         color = Color.Transparent
                                     ) {
-                                        println("重组：播放条&播放界面")
 
                                         val isPlaying =
                                             rememberSaveable(key = "MainActivity_isPlaying") {
@@ -821,7 +807,8 @@ class MainActivity : BaseActivity() {
                                                     isPlaying.value = it
                                                 },
                                                 nowPageLambda = { nowPageNowPlaying.value },
-                                                showMiniPlayer = { yosBottomSheetConfig.showMenu }
+                                                showMiniPlayer = { yosBottomSheetConfig.showMenu },
+                                                closeSheet = { scope.launch { offsetY.animateTo(0f, animationSpec = navSpec) } }
                                             ) {
                                                 nowPageNowPlaying.value = it
                                             }
@@ -1212,7 +1199,6 @@ class MainActivity : BaseActivity() {
                 // Application中已还原，这里算是后台扫描
                 // mainMusicList.value = MusicScanner(context).getMusicList()
                 MusicLibrary.scanMedia(context)
-                println("刷新媒体库")
             }
         }
     }

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -48,6 +52,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import yos.music.player.ui.UI
+import yos.music.player.ui.toUI
 import com.cormor.overscroll.core.overScrollVertical
 import com.cormor.overscroll.core.rememberOverscrollFlingBehavior
 import com.google.accompanist.insets.navigationBarsHeight
@@ -113,31 +121,14 @@ fun AlbumInfo(
         } else {
             val songs = MusicLibrary.Album[albumName.value].sortedWith(compareBy<YosMediaItem>{ it.trackNumber?:0 }.thenBy { it.title })
 
-            /*Box(Modifier.height(56.dp), contentAlignment = Alignment.CenterStart) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .padding(horizontal = 18.dp)
-                        .size(24.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            navController.popBackStack()
-                        },
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }*/
-
-            val state = rememberLazyListState()
-
             val mainArtists = rememberSaveable(key = "AlbumInfo_mainArtists") {
                 mutableStateOf(songs.first().artistsList ?: defaultArtists)
             }
             val mainArtistsName = rememberSaveable(key = "AlbumInfo_mainArtistsName") {
                 mutableStateOf(songs.first().artistsName ?: defaultArtistsName)
             }
+
+            val albumArtists = remember(songs) { songs.flatMap { it.artistsList ?: emptyList() }.distinct().sorted() }
 
             val (songCount, totalMinutes) = rememberSaveable(songs) {
                 val totalDuration = songs.sumOf { it.duration }
@@ -148,14 +139,7 @@ fun AlbumInfo(
 
             val scope = rememberCoroutineScope()
 
-            LazyColumn(
-                state = state,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .overScrollVertical(),
-                flingBehavior = rememberOverscrollFlingBehavior { state },
-                contentPadding = PaddingValues(bottom = 18.dp, top = 54.dp)
-            ) {
+            Title(title = albumName.value, onBack = { navController.popBackStack() }) {
                 item("AlbumInfo") {
                     Column(
                         Modifier
@@ -297,53 +281,47 @@ fun AlbumInfo(
 
                 item("AlbumInfo_others") {
                     Text(
-                        text = stringResource(
-                            id = R.string.page_library_album_info_others,
-                            songCount,
-                            totalMinutes
-                        ), fontSize = 15.sp, modifier = Modifier
+                        text = "$songCount 首歌曲，约 $totalMinutes 分钟",
+                        fontSize = 15.sp, modifier = Modifier
                             .alpha(0.4f)
                             .padding(horizontal = 18.dp)
                             .padding(top = 18.dp)
                     )
                 }
 
-                item("navbar") {
-                    Spacer(modifier = Modifier.navigationBarsHeight(134.dp))
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsHeight(54.dp)
-            ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 5.dp)
-                ) {
-                    Box(
-                        Modifier.statusBarsHeight(48.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_back),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .statusBarsPadding()
-                                .padding(horizontal = 10.dp)
-                                .size(32.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {
-                                        navController.popBackStack()
-                                    }
-                                ),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                // 参与歌手
+                if (albumArtists.isNotEmpty()) {
+                    item("AlbumArtists_header") {
+                        Spacer(Modifier.height(24.dp))
+                        AlbumDivider()
+                        Text("歌手", fontSize = 18.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 18.dp).padding(top = 16.dp, bottom = 8.dp))
                     }
+                    itemsIndexed(albumArtists, key = { _, artist -> artist }) { _, artist ->
+                        val artistSongs = MusicLibrary.Artist[artist]
+                        val artistCover = artistSongs.firstOrNull()?.thumb
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                navController.toUI(UI.ArtistInfo)
+                            }.padding(horizontal = 18.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current).data(artistCover).size(96).build(),
+                                contentDescription = null, contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(52.dp).clip(CircleShape)
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                Text(artist, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${artistSongs.size} 首", fontSize = 12.sp, modifier = Modifier.alpha(0.4f).padding(top = 2.dp))
+                            }
+                        }
+                    }
+                }
+
+                item("album_bottom_navbar") {
+                    Spacer(modifier = Modifier.navigationBarsHeight(24.dp))
                 }
             }
         }
@@ -401,6 +379,10 @@ private fun AlbumSongsItem(
     mainArtists: List<String>,
     onClick: () -> Unit
 ) {
+    val isPlaying = MediaController.musicPlaying.value?.uri == music.uri
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val normalColor = Color.Black withNight Color.White
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -411,7 +393,6 @@ private fun AlbumSongsItem(
         Box(
             contentAlignment = Alignment.TopCenter, modifier = Modifier
                 .width(24.dp)
-                /*.height(21.dp)*/
                 .fillMaxHeight()
         ) {
             Text(
@@ -419,7 +400,8 @@ private fun AlbumSongsItem(
                 fontSize = 16.sp,
                 modifier = Modifier.alpha(0.4f),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                color = if (isPlaying) highlightColor else normalColor
             )
         }
         Spacer(modifier = Modifier.width(10.dp))
@@ -429,8 +411,10 @@ private fun AlbumSongsItem(
                 text = music.title ?: defaultTitle,
                 fontSize = 16.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 20.sp
+                overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
+                modifier = if (isPlaying) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier,
+                lineHeight = 20.sp,
+                color = if (isPlaying) highlightColor else normalColor
             )
             YosWrapper {
                 val needShowArtists = remember(music) {
@@ -443,13 +427,16 @@ private fun AlbumSongsItem(
                         text = music.artistsName ?: defaultArtistsName,
                         fontSize = 11.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .alpha(0.4f)
+                            .then(if (isPlaying) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
                         lineHeight = 16.sp,
-                        modifier = Modifier.alpha(0.4f)
+                        color = if (isPlaying) highlightColor.copy(alpha = 0.7f) else normalColor.copy(alpha = 0.7f)
                     )
                 }
             }
         }
-        SongMenuIcon(music)
+        SongMenuIcon(music, showArtistMenuItem = false, showAlbumMenuItem = false)
     }
 }

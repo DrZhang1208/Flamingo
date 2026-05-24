@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.QueueMusic
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -69,6 +70,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.R
 import yos.music.player.code.MediaController
+import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.MusicLibrary.songs
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.SettingsLibrary.EnableDescending
@@ -244,7 +246,8 @@ fun NormalMusic(navController: NavController) {
                         key = { index, music -> "${index}_${music.uri}" }
                     ) { index, music ->
                         MusicList(
-                            music
+                            music,
+                            navController
                         ) {
                             scope.launch(Dispatchers.IO) {
                                 MediaController.prepare(
@@ -293,6 +296,7 @@ private fun List<YosMediaItem>.sortX() =
             SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal -> song.modifiedDate ?: 0
             SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal -> song.addDate ?: 0
             SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal -> Pinyin.toPinyin((song.album?.firstOrNull()) ?: ' ')
+            SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal -> MusicLibrary.getPlayCount(song.uri)
             else -> Pinyin.toPinyin((song.title ?: defaultTitle).firstOrNull() ?: ' ')
         }.toString()
     }.let {
@@ -398,7 +402,6 @@ fun FloatingMenu(
                             ) {
                                 SongSort =
                                     SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal
-                                println("SongSort: $SongSort")
                             }
                             FloatingMenuItemDivider()
                             FloatingMenuItem(
@@ -407,7 +410,6 @@ fun FloatingMenu(
                             ) {
                                 SongSort =
                                     SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal
-                                println("SongSort: $SongSort")
                             }
                             FloatingMenuItemDivider()
                             FloatingMenuItem(
@@ -423,7 +425,6 @@ fun FloatingMenu(
                             ) {
                                 SongSort =
                                     SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal
-                                println("SongSort: $SongSort")
                             }
                             FloatingMenuItemDivider()
                             FloatingMenuItem(
@@ -432,6 +433,13 @@ fun FloatingMenu(
                             ) {
                                 SongSort = SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal
                             }
+                            FloatingMenuItemDivider()
+                            FloatingMenuItem(
+                                label = stringResource(id = R.string.normal_button_sort_by_play_count),
+                                icon = Icons.Filled.Star
+                            ) {
+                                SongSort = SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal
+                            }
                             // --- 排序顺序 ---
                             FloatingMenuDivider()
                             FloatingMenuItem(
@@ -439,7 +447,6 @@ fun FloatingMenu(
                                 icon = Icons.Rounded.ArrowUpward
                             ) {
                                 EnableDescending = false
-                                println("SongSort: $EnableDescending")
                             }
                             FloatingMenuItemDivider()
                             FloatingMenuItem(
@@ -447,7 +454,6 @@ fun FloatingMenu(
                                 icon = Icons.Rounded.ArrowDownward
                             ) {
                                 EnableDescending = true
-                                println("SongSort: $EnableDescending")
                             }
                         }
                     }

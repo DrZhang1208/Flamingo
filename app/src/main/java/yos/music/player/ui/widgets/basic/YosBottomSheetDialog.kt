@@ -1,11 +1,13 @@
 package yos.music.player.ui.widgets.basic
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.theme.YosRoundedCornerShape
@@ -69,6 +73,7 @@ private fun YosBottomSheetDialog(
 
     YosWrapper {
         LaunchedEffect(Unit) {
+            bottomSheetState.show()
             Vibrator.click(context)
         }
     }
@@ -124,31 +129,62 @@ private fun YosBottomSheetDialog(
 }
 
 @Composable
-private fun DialogTitle(icon: @Composable () -> Unit, title: String, subTitle: String? = null) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 20.dp)
-            .padding(top = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-    ) {
-        icon()
-        Text(
-            text = title,
-            fontSize = 26.sp,
-            lineHeight = 30.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
-            textAlign = TextAlign.Center
-        )
-        if (subTitle != null) {
+private fun DialogTitle(icon: @Composable () -> Unit, title: String, subTitle: String? = null, horizontal: Boolean = false) {
+    if (horizontal) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 20.dp)
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            icon()
+            Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 18.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
+                )
+                if (subTitle != null) {
+                    Text(
+                        text = subTitle, fontSize = 14.sp,
+                        modifier = Modifier
+                            .alpha(0.5f).padding(top = 2.dp)
+                            .basicMarquee(iterations = Int.MAX_VALUE),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    } else {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 20.dp)
+                .padding(top = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+        ) {
+            icon()
             Text(
-                text = subTitle, fontSize = 16.sp,
-                modifier = Modifier
-                    .alpha(0.5f).padding(horizontal = 14.dp),
-                textAlign = TextAlign.Center,
-                lineHeight = 20.5.sp
+                text = title,
+                fontSize = 26.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
+                textAlign = TextAlign.Center
             )
+            if (subTitle != null) {
+                Text(
+                    text = subTitle, fontSize = 16.sp,
+                    modifier = Modifier
+                        .alpha(0.5f).padding(horizontal = 14.dp),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.5.sp
+                )
+            }
         }
     }
 }
@@ -171,24 +207,36 @@ fun OptionDialog(
     icon: @Composable () -> Unit,
     title: String,
     subTitle: String? = null,
-    content: (@Composable () -> Unit)?,
-    positiveContent: String,
+    content: (@Composable (dismiss: () -> Unit) -> Unit)?,
+    positiveContent: String? = null,
     negativeContent: String? = null,
+    dismissOnPositive: Boolean = true,
+    dismissOnNegative: Boolean = true,
+    horizontalTitle: Boolean = false,
     bottomSheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     properties: ModalBottomSheetProperties = ModalBottomSheetDefaults.properties(),
     cornerRadius: () -> Dp = { SettingsLibrary.ScreenCorner.toInt().dp },
-    onPositive: () -> Unit,
+    onPositive: (() -> Unit)? = null,
     onNegative: (() -> Unit)? = null,
     onDismissRequest: () -> Unit
-) =
+) {
+    val scope = rememberCoroutineScope()
+
+    val animatedDismiss: () -> Unit = {
+        scope.launch {
+            bottomSheetState.hide()
+            onDismissRequest()
+        }
+    }
+
     YosBottomSheetDialog(
         bottomSheetState = bottomSheetState,
         properties = properties,
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = animatedDismiss,
         cornerRadius = cornerRadius
     ) {
         // println(cornerRadius())
-        DialogTitle(icon = icon, title = title, subTitle = subTitle)
+        DialogTitle(icon = icon, title = title, subTitle = subTitle, horizontal = horizontalTitle)
         Column(
             Modifier
                 .fillMaxWidth()
@@ -199,53 +247,74 @@ fun OptionDialog(
                         .fillMaxWidth()
                         .padding(bottom = 19.5.dp)
                 ) {
-                    content()
+                    content(animatedDismiss)
                 }
             }
             val height = 50.dp
             val shape = RoundedCornerShape(height.div(2))
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = /*24.5.dp*/ 5.dp, bottom = 2.dp)
-            ) {
-                Box(
+            val hasButtons = positiveContent != null || negativeContent != null
+            if (hasButtons) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(height)
-                        .background(MaterialTheme.colorScheme.primary, shape = shape)
-                        .clip(shape)
-                        .clickable(onClick = onPositive),
-                    contentAlignment = Alignment.Center
+                        .padding(top = 5.dp, bottom = 2.dp)
                 ) {
-                    Text(
-                        text = positiveContent,
-                        color = Color.White,
-                        fontSize = 16.5.sp
-                    )
-                }
-
-                if (negativeContent != null && onNegative != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(height)
-                            .clip(shape)
-                            .background(
-                                color = (Color.LightGray withNight Color.DarkGray).copy(alpha = 0.25f),
+                    if (positiveContent != null && onPositive != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(height)
+                                .background(MaterialTheme.colorScheme.primary, shape = shape)
+                                .clip(shape)
+                                .clickable {
+                                    if (dismissOnPositive) {
+                                        scope.launch {
+                                            bottomSheetState.hide()
+                                            onPositive?.invoke()
+                                            onDismissRequest()
+                                        }
+                                    } else onPositive?.invoke()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = positiveContent,
+                                color = Color.White,
+                                fontSize = 16.5.sp
                             )
-                            .clickable(onClick = onNegative),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = negativeContent,
-                            fontSize = 16.5.sp
-                        )
+                        }
+                    }
+
+                    if (negativeContent != null && onNegative != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(height)
+                                .clip(shape)
+                                .background(
+                                    color = (Color.LightGray withNight Color.DarkGray).copy(alpha = 0.25f),
+                                )
+                                .clickable {
+                                    if (dismissOnNegative) {
+                                        scope.launch {
+                                            bottomSheetState.hide()
+                                            onNegative?.invoke()
+                                            onDismissRequest()
+                                        }
+                                    } else onNegative?.invoke()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = negativeContent,
+                                fontSize = 16.5.sp
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}

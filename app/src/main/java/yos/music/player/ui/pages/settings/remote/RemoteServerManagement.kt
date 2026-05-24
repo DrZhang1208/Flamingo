@@ -373,10 +373,13 @@ private fun ServerDialog(
                 OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text("名称") }, singleLine = true)
                 if (type == ServerType.WEBDAV) {
                     OutlinedTextField(webdavUrl, { webdavUrl = it }, Modifier.fillMaxWidth(), label = { Text("地址") }, singleLine = true,
-                        placeholder = { Text("http://192.168.1.1:8080/dav") })
+                        placeholder = { Text("http://192.168.1.1:8080/dav") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
                 } else {
-                    OutlinedTextField(smbHost, { smbHost = it }, Modifier.fillMaxWidth(), label = { Text("主机地址") }, singleLine = true)
-                    OutlinedTextField(smbPort, { smbPort = it }, Modifier.fillMaxWidth(), label = { Text("端口") }, singleLine = true)
+                    OutlinedTextField(smbHost, { smbHost = it }, Modifier.fillMaxWidth(), label = { Text("主机地址") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                    OutlinedTextField(smbPort, { smbPort = it }, Modifier.fillMaxWidth(), label = { Text("端口") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     OutlinedTextField(shareName, { shareName = it }, Modifier.fillMaxWidth(), label = { Text("共享名") }, singleLine = true)
                 }
                 OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(), label = { Text("用户名 (可选)") }, singleLine = true)
@@ -392,6 +395,7 @@ private fun ServerDialog(
             }
         },
         positiveContent = if (connecting) "连接中..." else "连接",
+        dismissOnPositive = false,
         onPositive = {
             if (connecting) return@OptionDialog
             if (type == ServerType.WEBDAV && webdavUrl.isBlank()) {

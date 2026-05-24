@@ -34,11 +34,9 @@ object AudioMetadataUtils {
             val lyrics = retriever.extractMetadata(24)
             retriever.release()
             if (!lyrics.isNullOrBlank()) {
-                println("内嵌歌词 MediaMetadataRetriever 获取成功")
                 return lyrics
             }
         }.onFailure {
-            println("内嵌歌词 MediaMetadataRetriever 失败: ${it.message}")
         }
 
         // Method 2: TagLib ID3 parser (properly extracts USLT frame)
@@ -55,13 +53,11 @@ object AudioMetadataUtils {
                 if (lyricEntry != null) {
                     val lyricText = lyricEntry.value.lastOrNull() // Last value is the lyric text
                     if (!lyricText.isNullOrBlank()) {
-                        println("内嵌歌词 TagLib 获取成功")
                         return lyricText
                     }
                 }
             }
         }.onFailure {
-            println("内嵌歌词 TagLib 失败: ${it.message}")
         }
 
         // Method 3: Scan file for LRC content (fallback)
@@ -70,7 +66,6 @@ object AudioMetadataUtils {
             if (!file.exists()) return@runCatching null
             extractLrcFromFile(file)
         }.onFailure {
-            println("内嵌歌词 文件扫描失败: ${it.message}")
         }.getOrNull()
     }
 
@@ -166,7 +161,6 @@ object AudioMetadataUtils {
         for (pattern in patterns) {
             val content = loadLrcFile(context, pattern)
             if (content != null) {
-                println("翻译歌词 从文件获取成功: $pattern")
                 return content
             }
         }
@@ -178,7 +172,6 @@ object AudioMetadataUtils {
         var bitrate: Int
         var sampleRate: Int
 
-        println("质量分析 Taglib 实现获取")
 
         ParcelFileDescriptor.open(songFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             val audioProperties = TagLib.getAudioProperties(fd.fd, AudioPropertiesReadStyle.Fast)
@@ -189,7 +182,6 @@ object AudioMetadataUtils {
         if (bitrate == -1 || sampleRate == -1) {
             val extractor = MediaExtractor()
             try {
-                println("质量分析 MediaExtractor 实现获取")
                 extractor.setDataSource(filePath)
                 val format = extractor.getTrackFormat(0)
                 if (bitrate == -1) {

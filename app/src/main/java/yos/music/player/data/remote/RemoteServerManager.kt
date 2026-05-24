@@ -383,7 +383,6 @@ object RemoteServerManager {
             webDavClients[serverId] ?: return emptyList()
         }
         val url = buildWebDavUrl(cfg, remotePath).trimEnd('/') + "/"
-        println("WebDAV list url=$url")
 
         // Try PROPFIND
         val resp = client.newCall(
@@ -394,10 +393,8 @@ object RemoteServerManager {
                 .build()
         ).execute()
 
-        println("WebDAV PROPFIND code=${resp.code}")
         val body = resp.body?.string() ?: ""
         lastListBody = body
-        println("WebDAV body len=${body.length} preview=${body.take(300)}")
 
         if (resp.isSuccessful && body.isNotBlank()) {
             // 用请求 URL 的路径作为自引用标识，过滤当前目录自身
@@ -407,12 +404,10 @@ object RemoteServerManager {
         }
 
         // Fallback: GET + parse HTML or simple file list
-        println("WebDAV PROPFIND failed/empty, trying GET fallback")
         val getResp = client.newCall(
             Request.Builder().url(url).header("User-Agent", "Flamingo/1.0").build()
         ).execute()
         val getBody = getResp.body?.string() ?: ""
-        println("WebDAV GET code=${getResp.code} body=${getBody.take(300)}")
         if (getResp.isSuccessful && getBody.isNotBlank()) {
             return parseHtmlDirectory(getBody, remotePath, url)
         }
@@ -436,7 +431,6 @@ object RemoteServerManager {
             val resolvedPath = if (parentPath.isEmpty()) cleanHref else "$parentPath/$cleanHref"
             results.add(RemoteFile(name, resolvedPath, isDir, 0L, System.currentTimeMillis()))
         }
-        println("WebDAV HTML parsed ${results.size} entries")
         return results
     }
 

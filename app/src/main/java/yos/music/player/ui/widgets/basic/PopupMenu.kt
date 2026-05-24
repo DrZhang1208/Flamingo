@@ -11,7 +11,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,10 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +56,6 @@ fun PopupMenu(
     onDismiss: () -> Unit,
     dark: Boolean = false
 ) {
-    val density = LocalDensity.current
     val showPopup = remember { mutableStateOf(false) }
     val shadow = animateFloatAsState(
         targetValue = if (showPopup.value) 225f else 0f,
@@ -74,67 +70,37 @@ fun PopupMenu(
         onDismiss()
     }
 
-    // Get screen height for positioning
-    val screenHeightPx = with(density) { android.content.res.Resources.getSystem().displayMetrics.heightPixels.toFloat() }
-    val menuHeightEstimate = with(density) { 160.dp.toPx() } // ~3 items
-    val showAbove = (buttonPosition.y + menuHeightEstimate) > screenHeightPx
-
-    // Horizontal: right-aligned if button near right edge
-    val alignRight = with(density) { buttonPosition.x > 200.dp.toPx() }
-    val hPad = if (alignRight) Modifier.padding(end = 12.dp) else Modifier.padding(start = 12.dp)
-
     Popup(onDismissRequest = onDismiss) {
+        // 半透明遮罩
         Box(
-            Modifier.fillMaxSize().clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { onDismiss() }
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.4f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() },
+            contentAlignment = Alignment.Center
         ) {
-            if (showAbove) {
-                // Show menu above button: align to bottom of screen
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
-                    Box(Modifier.height(with(density) { (screenHeightPx - buttonPosition.y + 20.dp.toPx()).toDp() }))
-                    AnimatedVisibility(
-                        modifier = Modifier.fillMaxWidth().then(hPad),
-                        visible = showPopup.value,
-                        enter = fadeIn(tween(200)) + scaleIn(
-                            initialScale = 0.8f, animationSpec = tween(250),
-                            transformOrigin = TransformOrigin(0.95f, if (showAbove) 1f else 0f)
-                        ),
-                        exit = fadeOut(tween(150)) + scaleOut(
-                            targetScale = 0.8f, animationSpec = tween(150),
-                            transformOrigin = TransformOrigin(0.95f, if (showAbove) 1f else 0f)
-                        )
-                    ) {
-                        PopupMenuContent(shadow.value, alignRight, items, dark)
-                    }
-                }
-            } else {
-                // Show menu below button
-                AnimatedVisibility(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = with(density) { (buttonPosition.y + 4.dp.toPx()).toDp() })
-                        .then(hPad),
-                    visible = showPopup.value,
-                    enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.8f, animationSpec = tween(250), transformOrigin = TransformOrigin(0.95f, 0f)),
-                    exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f, animationSpec = tween(150), transformOrigin = TransformOrigin(0.95f, 0f))
-                ) {
-                    PopupMenuContent(shadow.value, alignRight, items, dark)
-                }
+            AnimatedVisibility(
+                visible = showPopup.value,
+                enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.9f, animationSpec = tween(250)),
+                exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.9f, animationSpec = tween(150))
+            ) {
+                PopupMenuContent(shadow.value, items, dark)
             }
         }
     }
 }
 
 @Composable
-private fun PopupMenuContent(shadowValue: Float, alignRight: Boolean, items: List<PopupMenuItem>, dark: Boolean) {
-    val shape = RoundedCornerShape(10.dp)
+private fun PopupMenuContent(shadowValue: Float, items: List<PopupMenuItem>, dark: Boolean) {
+    val shape = RoundedCornerShape(14.dp)
     val menuBackground = if (dark) Color(0xFA161616) else Color(0xF2E9E9E9) withNight Color(0xFA161616)
-    val menuAlign = if (alignRight) Alignment.TopEnd else Alignment.TopStart
-    Box(Modifier.fillMaxWidth(), contentAlignment = menuAlign) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             Modifier
+                .padding(horizontal = 32.dp)
                 .graphicsLayer { this.shape = shape; shadowElevation = shadowValue; clip = true }
                 .background(menuBackground, shape)
         ) {
@@ -152,7 +118,7 @@ private fun PopupMenuItemRow(label: String, icon: ImageVector, onClick: () -> Un
     val iconTint = if (dark) Color.White else MaterialTheme.colorScheme.onBackground
     Row(
         Modifier
-            .fillMaxWidth(0.618f)
+            .fillMaxWidth()
             .height(48.dp)
             .background(rowBackground)
             .clickable(onClick = onClick)
@@ -171,7 +137,7 @@ private fun PopupMenuItemRow(label: String, icon: ImageVector, onClick: () -> Un
 @Composable
 private fun PopupMenuDivider(dark: Boolean = false) = Spacer(
     Modifier
-        .fillMaxWidth(0.618f)
+        .fillMaxWidth()
         .alpha(0.1f)
         .height(0.5.dp)
         .background(if (dark) Color.White.copy(alpha = 0.1f) else (Color.Black withNight Color.White).copy(alpha = 0.1f))

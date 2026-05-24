@@ -119,7 +119,6 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             .padding(start = 22.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        println("重组：文件夹列表 ${folder.name}")
 
         val shape = YosRoundedCornerShape(4.dp)
         val density = LocalDensity.current
@@ -164,6 +163,18 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
                 fontSize = 16.sp,
                 lineHeight = 16.sp,
             )
+            if (isRemote) {
+                val serverLabel = folder.serverId?.let { yos.music.player.data.remote.RemoteServerManager.getServer(it)?.label }
+                if (serverLabel != null) {
+                    Text(
+                        text = serverLabel,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.alpha(0.35f)
+                    )
+                }
+            }
         }
 
         // 远程文件夹：卸载按钮（放在开关左侧，保持开关对齐）

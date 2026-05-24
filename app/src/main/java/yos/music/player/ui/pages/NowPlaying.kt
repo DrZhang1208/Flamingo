@@ -57,6 +57,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
@@ -85,10 +86,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ProgressIndicatorDefaults
@@ -179,12 +185,14 @@ import yos.music.player.code.utils.player.FadeExo.fadePlay
 import yos.music.player.data.libraries.FavPlayListLibrary
 import yos.music.player.data.libraries.MusicLibrary.toMediaItem
 import yos.music.player.data.libraries.PlayListLibrary
-import yos.music.player.ui.widgets.basic.PopupMenu
-import yos.music.player.ui.widgets.basic.PopupMenuItem
+
 import yos.music.player.ui.widgets.basic.PlaylistPickerDialog
+import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.ui.widgets.basic.SongDetailDialog
+import yos.music.player.ui.theme.withNight
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
+import yos.music.player.data.libraries.artistsList
 import yos.music.player.data.libraries.artistsName
 import yos.music.player.data.libraries.defaultArtistsName
 import yos.music.player.data.libraries.defaultTitle
@@ -200,6 +208,8 @@ import yos.music.player.ui.widgets.effects.YosFloatingLight
 import yos.music.player.ui.widgets.audio.MusicQualityIndicator
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.ShadowImageWithCache
+import yos.music.player.ui.UI
+import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.YosWrapper
 import yos.music.player.ui.widgets.effects.ShadowType
 import yos.music.player.ui.widgets.effects.overlayEffect
@@ -244,6 +254,7 @@ fun NowPlaying(
     isPlayingOnChanged: (Boolean) -> Unit,
     nowPageLambda: () -> String,
     showMiniPlayer: () -> Boolean,
+    closeSheet: () -> Unit = {},
     nowPageOnChanged: (String) -> Unit
 ) {
     val thisMusicPlaying = musicPlaying
@@ -278,7 +289,6 @@ fun NowPlaying(
             MainViewModelObject.nowPage
         }*/
 
-        println("重组：NowPlaying")
 
         // 切歌时保持封面大小不变
         LaunchedEffect(thisMusicPlaying.value) {
@@ -313,7 +323,6 @@ fun NowPlaying(
         isPlayingLambda = { isPlaying.value },
         nowPage = { nowPage.value }
     )*/
-            println("重组：背景")
 
             YosFloatingLight(
                 album = { bitmap.value },
@@ -358,7 +367,6 @@ fun NowPlaying(
                 derivedStateOf { showControl.value && alphaAnim.value != 0f }
             }
 
-            println("重组：主功能区")
 
             // 歌词
             YosWrapper {
@@ -372,7 +380,6 @@ fun NowPlaying(
                             this.alpha = alphaAnim.value
                         }
                 ) {
-                    println("重组：YosLyricView 外层 3")
 
                     Lyric(
                         lrcEntries = { lrcEntries.value },
@@ -471,7 +478,7 @@ fun NowPlaying(
                                                             fontSize = 19.5.sp,
                                                             lineHeight = 26.sp,
                                                             maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                                                             fontWeight = FontWeight.Medium
                                                         )
                                                         Text(
@@ -479,15 +486,16 @@ fun NowPlaying(
                                                                 ?: defaultArtistsName,
                                                             fontSize = 18.5.sp,
                                                             lineHeight = 24.sp,
-                                                            modifier = Modifier.overlayEffect(),
+                                                            modifier = Modifier
+                                                                .overlayEffect()
+                                                                .basicMarquee(iterations = Int.MAX_VALUE),
                                                             maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
                                                             color = Color.White.copy(alpha = 0.35f)
                                                         )
                                                     }
 
                                                     YosWrapper {
-                                                        ActionButtonsRow {
+                                                        ActionButtonsRow(navController = navController, closeSheet = closeSheet) {
                                                             it
                                                         }
                                                     }
@@ -571,7 +579,6 @@ fun NowPlaying(
                             .fillMaxHeight(0.437f)
                             .fillMaxWidth()
                     ) {
-                        println("重组：控制区域外部")
 
                         YosWrapper {
                             Column(
@@ -1010,6 +1017,10 @@ private fun PlayingList(
 
 @Composable
 private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () -> Unit) {
+    val isPlaying = MediaController.musicPlaying.value?.uri == music.uri
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val normalColor = Color.White
+
     Row(
         modifier = Modifier
             .height(64.dp)
@@ -1020,7 +1031,6 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
             .padding(horizontal = 30.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        println("重组：播放界面歌曲列表 ${music.title}")
         ShadowImageWithCache(
             dataLambda = { music.thumb },
             contentDescription = null,
@@ -1033,20 +1043,26 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
         Column(Modifier.padding(start = 14.dp)) {
             Text(
                 text = music.title ?: defaultTitle,
-                modifier = Modifier.padding(bottom = 1.dp),
+                modifier = Modifier
+                    .padding(bottom = 1.dp)
+                    .then(if (isPlaying) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
                 fontSize = 16.sp,
                 lineHeight = 16.sp,
+                color = if (isPlaying) highlightColor else normalColor
             )
 
             Text(
                 text = music.artistsName ?: defaultArtistsName,
-                modifier = Modifier.alpha(0.5f),
+                modifier = Modifier
+                    .alpha(0.5f)
+                    .then(if (isPlaying) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
                 fontSize = 11.5.sp,
                 lineHeight = 11.5.sp,
+                color = if (isPlaying) highlightColor.copy(alpha = 0.7f) else normalColor.copy(alpha = 0.7f)
             )
         }
     }
@@ -1064,14 +1080,12 @@ private fun Lyric(
 
     val context = LocalContext.current
 
-    println("重组：YosLyricView 外层 2")
 
     Column(
         Modifier
             .fillMaxSize()
     ) {
         YosWrapper {
-            println("重组：YosLyricView 外层 1")
 
             Spacer(modifier = Modifier.statusBarsHeight(110.dp))
 
@@ -1175,8 +1189,9 @@ private fun Lyric(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
+private fun ActionButtonsRow(navController: NavController? = null, closeSheet: () -> Unit = {}, musicPlayingLambda: () -> YosMediaItem?) {
     Row(
         modifier = Modifier
             .overlayEffect(),
@@ -1241,6 +1256,8 @@ private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
         var showMoreMenu = remember { mutableStateOf(false) }
         var showPlaylistPicker = remember { mutableStateOf(false) }
         var showDetail = remember { mutableStateOf(false) }
+        var showArtistPicker = remember { mutableStateOf(false) }
+        val menuOpenCount = remember { mutableIntStateOf(0) }
         var btnPos = remember { mutableStateOf(Offset.Zero) }
 
         val menuOpen = showMoreMenu.value || showPlaylistPicker.value || showDetail.value
@@ -1253,7 +1270,7 @@ private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
                 }
                 .onGloballyPositioned { btnPos.value = it.localToRoot(Offset.Zero) }
                 .clickable(
-                    onClick = { showMoreMenu.value = true },
+                    onClick = { showMoreMenu.value = true; menuOpenCount.intValue++ },
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() })
                 .size(dp),
@@ -1282,33 +1299,74 @@ private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
 
         // 菜单弹出
         val music = musicPlayingLambda()
-        if (music != null) {
-            PopupMenu(
-                items = listOf(
-                    PopupMenuItem("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay) {
-                        showPlaylistPicker.value = true; showMoreMenu.value = false
-                    },
-                    PopupMenuItem("下一首播放", Icons.Filled.Add) {
-                        val currentMusic = MediaController.musicPlaying.value ?: return@PopupMenuItem
-                        val list = MediaController.playingMusicList.value?.toMutableList() ?: return@PopupMenuItem
-                        val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
-                        if (currentIdx >= 0) {
-                            list.add(currentIdx + 1, music)
-                            MediaController.playingMusicList.value = list
-                            MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
-                            Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
-                        }
-                        showMoreMenu.value = false
-                    },
-                    PopupMenuItem("歌曲信息", Icons.Outlined.Info) {
-                        showDetail.value = true; showMoreMenu.value = false
+        if (music != null && showMoreMenu.value) {
+            key(menuOpenCount.intValue) {
+            OptionDialog(
+                icon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ShadowImageWithCache(
+                            dataLambda = { music.thumb }, contentDescription = null,
+                            modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                            shadowAlpha = 0f, imageQuality = ImageQuality.LOW
+                        )
                     }
-                ),
-                buttonPosition = btnPos.value,
-                expanded = showMoreMenu.value,
-                onDismiss = { showMoreMenu.value = false },
-                dark = true
+                },
+                title = music.title ?: defaultTitle,
+                subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
+                content = { dismiss ->
+                    val items = listOf(
+                        Triple("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay, { dismiss(); showPlaylistPicker.value = true }),
+                        Triple("下一首播放", Icons.Filled.Add, {
+                            val currentMusic = MediaController.musicPlaying.value ?: return@Triple
+                            val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
+                            val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
+                            if (currentIdx >= 0) {
+                                list.add(currentIdx + 1, music)
+                                MediaController.playingMusicList.value = list
+                                MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
+                                Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
+                            }
+                            dismiss()
+                        }),
+                        Triple("歌手", Icons.Filled.Person, {
+                            val artists = music.artistsList ?: emptyList()
+                            if (artists.size > 1 && navController != null) {
+                                dismiss(); showArtistPicker.value = true
+                            } else {
+                                artists.firstOrNull()?.let { artist -> yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist); closeSheet(); navController?.toUI(UI.ArtistInfo) }
+                                dismiss()
+                            }
+                        }),
+                        Triple("专辑", Icons.Filled.Album, {
+                            music.album?.let { album -> yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album); closeSheet(); navController?.toUI(UI.AlbumInfo) }
+                            dismiss()
+                        }),
+                        Triple(if (FavPlayListLibrary.isFavorite(music)) "从喜爱移除" else "添加到喜爱",
+                            if (FavPlayListLibrary.isFavorite(music)) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        {
+                            if (FavPlayListLibrary.isFavorite(music)) FavPlayListLibrary.removeMusic(music)
+                            else FavPlayListLibrary.addMusic(music)
+                            dismiss()
+                        }),
+                        Triple("歌曲信息", Icons.Outlined.Info, { dismiss(); showDetail.value = true })
+                    )
+                    Column {
+                        items.forEachIndexed { index, (label, icon, onClick) ->
+                            if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                            Row(
+                                Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                                Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)
+                            }
+                        }
+                    }
+                },
+                horizontalTitle = true,
+                onDismissRequest = { showMoreMenu.value = false }
             )
+            }
         }
 
         if (showPlaylistPicker.value && music != null) {
@@ -1317,6 +1375,42 @@ private fun ActionButtonsRow(musicPlayingLambda: () -> YosMediaItem?) {
 
         if (showDetail.value && music != null) {
             SongDetailDialog(music, onDismiss = { showDetail.value = false })
+        }
+
+        if (showArtistPicker.value && music != null && navController != null) {
+            val artists = music.artistsList ?: emptyList()
+            OptionDialog(
+                icon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ShadowImageWithCache(
+                            dataLambda = { music.thumb }, contentDescription = null,
+                            modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                            shadowAlpha = 0f, imageQuality = ImageQuality.LOW
+                        )
+                    }
+                },
+                title = music.title ?: defaultTitle,
+                subTitle = music.artistsName ?: defaultArtistsName,
+                horizontalTitle = true,
+                content = { dismiss ->
+                    Column {
+                        artists.forEachIndexed { index, artist ->
+                            if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                            Row(
+                                Modifier.fillMaxWidth().height(48.dp).clickable {
+                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                    navController.toUI(UI.ArtistInfo)
+                                    dismiss()
+                                }.padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                },
+                onDismissRequest = { showArtistPicker.value = false }
+            )
         }
     }
 }
@@ -1371,11 +1465,10 @@ private fun PlayingBar(
                 .padding(start = 12.dp, end = 15.dp)
         ) {
             Text(
-                text = musicPlayingLambda()?.title ?: defaultTitle,/*
-                fontWeight = FontWeight.Bold,*/
+                text = musicPlayingLambda()?.title ?: defaultTitle,
                 fontSize = 16.5.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                 fontWeight = FontWeight.Medium,
                 lineHeight = 16.5.sp
             )
@@ -1383,15 +1476,16 @@ private fun PlayingBar(
                 text = musicPlayingLambda()?.artistsName
                     ?: defaultArtistsName,
                 fontSize = 15.sp,
-                modifier = Modifier.overlayEffect(),
+                modifier = Modifier
+                    .overlayEffect()
+                    .basicMarquee(iterations = Int.MAX_VALUE),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 color = Color.White.copy(alpha = 0.35f)
             )
         }
 
         YosWrapper {
-            ActionButtonsRow(musicPlayingLambda)
+            ActionButtonsRow(musicPlayingLambda = musicPlayingLambda)
         }
     }
 
@@ -1571,7 +1665,6 @@ private fun PlayerControl(
                 .padding(bottom = 15.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            println("重组：控制区域内部")
 
             YosWrapper {
                 // 启动作用

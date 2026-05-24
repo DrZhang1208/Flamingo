@@ -24,16 +24,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.background
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,62 +48,118 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import yos.music.player.R
 import yos.music.player.code.MediaController
+import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.MusicLibrary.toMediaItem
+import yos.music.player.data.libraries.FavPlayListLibrary
 import yos.music.player.data.libraries.PlayListLibrary
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import yos.music.player.data.libraries.YosMediaItem
+import yos.music.player.data.libraries.artistsList
 import yos.music.player.data.libraries.artistsName
 import yos.music.player.data.libraries.defaultArtistsName
 import yos.music.player.data.libraries.defaultTitle
+import yos.music.player.ui.UI
+import yos.music.player.ui.theme.withNight
+import yos.music.player.ui.toUI
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SongMenuIcon(music: YosMediaItem) {
+fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, showArtistMenuItem: Boolean = true, showAlbumMenuItem: Boolean = true) {
     var showMenu by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showDetail by remember { mutableStateOf(false) }
-    var btnPos by remember { mutableStateOf(Offset.Zero) }
+    var showArtistPicker by remember { mutableStateOf(false) }
+    val menuOpenCount = remember { mutableIntStateOf(0) }
+    val hasMultipleArtists = (music.artistsList?.size ?: 0) > 1
 
     val context = LocalContext.current
 
     Icon(
         painterResource(R.drawable.ic_nowplaying_more), "菜单",
         Modifier.size(20.dp).alpha(0.3f)
-            .onGloballyPositioned { btnPos = it.localToRoot(Offset.Zero) }
-            .clickable(remember { MutableInteractionSource() }, null) { showMenu = true }
+            .clickable(remember { MutableInteractionSource() }, null) { showMenu = true; menuOpenCount.intValue++ }
     )
 
-    PopupMenu(
-        items = listOf(
-            PopupMenuItem("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay) { showPlaylistPicker = true; showMenu = false },
-            PopupMenuItem("下一首播放", Icons.Filled.Add) {
-                val currentMusic = MediaController.musicPlaying.value ?: return@PopupMenuItem
-                val list = MediaController.playingMusicList.value?.toMutableList() ?: return@PopupMenuItem
-                val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
-                if (currentIdx < 0) return@PopupMenuItem
-
-                // playingMusicList 始终匹配 ExoPlayer 的实际播放顺序，直接插入即可
-                list.add(currentIdx + 1, music)
-                MediaController.playingMusicList.value = list
-                MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
-
-                Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
-                showMenu = false
+    if (showMenu) {
+        key(menuOpenCount.intValue) {
+        OptionDialog(
+            icon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ShadowImageWithCache(
+                        dataLambda = { music.thumb }, contentDescription = null,
+                        modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                        shadowAlpha = 0f, imageQuality = ImageQuality.LOW
+                    )
+                }
             },
-            PopupMenuItem("详细信息", Icons.Outlined.Info) { showDetail = true; showMenu = false }
-        ),
-        buttonPosition = btnPos,
-        expanded = showMenu,
-        onDismiss = { showMenu = false }
-    )
+            title = music.title ?: defaultTitle,
+            subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
+            content = { dismiss ->
+                Column {
+                    val items = buildList {
+                        add(Triple("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay, { dismiss(); showPlaylistPicker = true }))
+                        add(Triple("下一首播放", Icons.Filled.Add, {
+                            val currentMusic = MediaController.musicPlaying.value ?: return@Triple
+                            val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
+                            val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
+                            if (currentIdx < 0) return@Triple
+                            list.add(currentIdx + 1, music)
+                            MediaController.playingMusicList.value = list
+                            MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
+                            Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
+                            dismiss()
+                        }))
+                        if (showArtistMenuItem && hasMultipleArtists) {
+                            add(Triple("歌手", Icons.Filled.Person, {
+                                dismiss(); showArtistPicker = true
+                            }))
+                        } else if (showArtistMenuItem) {
+                            add(Triple("歌手", Icons.Filled.Person, {
+                                music.artistsList?.firstOrNull()?.let { artist -> yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist); navController?.toUI(UI.ArtistInfo) }
+                                dismiss()
+                            }))
+                        }
+                        if (showAlbumMenuItem && music.album != null) {
+                            add(Triple("专辑", Icons.Filled.Album, {
+                                music.album?.let { album -> yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album); navController?.toUI(UI.AlbumInfo) }
+                                dismiss()
+                            }))
+                        }
+                        add(Triple(if (FavPlayListLibrary.isFavorite(music)) "从喜爱移除" else "添加到喜爱",
+                            if (FavPlayListLibrary.isFavorite(music)) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        {
+                            if (FavPlayListLibrary.isFavorite(music)) FavPlayListLibrary.removeMusic(music)
+                            else FavPlayListLibrary.addMusic(music)
+                            dismiss()
+                        }))
+                        add(Triple("详细信息", Icons.Outlined.Info, { dismiss(); showDetail = true }))
+                    }
+                    items.forEachIndexed { index, (label, icon, onClick) ->
+                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                        Row(
+                            Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)
+                        }
+                    }
+                }
+            },
+            horizontalTitle = true,
+            onDismissRequest = { showMenu = false }
+        )
+        }
+    }
 
     if (showPlaylistPicker) {
         PlaylistPickerDialog(music, onDismiss = { showPlaylistPicker = false })
@@ -104,6 +167,42 @@ fun SongMenuIcon(music: YosMediaItem) {
 
     if (showDetail) {
         SongDetailDialog(music, onDismiss = { showDetail = false })
+    }
+
+    if (showArtistPicker && navController != null) {
+        val artists = music.artistsList ?: emptyList()
+        OptionDialog(
+            icon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ShadowImageWithCache(
+                        dataLambda = { music.thumb }, contentDescription = null,
+                        modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                        shadowAlpha = 0f, imageQuality = ImageQuality.LOW
+                    )
+                }
+            },
+            title = music.title ?: defaultTitle,
+            subTitle = music.artistsName ?: defaultArtistsName,
+            horizontalTitle = true,
+            content = { dismiss ->
+                Column {
+                    artists.forEachIndexed { index, artist ->
+                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                        Row(
+                            Modifier.fillMaxWidth().height(48.dp).clickable {
+                                yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                navController.toUI(UI.ArtistInfo)
+                                dismiss()
+                            }.padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            },
+            onDismissRequest = { showArtistPicker = false }
+        )
     }
 }
 
@@ -135,7 +234,10 @@ fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                     playlists.forEach { pl ->
                         val coverUri = remember(pl.songDataList) {
                             val allSongs = yos.music.player.data.libraries.MusicLibrary.songs
-                            pl.songDataList.firstOrNull()?.let { uri -> allSongs.find { it.uri == uri }?.thumb }
+                            pl.songDataList
+                                .mapNotNull { uri -> allSongs.find { it.uri == uri } }
+                                .maxByOrNull { MusicLibrary.getPlayCount(it.uri) }
+                                ?.thumb
                         }
                         Row(
                             Modifier.fillMaxWidth().clickable {
@@ -201,7 +303,6 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                     if (info.sampleRate != null && info.sampleRate > 0) DetailRow("采样率", "${"%.1f".format(info.sampleRate / 1000.0)} kHz")
                     if (info.bitsPerSample != null && info.bitsPerSample > 0) DetailRow("位深", "${info.bitsPerSample} bit")
                     if (info.channels != null && info.channels > 0) DetailRow("声道", "${info.channels}")
-                    DetailRow("文件大小", formatFileSize(info.fileSize))
                     DetailRow("文件格式", info.format)
                     DetailRow("文件来源", info.source)
                 }
@@ -224,14 +325,6 @@ private fun DetailRow(label: String, value: String) {
 private fun formatDuration(ms: Long): String {
     val totalSec = ms / 1000
     return "${totalSec / 60}:${(totalSec % 60).toString().padStart(2, '0')}"
-}
-
-private fun formatFileSize(bytes: Long): String {
-    return when {
-        bytes >= 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
-        bytes >= 1024 -> "${"%.1f".format(bytes / 1024.0)} KB"
-        else -> "$bytes B"
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

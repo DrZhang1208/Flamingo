@@ -147,7 +147,7 @@ object MusicLibrary {
 
     val songs: List<YosMediaItem>
         get() = songSaver
-            .filter { it !in hideSongs && it.uri !in folders.filter { thisFolders -> thisFolders.path in hideFolders }
+            .filter { it !in hideSongs && it.uri !in allFolders.filter { thisFolders -> thisFolders.path in hideFolders }
                 .flatMap { thisFlatMap -> thisFlatMap.songs }
                 .map { thisMap -> thisMap.uri } }
 
@@ -175,12 +175,10 @@ object MusicLibrary {
 
     fun updatePlayList(playListV1: PlayListV1) {
         updateData(playListKey, playListV1)
-        println("updatePlayList $playListV1")
     }
 
     fun loadPlayList(): PlayListV1 {
         val loadedData = loadData(playListKey) ?: PlayListV1(null, null)
-        println("loadPlayList $loadedData")
         return loadedData
     }
 
@@ -408,23 +406,10 @@ object MusicLibrary {
     }*/
 
     private fun updateFolderVisibility(folder: Folder, hide: Boolean) {
-        println("文件夹 显示状态更改")
         if (hide) {
-            println("文件夹 将隐藏 $folder")
-            if (folders.any { it.path == folder.path }) {
-                // folders = folders - folder
-                println("文件夹 匹配成功")
-                println("文件夹 已将 ${folder.path} 隐藏")
-                hideFoldersSaver = hideFoldersSaver.plus(YosStringWrapper(folder.path))
-            }
+            hideFoldersSaver = hideFoldersSaver.plus(YosStringWrapper(folder.path))
         } else {
-            println("文件夹 将显示 $folder")
-            if (hideFolders.any { it == folder.path }) {
-                // folders = folders + folder
-                println("文件夹 匹配成功")
-                println("文件夹 已将 ${folder.path} 显示")
-                hideFoldersSaver = hideFoldersSaver.minus(YosStringWrapper(folder.path))
-            }
+            hideFoldersSaver = hideFoldersSaver.minus(YosStringWrapper(folder.path))
         }
     }
 
@@ -531,13 +516,7 @@ object MusicLibrary {
                 folder !in hideFolders
             }*/
 
-            println("基本扫描: ${result.songList}")
-            println("文件夹: $folders")
-            println("SongSaver: $songSaver")
-            println("Songs: $songs")
 
-            println("prepare 媒体库扫描完毕，尝试保存播放列表")
-            println("prepare 媒体库扫描完毕，保存播放列表")
 
             updatePlayList(
                 PlayListV1(

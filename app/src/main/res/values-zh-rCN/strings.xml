@@ -83,6 +83,7 @@
     <string name="normal_button_sort_by_album">专辑</string>
     <string name="normal_button_sort_by_modify_date">修改日期</string>
     <string name="normal_button_sort_by_add_date">最近添加</string>
+    <string name="normal_button_sort_by_play_count">播放次数</string>
     <string name="normal_button_sort_ascending">升序</string>
     <string name="normal_button_sort_descending">降序</string>
     <string name="settings_performance_lyric_blur_effect">歌词模糊</string>
