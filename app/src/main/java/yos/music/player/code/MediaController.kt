@@ -113,15 +113,15 @@ object MediaController {
 
     fun onServiceRunning() {
         val handler by lazy { Handler(Looper.getMainLooper()) }
-        val lyricAPI by lazy { API() }
+        val lyricAPI by lazy { runCatching { API() }.getOrNull() }
         var lastLyric = listOf<Pair<Float, String>>()
-        val base64 = Tools.drawableToBase64(getDrawable(R.drawable.flamingo_icon_notification)!!)
+        val base64 = runCatching { Tools.drawableToBase64(getDrawable(R.drawable.flamingo_icon_notification)!!) }.getOrElse { "" }
         var statusBarLyricEnabled: Boolean
         var hooked = false
 
         val checkHookStatusRunnable = object : Runnable {
             override fun run() {
-                hooked = lyricAPI.hasEnable
+                hooked = lyricAPI?.hasEnable ?: false
                 SettingsLibrary.StatusBarLyricHooked = hooked
                 handler.postDelayed(this, 350)
             }
@@ -171,7 +171,7 @@ object MediaController {
                                         val lyricResult = lyric.toString()
 
                                         if (statusBarLyricEnabled && hooked) {
-                                            lyricAPI.sendLyric(
+                                            lyricAPI?.sendLyric(
                                                 lyricResult,
                                                 extra = ExtraData().apply {
                                                     customIcon = true

@@ -133,16 +133,6 @@ object SettingsLibrary {
     )
 
     /**
-     * 歌词弹性动画
-     */
-    @Stable
-    var LyricElasticAnim by mutableDataSaverStateOf(
-        dataSaverInterface = SettingsSaver,
-        key = "settings_performance_lyric_elastic_anim",
-        initialValue = true
-    )
-
-    /**
      * 歌词模糊效果
      */
     @Stable

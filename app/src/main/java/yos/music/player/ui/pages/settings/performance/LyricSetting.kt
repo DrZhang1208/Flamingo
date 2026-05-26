@@ -101,14 +101,6 @@ fun LyricSetting(navController: NavController) =
                         GroupSpacer()
 
                         ListHeader(content = stringResource(id = R.string.settings_performance_lyric_others))
-                        RoundColumn {
-                            SwitchItem(
-                                title = "歌词弹性动画",
-                                onClick = { SettingsLibrary.LyricElasticAnim = !SettingsLibrary.LyricElasticAnim },
-                                checkedLambda = { SettingsLibrary.LyricElasticAnim }
-                            )
-                        }
-                        ListHeader(content = "开启后，歌词行间距随播放进度弹性变化")
                         GroupSpacer()
                         RoundColumn {
                             SwitchItem(

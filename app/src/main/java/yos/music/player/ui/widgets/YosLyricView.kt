@@ -450,101 +450,6 @@ fun YosLyricView(
                         }
                     }
 
-                    key(index) {
-                        YosWrapper {
-                            /*//println(mainLyricSide.value+":"+mainLyricSide.value.isNotBlank())
-                        if ((*//*(mainLyricSide.isBlank() && isCurrent.value && countdownPercent.value != 0f) || *//*mainLyricSide.value.isNotBlank())) {
-                                val offset = animateDpAsState(
-                                    targetValue = if (index <= currentLyricIndex.value || !showStateAnimation.value) 0.dp else 6.18.dp * (index - (nowFirst.value / 2)),
-                                    animationSpec = spring(
-                                        stiffness = 70f,
-                                        dampingRatio = 0.8f,
-                                        visibilityThreshold = 0.001.dp
-                                    )
-                                )
-                                Spacer(modifier = Modifier.height(offset.value))
-                            }*/
-
-                            //val nowFirst = remember(index) { derivedStateOf { scrollState.firstVisibleItemIndex } }
-
-                            /*val space = 16.dp*/ /*remember(index) {
-                                    derivedStateOf {
-                                        if (lines.isNotEmpty() && isCurrent.value) 5.dp else
-                                    }
-                                }*/
-
-                            //val visibleItems = remember(index) { derivedStateOf { scrollState.layoutInfo.visibleItemsInfo } }
-
-                            /*val nowVisible = remember(visibleItems) {
-                        visibleItems.value.size
-                    }*/
-
-                            //val targetItem = visibleItems.value.find { it.index == currentLyricIndex.intValue /** 2*/ + 1 }
-
-
-                            val show = remember(index) {
-                                derivedStateOf { !isLyricEmpty.value || isCurrent.value }
-                            }
-
-                            val thisScrollDistance = if (targetItem.value != null) {
-                                (scrollDistance.value / (visibleItems.value.size)).toDp()
-                            } else {
-                                0.dp
-                            }
-
-                            val thisTargetHeight = remember(index) {
-                                mutableStateOf(space)
-                            }
-
-                            YosWrapper {
-                                LaunchedEffect(currentLyricIndex.intValue) {
-                                    if (visibleItems.value.isEmpty()) return@LaunchedEffect
-                                    if (!SettingsLibrary.LyricElasticAnim) {
-                                        thisTargetHeight.value = if (show.value) space else 0.dp
-                                        return@LaunchedEffect
-                                    }
-                                    if (index >= currentLyricIndex.intValue - 1 && showStateAnimation.value && show.value) {
-                                        val weight =
-                                            (1f - ((index - (nowFirst.value)) / visibleItems.value.size))
-                                        delay((550 * (1f - weight)).toLong())
-                                        thisTargetHeight.value =
-                                            (thisScrollDistance * weight).plus(space)
-                                        delay(
-                                            ((550 / 1.95f) * weight).toLong()
-                                        )
-                                        thisTargetHeight.value = space
-                                    } else if (show.value) {
-                                        thisTargetHeight.value = space
-                                    } else {
-                                        thisTargetHeight.value = 0.dp
-                                    }
-                                }
-                            }
-
-                            val offset = animateDpAsState(
-                                targetValue = thisTargetHeight.value,
-                                animationSpec = if (thisTargetHeight.value == 0.dp || thisTargetHeight.value == space/*16.dp || thisTargetHeight.value == 5.dp*/) {
-                                    spring(
-                                        stiffness = 105F,
-                                        dampingRatio = /*0.85f*/ 1f,
-                                        visibilityThreshold = 0.0001.dp
-                                    )
-                                    //tween(durationMillis = 510, easing = yosEasing)
-                                } else {
-                                    tween(
-                                        durationMillis = 550,
-                                        easing = yosEasing
-                                    )
-                                }
-                            )
-
-                            YosWrapper {
-                                Spacer(modifier = Modifier.height(offset.value))
-                            }
-                        }
-                    }
-
-
                 }
                 blankSpacer()
                 item("extra_blank") {
@@ -587,14 +492,11 @@ fun YosLyricView(
                             scrollDistance.value = currentOffset - targetOffset*/
                             scrollState.animateScrollBy(
                                 scrollDistance.value,
-                                animationSpec = tween(
-                                    durationMillis = (abs(scrollDistance.value) / 0.45f).toInt().coerceIn(350, 1600),
-                                    easing = yosEasing
+                                animationSpec = spring(
+                                    stiffness = 120f,
+                                    dampingRatio = 1f,
+                                    visibilityThreshold = 0.01f
                                 )
-                                /*spring(
-                                    stiffness = 105F,
-                                    dampingRatio = 1f*//* 1f*//*
-                                )*/
                             )
                         } else {
                             scrollState.animateScrollToItem(
@@ -741,7 +643,7 @@ private fun LazyItemScope.Line(
                     }
                 }.getOrDefault(constraints.maxWidth.toFloat())
 
-                val content = subcompose(lines) {
+                val content = subcompose(styledString) {
                     Spacer(
                         Modifier
                             .fillMaxSize()
@@ -943,7 +845,7 @@ fun LazyItemScope.LyricItem(
             }
 
             val scale = animateFloatAsState(
-                targetValue = if (isCurrentLambda()) 1.005f else 1f,
+                targetValue = if (isCurrentLambda()) 1.04f else 1f,
                 animationSpec = if (isCurrentLambda()) tweenSpecWithDelay else tweenSpecWithoutDelay
             )
 
@@ -960,7 +862,7 @@ fun LazyItemScope.LyricItem(
             }
 
             if (isLyricEmpty()) {
-                Column(Modifier.animateContentSize()) {
+                Column {
                     val percent = remember(mainLyric) {
                         derivedStateOf {
                             val m = mainLyric.first().first
@@ -1123,6 +1025,7 @@ fun LazyItemScope.LyricItem(
                                     }
 
                                     val lyricTextStyle = mainTextStyle()
+                                    val charLayoutCache = remember { mutableMapOf<String, TextLayoutResult>() }
                                     Line(
                                         lines = mainLyric,
                                         style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
@@ -1264,11 +1167,13 @@ fun LazyItemScope.LyricItem(
 
                                                 val charWord = char.toString()
 
-                                                val layout = measurer.measure(
-                                                    text = charWord,
-                                                    style = measureStyle,
-                                                    constraints = measureResult.layoutInput.constraints
-                                                )
+                                                val layout = charLayoutCache.getOrPut(charWord) {
+                                                    measurer.measure(
+                                                        text = charWord,
+                                                        style = measureStyle,
+                                                        constraints = measureResult.layoutInput.constraints
+                                                    )
+                                                }
 
                                                 val thisWordLastTime = lastTime
                                                 val thisWordAverageTime = averageTime

@@ -77,14 +77,19 @@ object RemoteServerManager {
     fun init(context: Context) {
         appContext = context.applicationContext
         if (credPrefs == null) {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            credPrefs = EncryptedSharedPreferences.create(
-                context, CRED_PREFS_NAME, masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
+            try {
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                credPrefs = EncryptedSharedPreferences.create(
+                    context, CRED_PREFS_NAME, masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                // 部分设备（MIUI 等）Keystore 不可用，回退到普通 SharedPreferences
+                credPrefs = context.getSharedPreferences(CRED_PREFS_NAME, Context.MODE_PRIVATE)
+            }
         }
     }
 

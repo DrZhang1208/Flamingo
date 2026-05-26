@@ -23,7 +23,9 @@ class YosRenderFactory(context: Context) : DefaultRenderersFactory(context) {
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>
     ) {
-        out.add(FfmpegAudioRenderer())
+        if (extensionRendererMode != EXTENSION_RENDERER_MODE_OFF) {
+            runCatching { out.add(FfmpegAudioRenderer()) }
+        }
         super.buildAudioRenderers(
             context,
             extensionRendererMode,
