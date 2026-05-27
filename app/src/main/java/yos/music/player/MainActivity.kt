@@ -157,7 +157,7 @@ import kotlin.math.abs
 /*//MediaPlayer全局控制器
 var mediaController = yos.music.player.code.MediaController*/
 
-class MainActivity : BaseActivity() {
+class MainActivity : androidx.activity.ComponentActivity() {
 
     private val mediaViewModel: MediaViewModel by viewModels()
     private val mainViewModel: MainViewModel by viewModels()
@@ -173,6 +173,7 @@ class MainActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         installSplashScreen()
         enableEdgeToEdge()
+        enableHighRefreshRate()
         setContent {
             YosMusicTheme {
                 ProvideWindowInsets {
@@ -1019,7 +1020,7 @@ class MainActivity : BaseActivity() {
         }
     }
 
-        @Composable
+    @Composable
     fun CheckAndRequestPermission() {
         val context = LocalContext.current
         val requestPermissionLauncher = rememberLauncherForActivityResult(
@@ -1082,84 +1083,6 @@ class MainActivity : BaseActivity() {
         }
     }
 
-
-    /*LaunchedEffect(permissionState.value) {
-            val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.READ_MEDIA_AUDIO
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.READ_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED
-            }
-
-            if (hasPermission) {
-                permissionState.value = PermissionState.DENIED
-                loadMusic(context)
-            }
-        }
-
-        val showDialog = remember("CheckPermission_showDialog") {
-            derivedStateOf { permissionState.value != PermissionState.DENIED  }
-        }
-
-        if (showDialog.value) {
-            val dialogProperties = ModalBottomSheetProperties(
-                securePolicy = SecureFlagPolicy.Inherit,
-                isFocusable = true,
-                shouldDismissOnBackPress = false
-            )
-
-            val bottomSheetState = rememberModalBottomSheetState()
-            val scope = rememberCoroutineScope()
-
-            YosWrapper {
-                OptionDialog(
-                    title = stringResource(id = R.string.permission_grant_title),
-                    subTitle = stringResource(id = R.string.permission_grant_subtitle),
-                    content = {
-                        Text(text = stringResource(id = R.string.permission_grant_desc))
-                    },
-                    positiveContent = stringResource(id = R.string.permission_grant_button_positive),
-                    properties = dialogProperties,
-                    bottomSheetState = bottomSheetState,
-                    onPositive = {
-                        scope.launch { bottomSheetState.hide() }.invokeOnCompletion {
-                            if (!bottomSheetState.isVisible) {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    requestPermissionLauncher.launch(Manifest.permission.READ_MEDIA_AUDIO)
-                                } else {
-                                    requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-                                }
-                                permissionState.value = PermissionState.DENIED
-                            }
-                        }
-                    },
-                    negativeContent = stringResource(id = R.string.permission_grant_button_negative),
-                    onNegative = {
-                        scope.launch { bottomSheetState.hide() }.invokeOnCompletion {
-                            if (!bottomSheetState.isVisible) {
-                                mainMusicList.value = mutableListOf()
-                                permissionState.value = PermissionState.DENIED
-                            }
-                        }
-                    }
-                ) {
-                    mainMusicList.value = mutableListOf()
-                    permissionState.value = PermissionState.DENIED
-                }
-            }
-        }*/
-
-    /*enum class PermissionState {
-        UNKNOWN,
-        GRANTED,
-        DENIED
-    }*/
-
     private fun loadMusic(context: Context, enforce: Boolean = false) {
         val needRefresh = SettingsLibrary.RefreshEveryTime
         if (needRefresh || enforce) {
@@ -1167,6 +1090,17 @@ class MainActivity : BaseActivity() {
                 // Application中已还原，这里算是后台扫描
                 // mainMusicList.value = MusicScanner(context).getMusicList()
                 MusicLibrary.scanMedia(context)
+            }
+        }
+    }
+
+    private fun enableHighRefreshRate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val display = windowManager.defaultDisplay
+            val modes = display?.supportedModes ?: return
+            val maxRefreshRate = modes.maxOfOrNull { it.refreshRate } ?: return
+            window.attributes = window.attributes.apply {
+                preferredRefreshRate = maxRefreshRate
             }
         }
     }

@@ -361,9 +361,10 @@ object MediaController {
             handler.post { MediaViewModelObject.bitmap.value = music.thumb }
         }
 
-        // 切歌时重置歌词和同步索引，投递到主线程避免 deactivated node 崩溃
+        // 切歌时优先从缓存加载歌词，缓存未命中才清空
         handler.post {
-            MediaViewModelObject.lrcEntries.value = listOf()
+            val cached = yos.music.player.data.objects.MediaViewModelObject.getCachedLrc(music.uri?.toString())
+            MediaViewModelObject.lrcEntries.value = cached ?: listOf()
             yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
         }
     }
@@ -614,6 +615,7 @@ class YosPlaybackService : MediaSessionService() {
                             if (parsedEntries.isNotEmpty()) {
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     lrcEntries.value = parsedEntries
+                                    yos.music.player.data.objects.MediaViewModelObject.cacheLrc(rawUri, parsedEntries)
                                 }
                             }
                         }
@@ -661,8 +663,14 @@ class YosPlaybackService : MediaSessionService() {
                     if (!lyrics.isNullOrBlank()) {
                         val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
                         val e = lrcF.formatLrcEntries(lyrics)
-                        if (e.isNotEmpty()) MediaViewModelObject.lrcEntries.value = e
-                        else { val l = lyrics.lines().filter { it.isNotBlank() }; if (l.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it }) }
+                        if (e.isNotEmpty()) {
+                            MediaViewModelObject.lrcEntries.value = e
+                            yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
+                        }
+                        else { val l = lyrics.lines().filter { it.isNotBlank() }; if (l.isNotEmpty()) {
+                            MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it })
+                            yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
+                        } }
                     }
                     if (item.serverId != null) yos.music.player.data.remote.RemoteTagDatabase.put(item.uri?.toString() ?: "", yos.music.player.data.remote.CachedTags(
                         uri = item.uri?.toString() ?: "", title = u.title, artist = u.artists, album = u.album, coverPath = u.thumb?.toString(), lyrics = lyrics))
@@ -683,7 +691,8 @@ class YosPlaybackService : MediaSessionService() {
                             val hasTags = cached != null && (cached.artist != null || cached.album != null || cached.lyrics != null)
                             // 投递到主线程消息队列，避免在组合帧内触发重组导致 deactivated node
                             handler.post {
-                                MediaViewModelObject.lrcEntries.value = listOf()
+                                val memCached = yos.music.player.data.objects.MediaViewModelObject.getCachedLrc(yosItem.uri?.toString())
+                                MediaViewModelObject.lrcEntries.value = memCached ?: listOf()
                                 yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                                 musicPlaying.value = yosItem
                                 if (hasTags) {
@@ -793,7 +802,7 @@ class YosPlaybackService : MediaSessionService() {
                         val position = player.currentPosition
                         if (duration > 0 && position >= duration / 2) {
                             val uri = player.currentMediaItem?.localConfiguration?.uri
-                            if (uri != null) MusicLibrary.incrementPlayCount(uri)
+                            if (uri != null && SettingsLibrary.ListenHistory) MusicLibrary.incrementPlayCount(uri)
                             yos.music.player.code.MediaController.countingUri = null
                         }
                     }

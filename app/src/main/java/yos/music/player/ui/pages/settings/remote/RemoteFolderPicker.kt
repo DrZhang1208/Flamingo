@@ -139,9 +139,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     if (p > 0) listOf(songs[p]) + songs.filterIndexed { i, _ -> i != p } else songs
                                 } else songs
                                 RemoteMetadataScanner.startBackgroundScan(scanQueue, serverId) { updated ->
-                                    val all = MusicLibrary.songs.toMutableList()
-                                    val aIdx = all.indexOfFirst { it.uri == updated.uri }
-                                    if (aIdx >= 0) { all[aIdx] = updated; MusicLibrary.updateSongSaver(all) }
+                                    MusicLibrary.updateSongInFullList(updated)
                                     MusicLibrary.updateFolderSongs(serverId, folderName, updated)
                                     val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.name == folderName }
                                     val isPlaying = MediaController.musicPlaying.value?.uri == updated.uri

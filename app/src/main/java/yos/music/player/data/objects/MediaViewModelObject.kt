@@ -23,6 +23,19 @@ object MediaViewModelObject {
     val samplingRate = mutableIntStateOf(0)
     val isDolby = mutableStateOf(false)
 
+    // 内存歌词缓存，key 为 URI 字符串
+    private val lrcCache = LinkedHashMap<String, List<List<Pair<Float, String>>>>(50, 0.75f, true)
+
+    fun getCachedLrc(uri: String?): List<List<Pair<Float, String>>>? {
+        return uri?.let { lrcCache[it] }
+    }
+
+    fun cacheLrc(uri: String?, entries: List<List<Pair<Float, String>>>) {
+        if (uri != null && entries.isNotEmpty()) {
+            lrcCache[uri] = entries
+        }
+    }
+
     // val songSort = mutableStateOf(SettingData.getString("yos_player_song_sort", "MUSIC_TITLE"))
     // val enableDescending = mutableStateOf(SettingData.get("yos_player_enable_descending", false))
 }

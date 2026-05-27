@@ -174,19 +174,19 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 }
             }
         }
-        val processedEntries = processOtherSide(timeLyricPairs)
-        return processedEntries.filter { entry ->
+        val filteredPairs = timeLyricPairs.filter { entry ->
             if (entry.isEmpty()) return@filter false
             val hasTimestamp = entry.any { it.first > 0f && it.second.isNotEmpty() }
             if (!hasTimestamp) return@filter false
             val text = entry.fastJoinToString(separator = "") { it.second }.trim().uppercase()
             !text.startsWith("TITLE=") && !text.startsWith("ARTIST=") &&
-            !text.startsWith("ALBUM=") && !text.startsWith("GENRE=") &&
-            !text.startsWith("DATE=") && !text.startsWith("YEAR=") &&
-            !text.startsWith("TRACK=") && !text.startsWith("COMPOSER=") &&
-            !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
-            !text.startsWith("LENGTH=")
+                !text.startsWith("ALBUM=") && !text.startsWith("GENRE=") &&
+                !text.startsWith("DATE=") && !text.startsWith("YEAR=") &&
+                !text.startsWith("TRACK=") && !text.startsWith("COMPOSER=") &&
+                !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
+                !text.startsWith("LENGTH=")
         }
+        return processOtherSide(filteredPairs)
     }
 
     /**
@@ -252,10 +252,13 @@ class YosLrcFactory(private val formatText: Boolean = true) {
     }
 
     private fun processOtherSide(lrcEntries: List<List<Pair<Float, String>>>): List<List<Pair<Float, String>>> {
+        fun normalizeSinger(raw: String): String = raw.trim().trimEnd(':', '：').trim()
+        fun isChorusSinger(singer: String): Boolean = singer == "合" || singer == "合唱" || singer.equals("ALL", ignoreCase = true)
+
         // Count duet markers - only enable duet mode if there are multiple markers
         val duetMarkerCount = lrcEntries.count { lines ->
             val lyric = lines.fastJoinToString(separator = "") { it.second }
-            lyric.endsWith(":") || lyric.endsWith("：") ||
+            lyric.trimEnd().endsWith(":") || lyric.trimEnd().endsWith("：") ||
                 (lines.size > 1 && lines[1].second.matches(Regex(".+\\s*:\\s*")))
         }
         val isDuetSong = duetMarkerCount >= 3
@@ -269,18 +272,27 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val lyric = lines.fastJoinToString(separator = "") { it.second }
             var deleteType = -1
 
-            if (isDuetSong && (lyric.endsWith(":") || lyric.endsWith("："))) {
-                otherSide = !otherSide
+            if (isDuetSong && (lyric.trimEnd().endsWith(":") || lyric.trimEnd().endsWith("："))) {
+                val singer = normalizeSinger(lyric)
+                if (singer.isNotEmpty() && !isChorusSinger(singer)) {
+                    if (lastSinger == null || lastSinger != singer) {
+                        if (otherSideFirstTime) otherSide = !otherSide else otherSideFirstTime = true
+                        lastSinger = singer
+                    }
+                }
             } else if (isDuetSong && lines.size > 1) {
                 val currentSinger = lines[1].second
                 if (currentSinger.matches(Regex(".+\\s*:\\s*"))) {
                     deleteType = 0
-                    if (lastSinger != null && lastSinger == currentSinger) {
-                    } else {
-                        if (otherSideFirstTime) otherSide = !otherSide
-                        else otherSideFirstTime = true
+                    val singer = normalizeSinger(currentSinger)
+                    if (singer.isNotEmpty() && !isChorusSinger(singer)) {
+                        if (lastSinger != null && lastSinger == singer) {
+                        } else {
+                            if (otherSideFirstTime) otherSide = !otherSide
+                            else otherSideFirstTime = true
+                        }
+                        lastSinger = singer
                     }
-                    lastSinger = currentSinger
                 }
             }
 
@@ -296,11 +308,17 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
 
-        // 复制一份后投递到主线程，避免与 Compose 读取冲突
+        // 复制一份后更新到主线程状态列表
+        // 若已在主线程则直接更新，确保在 lrcEntries 更新前完成，避免 remember 缓存旧值
         val snapshot = otherSideResult.toList()
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
             MediaViewModelObject.otherSideForLines.clear()
             MediaViewModelObject.otherSideForLines.addAll(snapshot)
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                MediaViewModelObject.otherSideForLines.clear()
+                MediaViewModelObject.otherSideForLines.addAll(snapshot)
+            }
         }
         return filteredLrcEntries
     }

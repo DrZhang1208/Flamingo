@@ -76,6 +76,11 @@ object FadeExo {
 
     fun MediaController.fadePause() {
         setPlaying(0)
+        if (!yos.music.player.data.libraries.SettingsLibrary.FadePlay) {
+            this.pause()
+            this.volume = 0f
+            return
+        }
         val currentVolume = this.volume
         fadeVolume(this, currentVolume, 0f, fadeAnimationDuration, 0) {
             this.pause()
@@ -84,6 +89,11 @@ object FadeExo {
 
     fun MediaController.fadePlay() {
         setPlaying(1)
+        if (!yos.music.player.data.libraries.SettingsLibrary.FadePlay) {
+            this.play()
+            this.volume = 1f
+            return
+        }
         val currentVolume = this.volume
         this.play()
         fadeVolume(this, currentVolume, 1f, fadeAnimationDuration, 1)
@@ -91,6 +101,11 @@ object FadeExo {
 
     fun ExoPlayer.fadePause() {
         setPlaying(0)
+        if (!yos.music.player.data.libraries.SettingsLibrary.FadePlay) {
+            this.pause()
+            this.volume = 0f
+            return
+        }
         val currentVolume = this.volume
         fadeVolume(this, currentVolume, 0f, fadeAnimationDuration, 0) {
             this.pause()
@@ -99,6 +114,11 @@ object FadeExo {
 
     fun ExoPlayer.fadePlay() {
         setPlaying(1)
+        if (!yos.music.player.data.libraries.SettingsLibrary.FadePlay) {
+            this.play()
+            this.volume = 1f
+            return
+        }
         val currentVolume = this.volume
         this.play()
         fadeVolume(this, currentVolume, 1f, fadeAnimationDuration, 1)

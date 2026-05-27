@@ -20,6 +20,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -47,6 +48,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
@@ -159,7 +161,8 @@ fun YosLyricView(
             )
         }
     } else {
-        val scrollState = rememberLazyListState()
+        key(lrcEntries) {
+            val scrollState = rememberLazyListState()
         val currentLyricIndex =
             remember("YosLyricView_currentLyricIndex") { MainViewModelObject.syncLyricIndex }
         /*val noAnimateItems by remember {
@@ -279,15 +282,24 @@ fun YosLyricView(
             }
         }
 
-        YosWrapper {
-            LazyColumn(
-                state = scrollState,
-                userScrollEnabled = userScrollEnabled,
-                contentPadding = PaddingValues(vertical = 16.dp),/*
-            verticalArrangement = Arrangement.spacedBy(5.dp),*/
-                modifier =
-                modifier
-                    .fillMaxSize()
+        // 遮罩在 AnimatedVisibility 外层，确保歌词上浮时遮罩固定在原位
+        val lyricVisible = remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { lyricVisible.value = true }
+        Box(modifier = modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = lyricVisible.value,
+                enter = slideInVertically(
+                    tween(durationMillis = 350, easing = yosEasing),
+                    initialOffsetY = { it }
+                ) + fadeIn(tween(200))
+            ) {
+                YosWrapper {
+                    LazyColumn(
+                        state = scrollState,
+                        userScrollEnabled = userScrollEnabled,
+                        contentPadding = PaddingValues(vertical = 16.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
                     /*.drawWithCache {
                         onDrawWithContent {
                             val colors = if (weightLambda()) {
@@ -457,6 +469,8 @@ fun YosLyricView(
                 }
             }
         }
+        } // AnimatedVisibility
+        } // Box (mask)
 
         YosWrapper {
             //val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
@@ -565,6 +579,7 @@ fun YosLyricView(
 
             }
         }
+    } // key(lrcEntries)
     }
 }
 

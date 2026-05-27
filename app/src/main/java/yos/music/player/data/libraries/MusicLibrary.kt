@@ -149,7 +149,9 @@ object MusicLibrary {
         get() = songSaver
             .filter { it !in hideSongs && it.uri !in allFolders.filter { thisFolders -> thisFolders.path in hideFolders }
                 .flatMap { thisFlatMap -> thisFlatMap.songs }
-                .map { thisMap -> thisMap.uri } }
+                .map { thisMap -> thisMap.uri } &&
+                (it.serverId != null || !SettingsLibrary.EnableExcludeSongsUnderOneMinute || it.duration >= 60000)
+            }
 
     val artists
         get() = songs/*.distinctBy { it.artist }.map { it.artist }*/.flatMap {
@@ -503,8 +505,11 @@ object MusicLibrary {
                     thisSong.toYosMediaItem()
                 }
                 Folder(name, path, songs)
-            }.let {
-                folders = it
+            }.let { localFolders ->
+                // 保留已挂载的远程文件夹副本，避免被本地扫描覆盖
+                val remotePaths = remoteFolders.map { it.path }.toSet()
+                val preservedRemote = folders.filter { it.path in remotePaths }
+                folders = localFolders + preservedRemote
             }
 
             /*folders = folderList.map { (path, fileNode) ->

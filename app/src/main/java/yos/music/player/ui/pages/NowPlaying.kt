@@ -287,6 +287,8 @@ fun NowPlaying(
             mutableIntStateOf(mediaControl?.repeatMode ?: REPEAT_MODE_OFF)
         }
 
+        val controlsHeightPx = remember("NowPlaying_controlsHeightPx") { mutableIntStateOf(0) }
+
         /*val nowPage = rememberSaveable(key = "NowPlaying_nowPage") {
             MainViewModelObject.nowPage
         }*/
@@ -386,6 +388,7 @@ fun NowPlaying(
                     Lyric(
                         lrcEntries = { lrcEntries.value },
                         weightLambda = { showControl.value },
+                        controlsHeightPxLambda = { controlsHeightPx.intValue },
                         translationLambda = { true },
                         userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric,
                         onBackClick = {
@@ -630,10 +633,12 @@ fun NowPlaying(
                             ) {
                                 AnimatedVisibility(
                                     visible = showControl.value,
-                                    enter = fadeIn() + expandVertically(
+                                    enter = fadeIn(tween(durationMillis = 260, easing = EaseOutQuart)) + expandVertically(
+                                        animationSpec = tween(durationMillis = 260, easing = EaseOutQuart),
                                         expandFrom = Alignment.Top,
                                         initialHeight = { (it / 1.4).toInt() }),
-                                    exit = fadeOut() + shrinkVertically(
+                                    exit = fadeOut(tween(durationMillis = 260, easing = EaseOutQuart)) + shrinkVertically(
+                                        animationSpec = tween(durationMillis = 260, easing = EaseOutQuart),
                                         shrinkTowards = Alignment.Top,
                                         targetHeight = { (it / 1.4).toInt() })
                                 ) {
@@ -691,7 +696,8 @@ fun NowPlaying(
                                                     CompositingStrategy.Offscreen
                                                 //this.alpha = controlAlpha.value
                                             }*/
-                                            .padding(top = 52.dp),
+                                            .padding(top = 52.dp)
+                                            .onSizeChanged { controlsHeightPx.intValue = it.height },
                                         onWhile = {
                                             shuffleModeEnabled.value =
                                                 shuffleEnabled.value
@@ -1101,7 +1107,6 @@ private fun PlayingList(
 @Composable
 private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () -> Unit) {
     val isPlaying = MediaController.musicPlaying.value?.uri == music.uri
-    val highlightColor = MaterialTheme.colorScheme.primary
     val normalColor = Color.White
 
     Row(
@@ -1133,7 +1138,8 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
                 overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
                 fontSize = 16.sp,
                 lineHeight = 16.sp,
-                color = if (isPlaying) highlightColor else normalColor
+                color = normalColor,
+                fontWeight = if (isPlaying) FontWeight.SemiBold else FontWeight.Normal
             )
 
             Text(
@@ -1145,7 +1151,8 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
                 overflow = if (isPlaying) TextOverflow.Visible else TextOverflow.Ellipsis,
                 fontSize = 11.5.sp,
                 lineHeight = 11.5.sp,
-                color = if (isPlaying) highlightColor.copy(alpha = 0.7f) else normalColor.copy(alpha = 0.7f)
+                color = normalColor.copy(alpha = 0.7f),
+                fontWeight = if (isPlaying) FontWeight.SemiBold else FontWeight.Normal
             )
         }
     }
@@ -1155,6 +1162,7 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
 private fun Lyric(
     lrcEntries: () -> List<List<Pair<Float, String>>>,
     weightLambda: () -> Boolean,
+    controlsHeightPxLambda: () -> Int,
     translationLambda: () -> Boolean,
     mainViewModel: MainViewModel,
     mediaViewModel: MediaViewModel,
@@ -1163,6 +1171,10 @@ private fun Lyric(
 ) = YosWrapper {
 
     val context = LocalContext.current
+    val controlsProgress = animateFloatAsState(
+        targetValue = if (weightLambda()) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = EaseOutQuart)
+    )
 
 
     Column(
@@ -1206,62 +1218,40 @@ private fun Lyric(
 
                         canvas.saveLayer(rect, overlayPaint)
 
-                        val colors = if (weightLambda()) {
-                            listOf(
-                                Color.Transparent,
-                                Color(0x59000000),
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color(0x59000000),
-                                Color(0x21000000),
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Transparent
+                        val p = controlsProgress.value.coerceIn(0f, 1f)
+                        val fallbackMaskHeightPx = size.height * 0.38f
+                        val measuredMaskHeightPx = controlsHeightPxLambda().toFloat()
+                        val maskHeightPx = ((if (measuredMaskHeightPx > 0f) measuredMaskHeightPx else fallbackMaskHeightPx) * p)
+                            .coerceIn(0f, size.height)
+                        val extraPx = 18.dp.toPx()
+                        val fadePx = 10.dp.toPx()
+
+                        val cutStart = (1f - ((maskHeightPx + extraPx) / size.height)).coerceIn(0f, 1f)
+                        val fadeLen = (fadePx / size.height).coerceIn(0.001f, 0.08f)
+                        val cutFadeEnd = (cutStart + fadeLen).coerceIn(cutStart, 1f)
+
+                        val colors = if (p == 0f) {
+                            arrayOf(
+                                0f to Color.Transparent,
+                                0.06f to Color(0x59000000),
+                                0.14f to Color.Black,
+                                1f to Color.Black
                             )
                         } else {
-                            listOf(
-                                Color.Transparent,
-                                Color(0x59000000),
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                /*Color(0xD9000000),
-                                Color(0xA6000000),
-                                Color(0x73000000),
-                                Color(0x59000000),
-                                Color(0x3F000000),
-                                Color(0x21000000),
-                                Color(0x0C000000),*/
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black,
-                                Color.Black
+                            arrayOf(
+                                0f to Color.Transparent,
+                                0.06f to Color(0x59000000),
+                                0.14f to Color.Black,
+                                cutStart to Color.Black,
+                                cutFadeEnd to Color.Transparent,
+                                1f to Color.Transparent
                             )
                         }
 
                         drawContent()
 
                         drawRect(
-                            brush = Brush.verticalGradient(colors),
+                            brush = Brush.verticalGradient(colorStops = colors),
                             blendMode = BlendMode.DstIn
                         )
 
