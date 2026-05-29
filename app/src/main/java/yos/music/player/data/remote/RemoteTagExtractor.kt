@@ -75,28 +75,31 @@ object RemoteTagExtractor {
             var coverUri: Uri? = null
 
             try {
-                val fd = ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                try {
-                    val meta = TagLib.getMetadata(fd.fd, false)
-                    val props = TagLib.getAudioProperties(fd.fd, AudioPropertiesReadStyle.Fast)
-                    val map = meta?.propertyMap ?: emptyMap()
-                    title = map["TITLE"]?.lastOrNull()
-                    artist = map["ARTIST"]?.lastOrNull()
-                    album = map["ALBUM"]?.lastOrNull()
-                    albumArtist = map["ALBUMARTIST"]?.lastOrNull()
-                    genre = map["GENRE"]?.lastOrNull()
-                    year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull()
-                    duration = props?.length?.toLong()?.times(1000L)
-                    trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull()
-                    discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull()
-                    composer = map["COMPOSER"]?.lastOrNull()
-                    val uslt = map.entries.firstOrNull { (k, _) ->
-                        k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") }
+                val meta = runCatching {
+                    ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                        TagLib.getMetadata(pfd.dup().detachFd(), false)
                     }
-                    lyrics = uslt?.value?.lastOrNull()
-                } finally {
-                    fd.close()
+                }.getOrNull()
+                val props = runCatching {
+                    ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                        TagLib.getAudioProperties(pfd.dup().detachFd(), AudioPropertiesReadStyle.Fast)
+                    }
+                }.getOrNull()
+                val map = meta?.propertyMap ?: emptyMap()
+                title = map["TITLE"]?.lastOrNull()
+                artist = map["ARTIST"]?.lastOrNull()
+                album = map["ALBUM"]?.lastOrNull()
+                albumArtist = map["ALBUMARTIST"]?.lastOrNull()
+                genre = map["GENRE"]?.lastOrNull()
+                year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull()
+                duration = props?.length?.toLong()?.times(1000L)
+                trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull()
+                discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull()
+                composer = map["COMPOSER"]?.lastOrNull()
+                val uslt = map.entries.firstOrNull { (k, _) ->
+                    k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") }
                 }
+                lyrics = uslt?.value?.lastOrNull()
             } catch (_: Exception) {}
 
             try {

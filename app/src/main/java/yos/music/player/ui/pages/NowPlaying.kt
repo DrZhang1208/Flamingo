@@ -796,7 +796,7 @@ private fun ColumnScope.Album(
 
     YosWrapper {
         val dp = (7 + (27 * scale.value)).dp
-        val shape = RoundedCornerShape(8.dp)
+        val shape = YosRoundedCornerShape(8)
         Box(
             Modifier
                 .fillMaxWidth()
@@ -1516,7 +1516,7 @@ private fun PlayingBar(
         thumbBitmap.value?.let { bmp ->
             Image(
                 bitmap = bmp, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = modifier.size(69.dp).clip(RoundedCornerShape(5.dp))
+                modifier = modifier.size(69.dp).clip(YosRoundedCornerShape(8))
                     .clickable(MutableInteractionSource(), null) { onAlbumClick() }
             )
         }

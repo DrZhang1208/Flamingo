@@ -142,7 +142,7 @@ fun YosLyricView(
     val lrcEntries = lrcEntriesLambda()
 
     //val thisLyricLines = MediaViewModelObject.mainLyricLines
-    if (lrcEntries.isEmpty() || otherSideForLines.isEmpty() /*|| thisLyricLines.isEmpty()*/) {
+    if (lrcEntries.isEmpty() /*|| thisLyricLines.isEmpty()*/) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -638,11 +638,16 @@ private fun LazyItemScope.Line(
         ) {
             SubcomposeLayout(modifier = modifier) { constraints ->
 
+                val forceFullWidth = when (style.textAlign) {
+                    TextAlign.End, TextAlign.Center, TextAlign.Justify -> true
+                    else -> false
+                }
+
                 val measureResult = measurer.measure(
                     text = styledString,
                     style = style,
                     constraints = Constraints(
-                        minWidth = 0,
+                        minWidth = if (forceFullWidth) constraints.maxWidth else 0,
                         maxWidth = constraints.maxWidth,
                     ),
                     layoutDirection = LayoutDirection.Ltr
@@ -658,6 +663,8 @@ private fun LazyItemScope.Line(
                     }
                 }.getOrDefault(constraints.maxWidth.toFloat())
 
+                val finalWidth = if (forceFullWidth) constraints.maxWidth.toFloat() else width
+
                 val content = subcompose(styledString) {
                     Spacer(
                         Modifier
@@ -668,7 +675,7 @@ private fun LazyItemScope.Line(
 
 
                 val placeable = content.measure(
-                    Constraints.fixed(width.roundToInt(), height.roundToPx())
+                    Constraints.fixed(finalWidth.roundToInt(), height.roundToPx())
                 )
 
                 layout(placeable.width, placeable.height) {

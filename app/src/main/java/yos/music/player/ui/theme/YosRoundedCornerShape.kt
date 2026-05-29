@@ -7,12 +7,19 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlin.math.sqrt
 
 // Yos-X tips: By Kyant
+
+fun YosRoundedCornerShape(
+    percent: Int,
+    n: Float = 0.5f,
+    mSize: Size? = null
+) = YosRoundedCornerShape(PercentCornerSize(percent), n, mSize)
 
 fun YosRoundedCornerShape(
     roundSize: Dp,
@@ -154,3 +161,9 @@ class YosRoundedCornerShape(
 
 operator fun FloatArray.component6(): Float = this[5]
 operator fun FloatArray.component7(): Float = this[6]
+
+private class PercentCornerSize(private val percent: Int) : CornerSize {
+    override fun toPx(shapeSize: Size, density: Density): Float {
+        return percent / 100f * minOf(shapeSize.width, shapeSize.height) / 2f
+    }
+}

@@ -380,6 +380,32 @@ class YosPlaybackService : MediaSessionService() {
     companion object {
         private const val FLAG_ALWAYS_SHOW_TICKER = 0x1000000
         private const val FLAG_ONLY_UPDATE_TICKER = 0x2000000
+
+        @Volatile private var sharedCache: SimpleCache? = null
+        private val sharedCacheLock = Any()
+
+        private fun getOrCreateCache(context: android.content.Context, desiredBytes: Long): SimpleCache? {
+            val finalBytes = if (desiredBytes <= 0L) Long.MAX_VALUE else desiredBytes
+            synchronized(sharedCacheLock) {
+                sharedCache?.let { return it }
+                return runCatching {
+                    val dir = File(context.cacheDir, "audio_cache")
+                    dir.mkdirs()
+                    SimpleCache(
+                        dir,
+                        LeastRecentlyUsedCacheEvictor(finalBytes),
+                        androidx.media3.database.StandaloneDatabaseProvider(context)
+                    ).also { sharedCache = it }
+                }.getOrNull()
+            }
+        }
+
+        private fun releaseSharedCache() {
+            synchronized(sharedCacheLock) {
+                runCatching { sharedCache?.release() }
+                sharedCache = null
+            }
+        }
     }
 
     @OptIn(UnstableApi::class)
@@ -510,10 +536,9 @@ class YosPlaybackService : MediaSessionService() {
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
-        // 音频缓存（可配置大小 LRU）
-        val cacheDir = File(cacheDir, "audio_cache")
         val cacheSizeBytes = SettingsLibrary.RemoteCacheSizeMB.toLong() * 1024L * 1024L
-        val cache = SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(cacheSizeBytes), androidx.media3.database.StandaloneDatabaseProvider(this))
+        val cache = getOrCreateCache(this, cacheSizeBytes)
+        val upstreamFactory = RemoteDataSourceFactory(this)
 
         val player = ExoPlayer.Builder(
             this,
@@ -535,7 +560,11 @@ class YosPlaybackService : MediaSessionService() {
         )
             .setMediaSourceFactory(
                 ProgressiveMediaSource.Factory(
-                    CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(RemoteDataSourceFactory(this))
+                    if (cache != null) {
+                        CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(upstreamFactory)
+                    } else {
+                        upstreamFactory
+                    }
                 )
             )
             .setAudioAttributes(
@@ -972,6 +1001,7 @@ class YosPlaybackService : MediaSessionService() {
             release()
             mediaSession = null
         }
+        releaseSharedCache()
         super.onDestroy()
     }
 
@@ -984,4 +1014,3 @@ class YosPlaybackService : MediaSessionService() {
         controllerInfo: MediaSession.ControllerInfo
     ): MediaSession? = mediaSession
 }
-

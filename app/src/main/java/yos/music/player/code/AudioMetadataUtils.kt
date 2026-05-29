@@ -12,6 +12,14 @@ import java.io.File
 import java.nio.charset.Charset
 
 object AudioMetadataUtils {
+    private inline fun <T> runWithDetachedFd(file: File, block: (Int) -> T): T? {
+        return runCatching {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                block(pfd.dup().detachFd())
+            }
+        }.getOrNull()
+    }
+
     fun loadLrcFile(context: Context, filePath: String): String? {
         return try {
             val file = File(filePath)
@@ -43,18 +51,15 @@ object AudioMetadataUtils {
         runCatching {
             val file = File(filePath)
             if (!file.exists()) return@runCatching null
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                val metadata = TagLib.getMetadata(fd.fd, false)
-                val propertyMap = metadata?.propertyMap ?: return@runCatching null
-                // USLT frame keys typically contain "USLT" or "UNSYNCEDLYRICS"
-                val lyricEntry = propertyMap.entries.firstOrNull { (key, _) ->
-                    key.uppercase().let { it.contains("USLT") || it.contains("UNSYNCEDLYRICS") || it.contains("LYRICS") }
-                }
-                if (lyricEntry != null) {
-                    val lyricText = lyricEntry.value.lastOrNull() // Last value is the lyric text
-                    if (!lyricText.isNullOrBlank()) {
-                        return lyricText
-                    }
+            val metadata = runWithDetachedFd(file) { fd -> TagLib.getMetadata(fd, false) } ?: return@runCatching null
+            val propertyMap = metadata.propertyMap ?: return@runCatching null
+            val lyricEntry = propertyMap.entries.firstOrNull { (key, _) ->
+                key.uppercase().let { it.contains("USLT") || it.contains("UNSYNCEDLYRICS") || it.contains("LYRICS") }
+            }
+            if (lyricEntry != null) {
+                val lyricText = lyricEntry.value.lastOrNull()
+                if (!lyricText.isNullOrBlank()) {
+                    return lyricText
                 }
             }
         }.onFailure {
@@ -172,26 +177,31 @@ object AudioMetadataUtils {
         var bitrate: Int
         var sampleRate: Int
 
+        val tagLibResult = runCatching {
+            if (!songFile.exists()) return@runCatching (-1 to -1)
+            runWithDetachedFd(songFile) { fd ->
+                val audioProperties = TagLib.getAudioProperties(fd, AudioPropertiesReadStyle.Fast)
+                (audioProperties?.bitrate ?: -1) to (audioProperties?.sampleRate ?: -1)
+            } ?: (-1 to -1)
+        }.getOrElse { (-1 to -1) }
 
-        ParcelFileDescriptor.open(songFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-            val audioProperties = TagLib.getAudioProperties(fd.fd, AudioPropertiesReadStyle.Fast)
-            bitrate = audioProperties?.bitrate ?: -1
-            sampleRate = audioProperties?.sampleRate ?: -1
-        }
+        bitrate = tagLibResult.first
+        sampleRate = tagLibResult.second
 
         if (bitrate == -1 || sampleRate == -1) {
             val extractor = MediaExtractor()
             try {
                 extractor.setDataSource(filePath)
-                val format = extractor.getTrackFormat(0)
-                if (bitrate == -1) {
-                    bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE)
+                if (extractor.trackCount > 0) {
+                    val format = extractor.getTrackFormat(0)
+                    if (bitrate == -1 && format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                        bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE)
+                    }
+                    if (sampleRate == -1 && format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                        sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    }
                 }
-                if (sampleRate == -1) {
-                    sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (_: Throwable) {
             } finally {
                 extractor.release()
             }
@@ -220,12 +230,12 @@ object AudioMetadataUtils {
         // Try TagLib for audio properties
         runCatching {
             if (file.exists()) {
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                    val props = TagLib.getAudioProperties(fd.dup().detachFd(), AudioPropertiesReadStyle.Fast)
-                    bitrate = props?.bitrate
-                    sampleRate = props?.sampleRate
-                    channels = props?.channels
+                val props = runWithDetachedFd(file) { fd ->
+                    TagLib.getAudioProperties(fd, AudioPropertiesReadStyle.Fast)
                 }
+                bitrate = props?.bitrate
+                sampleRate = props?.sampleRate
+                channels = props?.channels
             }
         }
 

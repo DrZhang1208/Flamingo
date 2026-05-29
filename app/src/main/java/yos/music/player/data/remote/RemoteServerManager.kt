@@ -132,18 +132,28 @@ object RemoteServerManager {
 
     fun testConnection(config: ServerConfig, password: String?): String {
         if (config.type == ServerType.WEBDAV && config.host.isBlank()) return "请输入 WebDAV 地址"
-        return when (config.type) {
-            ServerType.SMB -> testSmb(config, password)
-            ServerType.WEBDAV -> testWebDav(config, password)
+        return runCatching {
+            when (config.type) {
+                ServerType.SMB -> testSmb(config, password)
+                ServerType.WEBDAV -> testWebDav(config, password)
+            }
+        }.getOrElse { e ->
+            val msg = (e.message ?: e.javaClass.simpleName).ifBlank { e.javaClass.simpleName }
+            when (e) {
+                is java.net.UnknownHostException -> "连接失败：无法解析主机（请只填 IP/域名，不要填 smb:// 前缀或路径）"
+                is java.net.SocketTimeoutException -> "连接失败：超时（请检查网络、端口、服务器在线状态）"
+                else -> "连接失败：$msg"
+            }
         }
     }
 
     private fun testSmb(config: ServerConfig, password: String?): String {
         val client = SMBClient(SmbConfig.builder().withTimeout(15, TimeUnit.SECONDS).withSoTimeout(15, TimeUnit.SECONDS).build())
         return try {
-            val conn = client.connect(config.host, config.port)
+            val (host, shareName) = parseSmbEndpoint(config.host, config.shareName)
+            val conn = client.connect(host, config.port)
             val session = authenticateSmb(conn, config, password)
-            val share = session.connectShare(config.shareName ?: return "SMB 需要共享名") as DiskShare
+            val share = session.connectShare(shareName ?: return "SMB 需要共享名") as DiskShare
             val files = share.list("", "*")
             share.close(); session.close(); conn.close()
             "连接成功，根目录 ${files.size} 个项目"
@@ -170,9 +180,10 @@ object RemoteServerManager {
 
     private fun connectSmb(config: ServerConfig): Boolean {
         val client = SMBClient(SmbConfig.builder().withTimeout(30, TimeUnit.SECONDS).withSoTimeout(30, TimeUnit.SECONDS).build())
-        val conn = client.connect(config.host, config.port)
+        val (host, shareName) = parseSmbEndpoint(config.host, config.shareName)
+        val conn = client.connect(host, config.port)
         val session = authenticateSmb(conn, config, getPassword(config.id))
-        val share = session.connectShare(config.shareName!!) as DiskShare
+        val share = session.connectShare(shareName ?: throw IllegalStateException("SMB 需要共享名")) as DiskShare
         smbClients[config.id] = client; smbSessions[config.id] = session; smbShares[config.id] = share
         return true
     }
@@ -209,9 +220,14 @@ object RemoteServerManager {
 
     fun listFolder(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
-        return when (cfg.type) {
-            ServerType.SMB -> listSmb(serverId, remotePath)
-            ServerType.WEBDAV -> listWebDav(serverId, remotePath)
+        return runCatching {
+            when (cfg.type) {
+                ServerType.SMB -> listSmb(serverId, remotePath)
+                ServerType.WEBDAV -> listWebDav(serverId, remotePath)
+            }
+        }.getOrElse { e ->
+            lastParseError = connectionErrorMessage(cfg, e)
+            emptyList()
         }
     }
 
@@ -381,6 +397,32 @@ object RemoteServerManager {
         return if (clean.isEmpty()) base else "$base/$clean"
     }
 
+    private fun parseSmbEndpoint(rawHostInput: String, rawShareInput: String?): Pair<String, String?> {
+        val hostInput = rawHostInput.trim()
+        val shareInput = rawShareInput?.trim().orEmpty().ifBlank { null }
+
+        fun splitHostAndShare(hostPart: String): Pair<String, String?> {
+            val trimmed = hostPart.trim().removeSuffix("/")
+            val hostOnly = trimmed.substringBefore('/')
+            val shareFromHost = trimmed.substringAfter('/', missingDelimiterValue = "").substringBefore('/').ifBlank { null }
+            return hostOnly to shareFromHost
+        }
+
+        val (hostPart, shareFromHost) = when {
+            hostInput.startsWith("smb://", ignoreCase = true) -> {
+                val uri = android.net.Uri.parse(hostInput)
+                val host = uri.host ?: hostInput.removePrefix("smb://").substringBefore('/').substringBefore('?').substringBefore('#')
+                val share = uri.pathSegments.firstOrNull()
+                host to share
+            }
+            else -> splitHostAndShare(hostInput)
+        }
+
+        val host = hostPart.substringBefore(':').trim()
+        val share = shareInput ?: shareFromHost
+        return host to share
+    }
+
     private fun listWebDav(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
         val client = webDavClients[serverId] ?: run {
@@ -389,35 +431,36 @@ object RemoteServerManager {
         }
         val url = buildWebDavUrl(cfg, remotePath).trimEnd('/') + "/"
 
-        // Try PROPFIND
-        val resp = client.newCall(
-            Request.Builder().url(url)
-                .method("PROPFIND", propfindBody)
-                .header("Depth", "1")
-                .header("User-Agent", "Flamingo/1.0")
-                .build()
-        ).execute()
+        return runCatching {
+            val body = client.newCall(
+                Request.Builder().url(url)
+                    .method("PROPFIND", propfindBody)
+                    .header("Depth", "1")
+                    .header("User-Agent", "Flamingo/1.0")
+                    .build()
+            ).execute().use { resp ->
+                resp.body?.string() ?: ""
+            }
 
-        val body = resp.body?.string() ?: ""
-        lastListBody = body
+            lastListBody = body
 
-        if (resp.isSuccessful && body.isNotBlank()) {
-            // 用请求 URL 的路径作为自引用标识，过滤当前目录自身
-            val selfPath = android.net.Uri.parse(url).path?.trimEnd('/') ?: ""
-            val result = parsePropfind(body, remotePath, selfPath)
-            if (result.isNotEmpty()) return result
+            if (body.isNotBlank()) {
+                val selfPath = android.net.Uri.parse(url).path?.trimEnd('/') ?: ""
+                val result = parsePropfind(body, remotePath, selfPath)
+                if (result.isNotEmpty()) return@runCatching result
+            }
+
+            val getBody = client.newCall(
+                Request.Builder().url(url).header("User-Agent", "Flamingo/1.0").build()
+            ).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching emptyList()
+                resp.body?.string() ?: ""
+            }
+            if (getBody.isNotBlank()) parseHtmlDirectory(getBody, remotePath, url) else emptyList()
+        }.getOrElse { e ->
+            lastParseError = connectionErrorMessage(cfg, e)
+            emptyList()
         }
-
-        // Fallback: GET + parse HTML or simple file list
-        val getResp = client.newCall(
-            Request.Builder().url(url).header("User-Agent", "Flamingo/1.0").build()
-        ).execute()
-        val getBody = getResp.body?.string() ?: ""
-        if (getResp.isSuccessful && getBody.isNotBlank()) {
-            return parseHtmlDirectory(getBody, remotePath, url)
-        }
-
-        return emptyList()
     }
 
     /**
@@ -505,5 +548,26 @@ object RemoteServerManager {
         // href 的最后一个路径段作为简单相对路径（适用于 Depth: 1）
         val name = href.substringAfterLast('/')
         return if (basePath.isEmpty()) name else "$basePath/$name"
+    }
+
+    private fun connectionErrorMessage(cfg: ServerConfig, e: Throwable): String {
+        val msg = (e.message ?: e.javaClass.simpleName).ifBlank { e.javaClass.simpleName }
+        return when (e) {
+            is javax.net.ssl.SSLHandshakeException, is javax.net.ssl.SSLException -> {
+                if (cfg.type == ServerType.WEBDAV) {
+                    val schemeHint = if (cfg.host.trim().startsWith("https://", ignoreCase = true)) {
+                        "（如果服务器是 http，请把地址改成 http://；若是自签名证书可勾选“跳过 SSL 证书验证”）"
+                    } else {
+                        "（若使用 https 且为自签名证书可勾选“跳过 SSL 证书验证”）"
+                    }
+                    "WebDAV SSL 握手失败：$msg $schemeHint"
+                } else {
+                    "SSL 握手失败：$msg"
+                }
+            }
+            is java.net.UnknownHostException -> "连接失败：无法解析主机（请检查地址是否正确）"
+            is java.net.SocketTimeoutException -> "连接失败：超时（请检查网络、端口、服务器在线状态）"
+            else -> "连接失败：$msg"
+        }
     }
 }

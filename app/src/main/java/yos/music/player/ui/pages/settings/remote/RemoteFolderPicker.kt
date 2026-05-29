@@ -77,11 +77,20 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
         loadJob?.cancel()
         loading = true
         loadJob = scope.launch(Dispatchers.IO) {
-            val connected = RemoteServerManager.isConnected(serverId)
-            if (!connected) { RemoteServerManager.connect(serverId) }
-            val files = RemoteServerManager.listFolder(serverId, path)
+            val files = runCatching {
+                val connected = RemoteServerManager.isConnected(serverId)
+                if (!connected) { RemoteServerManager.connect(serverId) }
+                RemoteServerManager.listFolder(serverId, path)
+            }.getOrElse {
+                emptyList()
+            }
+
+            val error = RemoteServerManager.lastParseError
             withContext(Dispatchers.Main) {
                 entries = files; currentPath = path; loading = false
+                if (files.isEmpty() && error.isNotBlank()) {
+                    Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
