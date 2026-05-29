@@ -33,6 +33,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -105,6 +106,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
@@ -1768,37 +1770,68 @@ private fun PlayerControl(
 
                 // 进度条
                 YosWrapper {
-                    Slider(
-                        value = sliderPosition.floatValue,
-                        onValueChange = { newValue ->
-                            isSliding.value = true
-                            sliderPosition.floatValue = newValue
-                            val newTotalSeconds = newValue.toLong() / 1000
-                            playedTime.value = formatTime(newTotalSeconds)
-                            val newRemainingSeconds = playingDuration.longValue / 1000 - newTotalSeconds
-                            remainingTime.value = "-${formatTime(newRemainingSeconds)}"
-                            onSlider()
-                        },
-                        onValueChangeFinished = {
-                            Vibrator.longClick(context)
-                            onSeek(sliderPosition.floatValue)
-                            isSliding.value = false
-                        },
-                        valueRange = 0f..playingDuration.longValue.toFloat().coerceAtLeast(0f),
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = Color.White,
-                            inactiveTrackColor = Color(0x0DFFFFFF)
-                        ),
-                        modifier = Modifier.overlayEffect().alpha(0.45f).height(14.dp),
-                        thumb = { },
-                        track = {
-                            Track(
-                                sliderPositions = SliderPositions(
-                                    initialActiveRange = 0f..(sliderPosition.floatValue / playingDuration.longValue)
-                                ), height = 7.dp
+                    val trackHeight = animateDpAsState(
+                        targetValue = if (isSliding.value) 10.dp else 7.dp,
+                        animationSpec = tween(150)
+                    )
+                    val trackWidthPx = remember { mutableFloatStateOf(300f) }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .overlayEffect()
+                            .alpha(0.45f)
+                            .height(14.dp)
+                            .onSizeChanged { trackWidthPx.floatValue = it.width.toFloat() }
+                            .pointerInput(playingDuration.longValue) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        isSliding.value = true
+                                    },
+                                    onDragEnd = {
+                                        Vibrator.longClick(context)
+                                        onSeek(sliderPosition.floatValue)
+                                        isSliding.value = false
+                                    },
+                                    onDragCancel = {
+                                        isSliding.value = false
+                                    },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        if (playingDuration.longValue <= 0L) return@detectHorizontalDragGestures
+                                        val deltaMs = dragAmount / trackWidthPx.floatValue.coerceAtLeast(100f) * playingDuration.longValue.toFloat()
+                                        val newPosition = (sliderPosition.floatValue + deltaMs)
+                                            .coerceIn(0f, playingDuration.longValue.toFloat())
+                                        sliderPosition.floatValue = newPosition
+                                        val totalSeconds = newPosition.toLong() / 1000
+                                        playedTime.value = formatTime(totalSeconds)
+                                        val remainingSeconds = playingDuration.longValue / 1000 - totalSeconds
+                                        remainingTime.value = "-${formatTime(remainingSeconds)}"
+                                        onSlider()
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val progress = if (playingDuration.longValue > 0L) {
+                            (sliderPosition.floatValue / playingDuration.longValue.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(trackHeight.value)
+                                .clip(YosRoundedCornerShape(100))
+                                .background(Color.White.copy(alpha = 0.5f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(progress)
+                                    .background(Color.White)
                             )
                         }
-                    )
+                    }
                 }
 
                 // 控制按钮&进度文本
@@ -2088,115 +2121,78 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
         )
 
         YosWrapper {
-            val animatedProgress = if (sliding.value) {
-                sliderPosition
-            } else {
-                animateFloatAsState(
+            val trackHeight = animateDpAsState(
+                targetValue = if (sliding.value) 10.dp else 7.dp,
+                animationSpec = tween(150)
+            )
+            val trackWidthPx = remember { mutableFloatStateOf(300f) }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 1.5.dp, end = 5.dp)
+                    .height(14.dp)
+                    .onSizeChanged { trackWidthPx.floatValue = it.width.toFloat() }
+                    .pointerInput(Unit) {
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                sliding.value = true
+                            },
+                            onDragEnd = {
+                                val targetStep = ((sliderPosition.floatValue * maxVolume) + 0.5f).toInt().coerceIn(0, maxVolume)
+                                val snapped = targetStep.toFloat() / maxVolume
+                                sliderPosition.floatValue = snapped
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetStep, 0)
+                                Vibrator.longClick(context)
+                                sliding.value = false
+                            },
+                            onDragCancel = {
+                                sliding.value = false
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                if (maxVolume <= 0) return@detectHorizontalDragGestures
+                                val rawDelta = dragAmount / trackWidthPx.floatValue.coerceAtLeast(100f)
+                                val rawVolume = (sliderPosition.floatValue + rawDelta).coerceIn(0f, 1f)
+                                sliderPosition.floatValue = rawVolume
+                                val step = ((rawVolume * maxVolume) + 0.5f).toInt().coerceIn(0, maxVolume)
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, step, 0)
+                                onSlider()
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                val animatedProgress by animateFloatAsState(
                     targetValue = sliderPosition.floatValue,
-                    animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
+                    animationSpec = if (sliding.value)
+                        spring(stiffness = 600f, dampingRatio = 1f)
+                    else
+                        ProgressIndicatorDefaults.ProgressAnimationSpec,
                     visibilityThreshold = 0.0001f
                 )
-            }
 
-            Slider(
-                value = (animatedProgress.value * maxVolume),
-                onValueChange = { newValue ->
-                    sliding.value = true
-                    sliderPosition.floatValue = newValue / maxVolume
-                    val volume = newValue.toInt()
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0)
-                    onSlider()
-                },
-                valueRange = 0f..maxVolume.toFloat(),
-                colors = SliderDefaults.colors(
-                    activeTrackColor = Color.White,
-                    inactiveTrackColor = Color(0x0DFFFFFF)
-                ),
-                modifier = Modifier.weight(1f).padding(start = 1.5.dp, end = 5.dp),
-                thumb = { },
-                track = {
-                    Track(
-                        sliderPositions = SliderPositions(
-                            initialActiveRange = 0f..animatedProgress.value
-                        ), height = 7.dp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(trackHeight.value)
+                        .clip(YosRoundedCornerShape(100))
+                        .background(Color.White.copy(alpha = 0.5f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(animatedProgress.coerceIn(0f, 1f))
+                            .background(Color.White)
                     )
-                },
-                onValueChangeFinished = {
-                    Vibrator.longClick(context)
-                    sliding.value = false
                 }
-            )
+            }
         }
         Icon(
             painter = painterResource(id = R.drawable.ic_nowplaying_volume_full),
             contentDescription = "Max Volume",
             modifier = Modifier.size(20.dp)
         )
-    }
-}
-
-@Composable
-private fun Track(
-    sliderPositions: SliderPositions,
-    modifier: Modifier = Modifier,
-    height: Dp
-) = YosWrapper {
-    val inactiveTrackColor = Color.White.copy(alpha = 0.5f)
-    val activeTrackColor = Color.White
-    val inactiveTickColor = Color.White.copy(alpha = 0.5f)
-    val activeTickColor = Color.White
-    Canvas(
-        modifier
-            .fillMaxWidth()
-            .height(height)
-    ) {
-        val isRtl = layoutDirection == LayoutDirection.Rtl
-        val sliderLeft = Offset(0f, center.y)
-        val sliderRight = Offset(size.width, center.y)
-        val sliderStart = if (isRtl) sliderRight else sliderLeft
-        val sliderEnd = if (isRtl) sliderLeft else sliderRight
-        val tickSize = 2.0.dp.toPx()
-        val trackStrokeWidth = height.toPx()
-        drawLine(
-            inactiveTrackColor,
-            sliderStart,
-            sliderEnd,
-            trackStrokeWidth,
-            StrokeCap.Round
-        )
-        val sliderValueEnd = Offset(
-            sliderStart.x +
-                    (sliderEnd.x - sliderStart.x) * sliderPositions.activeRange.endInclusive,
-            center.y
-        )
-
-        val sliderValueStart = Offset(
-            sliderStart.x +
-                    (sliderEnd.x - sliderStart.x) * sliderPositions.activeRange.start,
-            center.y
-        )
-
-        drawLine(
-            activeTrackColor,
-            sliderValueStart,
-            sliderValueEnd,
-            trackStrokeWidth,
-            StrokeCap.Round
-        )
-        sliderPositions.tickFractions.groupBy {
-            it > sliderPositions.activeRange.endInclusive ||
-                    it < sliderPositions.activeRange.start
-        }.forEach { (outsideFraction, list) ->
-            drawPoints(
-                list.fastMap {
-                    Offset(lerp(sliderStart, sliderEnd, it).x, center.y)
-                },
-                PointMode.Points,
-                (if (outsideFraction) inactiveTickColor else activeTickColor),
-                tickSize,
-                StrokeCap.Round
-            )
-        }
     }
 }
 

@@ -1,21 +1,40 @@
+# IDE
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
+.idea/
+*.swp
+*.swo
+*~
+
+# Gradle
+.gradle/
+build/
+/build-output/
+local.properties
+
+# Android
 /app/build/
+/app/debug/
+/app/release/
 /captures
 .externalNativeBuild
 .cxx
-local.properties
-/app/debug/
-/app/release/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Kotlin
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & debug
+*.log
+*.hprof
+*.prof
+
+# Project docs (not for version control)
 WIKI.md
 CLAUDE.md
-/build-output/
