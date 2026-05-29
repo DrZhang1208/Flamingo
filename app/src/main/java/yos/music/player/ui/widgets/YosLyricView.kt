@@ -456,6 +456,8 @@ fun YosLyricView(
                                 }
                             ) {
                                 Vibrator.doubleClick(context)
+                                isUserScrolling.value = false
+                                enableLyricScroll.value = true
                                 currentLyricIndex.intValue = index
                                 mediaEvent.onSeek(lines.first().first.toInt())
                             }
