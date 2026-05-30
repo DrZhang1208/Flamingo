@@ -109,7 +109,7 @@ object MediaController {
     var shuffleEnabled = mutableStateOf(false)
 
     /** 原始播放列表（未打乱），用于关闭随机时恢复自然顺序 */
-    private var sourceMusicList: List<YosMediaItem>? = null
+    var sourceMusicList: List<YosMediaItem>? = null
 
     fun onServiceRunning() {
         val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -223,25 +223,36 @@ object MediaController {
         position: Long = 0L,
         shuffleModeEnabled: Boolean = false,
         repeatMode: Int = REPEAT_MODE_ALL,
-        play: Boolean = true
+        play: Boolean = true,
+        sourceList: List<YosMediaItem>? = null
     ) {
-        // 由调用者显式控制随机模式，不再与全局状态 OR
         shuffleEnabled.value = shuffleModeEnabled
 
         if (thisMusicList != playingMusicList.value) {
 
-            // 保存原始列表，用于关闭随机时恢复
-            sourceMusicList = thisMusicList
+            // 恢复时（play=false）：列表已保存时就是最终顺序，直接使用
+            // 新播放时（play=true）：按需打乱
+            val playbackList: List<YosMediaItem>
+            val actualSourceList: List<YosMediaItem>
 
-            // 应用层随机：打乱列表，保持当前曲目在首位
-            val playbackList = if (shuffleModeEnabled) {
+            if (!play && sourceList != null) {
+                // 恢复场景：使用已保存的原始列表和播放列表，不打乱
+                actualSourceList = sourceList
+                playbackList = thisMusicList
+            } else if (shuffleModeEnabled) {
+                // 新播放 + 随机：打乱并保持当前曲目在首位
+                actualSourceList = thisMusicList
                 val others = thisMusicList.filter { it.uri != music.uri }.shuffled()
-                listOf(music) + others
+                playbackList = listOf(music) + others
             } else {
-                thisMusicList
+                // 新播放 + 顺序
+                actualSourceList = thisMusicList
+                playbackList = thisMusicList
             }
 
-            val startIndex = if (shuffleModeEnabled) {
+            sourceMusicList = actualSourceList
+
+            val startIndex = if (shuffleModeEnabled && play) {
                 0
             } else {
                 playbackList.indexOfFirst { it.uri == music.uri }.coerceAtLeast(0)
@@ -292,7 +303,7 @@ object MediaController {
         val shuffle = shuffleEnabled.value
         val repeat = withContext(Dispatchers.Main) { control.repeatMode }
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
-        MusicLibrary.updatePlayList(PlayListV1(mainMusicList, playlist))
+        MusicLibrary.updatePlayList(PlayListV1(mainMusicList, playlist, sourceMusicList))
     }
 
     fun toggleShuffle() {
@@ -525,7 +536,7 @@ class YosPlaybackService : MediaSessionService() {
         val shuffle = shuffleEnabled.value
         val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
-        MusicLibrary.updatePlayList(PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist))
+        MusicLibrary.updatePlayList(PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist, yos.music.player.code.MediaController.sourceMusicList))
     }
 
     @OptIn(UnstableApi::class)

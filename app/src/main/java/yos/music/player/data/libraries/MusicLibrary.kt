@@ -54,7 +54,8 @@ data class Time(
 @Stable
 data class PlayListV1(
     val mainMusicList: List<YosMediaItem>?,
-    val playingMusicList: List<YosMediaItem>?
+    val playingMusicList: List<YosMediaItem>?,
+    val sourceMusicList: List<YosMediaItem>? = null  // 打乱前的原始顺序，v1 升级默认 null
 ) : Parcelable
 
 @Parcelize
@@ -523,12 +524,16 @@ object MusicLibrary {
 
 
 
-            updatePlayList(
-                PlayListV1(
-                    MediaController.mainMusicList,
-                    MediaController.playingMusicList.value ?: emptyList()
+            val playing = MediaController.playingMusicList.value
+            if (playing != null) {
+                updatePlayList(
+                    PlayListV1(
+                        MediaController.mainMusicList,
+                        playing,
+                        yos.music.player.code.MediaController.sourceMusicList
+                    )
                 )
-            )
+            }
 
             result
         }

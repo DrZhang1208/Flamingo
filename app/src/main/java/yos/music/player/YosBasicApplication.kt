@@ -108,12 +108,14 @@ class YosBasicApplication : Application() {
 
                         if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
                             if (savedMusic != null) {
+                                val savedSourceList = playListData.sourceMusicList
                                 yos.music.player.code.MediaController.prepare(
                                     savedMusic, savedPlayingMusicList,
                                     playStatusData.position,
                                     playStatusData.shuffleModeEnabled,
                                     playStatusData.repeatMode,
-                                    false
+                                    false,
+                                    savedSourceList
                                 )
                             }
                             playingMusicList.value = savedPlayingMusicList
