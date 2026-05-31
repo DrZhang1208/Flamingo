@@ -23,6 +23,7 @@ import yos.music.player.code.YosPlaybackService
 import yos.music.player.data.libraries.Folder
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.PlayList
+import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
 import yos.music.player.data.libraries.YosStringWrapper
 import kotlin.system.exitProcess
@@ -133,7 +134,18 @@ class YosBasicApplication : Application() {
                             if (!savedConfigs.isNullOrBlank()) {
                                 yos.music.player.data.remote.RemoteServerManager.loadConfigs(savedConfigs)
                             }
-                            val pendingSongs = MusicLibrary.songs.filter { it.serverId != null && it.tagScanStatus == "PENDING" }
+                            val pendingSongs = MusicLibrary.songs.filter {
+                                it.serverId != null && (it.tagScanStatus == "PENDING" ||
+                                    yos.music.player.data.remote.RemoteRetryManager.isRecoverable(it.tagScanStatus))
+                            }
+                            // 启动时恢复可重试状态
+                            pendingSongs.forEach {
+                                it.uri?.toString()?.let { uri ->
+                                    yos.music.player.data.remote.RemoteRetryManager.restoreFromTagStatus(
+                                        uri, it.serverId ?: "", it.uri?.path ?: "", it.tagScanStatus
+                                    )
+                                }
+                            }
                             if (pendingSongs.isNotEmpty()) {
                                 val groups = pendingSongs.groupBy { it.serverId!! }
                                 for ((serverId, items) in groups) {
@@ -169,6 +181,16 @@ class YosBasicApplication : Application() {
             },
             MoreExecutors.directExecutor()
         )
+
+        // 预加载 MMKV 数据到内存，避免 UI 线程首次访问时卡顿
+        Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            try {
+                yos.music.player.data.libraries.MusicLibrary.songs.size
+                yos.music.player.data.libraries.MusicLibrary.folders.size
+                yos.music.player.data.libraries.MusicLibrary.hideSongs.size
+            } catch (_: Exception) {}
+        }.start()
 
         super.onCreate()
     }

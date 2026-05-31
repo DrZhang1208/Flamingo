@@ -125,6 +125,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.geometry.CornerRadius
@@ -137,6 +138,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -264,7 +266,7 @@ fun NowPlaying(
     Surface(
         modifier = Modifier.fillMaxSize(),
         contentColor = Color.White,
-        color = Color.Transparent
+        color = Color.Black
     ) {
         val context = LocalContext.current
 
@@ -498,7 +500,7 @@ fun NowPlaying(
                                                                         navController.toUI(UI.AlbumInfo)
                                                                     }
                                                                 },
-                                                            fontWeight = FontWeight.Medium
+                                                            fontWeight = FontWeight.Bold
                                                         )
                                                         Text(
                                                             text = it?.artistsName
@@ -524,7 +526,8 @@ fun NowPlaying(
                                                                     }
                                                                 },
                                                             maxLines = 1,
-                                                            color = Color.White.copy(alpha = 0.35f)
+                                                            color = Color.White.copy(alpha = 0.35f),
+                                                            fontWeight = FontWeight.SemiBold
                                                         )
                                                     }
 
@@ -619,7 +622,7 @@ fun NowPlaying(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(top = 40.dp)
+                                        .padding(top = 20.dp, bottom = 20.dp)
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null,
@@ -798,24 +801,35 @@ private fun ColumnScope.Album(
 
     YosWrapper {
         val dp = (7 + (27 * scale.value)).dp
-        val shape = YosRoundedCornerShape(8)
+        val albumShape = YosRoundedCornerShape(8)
         Box(
             Modifier
                 .fillMaxWidth()
                 .padding(start = dp, end = dp, bottom = dp)
                 .then(modifier)
+                .drawBehind {
+                    val blur = size.width * 0.075f
+                    val cr = size.minDimension * 0.04f
+                    val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
+                    val p = android.graphics.Path().apply { addRoundRect(rect, cr, cr, android.graphics.Path.Direction.CW) }
+                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                        color = android.graphics.Color.argb((0.42f * 255).toInt(), 0, 0, 0)
+                        maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
+                    }
+                    drawContext.canvas.nativeCanvas.drawPath(p, paint)
+                }
         ) {
             // Coil crossfade 自动处理封面切换渐变，无需手动两层叠加
             currentUrl.value?.let { url ->
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(true).build(),
                     contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
                 )
             } ?: AsyncImage(
                 model = R.drawable.placeholder_music_default_artwork,
                 contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(shape)
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
             )
         }
     }
@@ -833,7 +847,7 @@ private fun PlayingList(
 ) {
     val context = LocalContext.current
 
-    Spacer(modifier = Modifier.height(12.dp))
+    Spacer(modifier = Modifier.height(18.dp))
 
     val musicList = remember("PlayingList_musicList") {
         playingMusicList
@@ -1225,11 +1239,11 @@ private fun Lyric(
                         val measuredMaskHeightPx = controlsHeightPxLambda().toFloat()
                         val maskHeightPx = ((if (measuredMaskHeightPx > 0f) measuredMaskHeightPx else fallbackMaskHeightPx) * p)
                             .coerceIn(0f, size.height)
-                        val extraPx = 18.dp.toPx()
-                        val fadePx = 10.dp.toPx()
+                        val extraPx = 80.dp.toPx()
+                        val fadePx = 70.dp.toPx()
 
                         val cutStart = (1f - ((maskHeightPx + extraPx) / size.height)).coerceIn(0f, 1f)
-                        val fadeLen = (fadePx / size.height).coerceIn(0.001f, 0.08f)
+                        val fadeLen = (fadePx / size.height).coerceIn(0.001f, 0.15f)
                         val cutFadeEnd = (cutStart + fadeLen).coerceIn(cutStart, 1f)
 
                         val colors = if (p == 0f) {
@@ -1489,24 +1503,6 @@ private fun PlayingBar(
     val stickyUrl = remember { mutableStateOf(albumUrlLambda()) }
     val current = albumUrlLambda()
     if (current != null) stickyUrl.value = current
-    val ctx = LocalContext.current
-    val thumbBitmap = remember { mutableStateOf<ImageBitmap?>(value = null) }
-
-    LaunchedEffect(stickyUrl.value) {
-        val url = stickyUrl.value ?: return@LaunchedEffect
-        withContext(Dispatchers.Default) {
-            runCatching {
-                val loader = ImageLoader.Builder(ctx).crossfade(true).build()
-                try {
-                    val req = ImageRequest.Builder(ctx).data(url).size(128).build()
-                    val bmp = loader.execute(req).drawable?.toBitmap()?.asImageBitmap()
-                    withContext(Dispatchers.Main) { if (bmp != null) thumbBitmap.value = bmp }
-                } finally {
-                    loader.shutdown()
-                }
-            }
-        }
-    }
 
     Row(
         Modifier
@@ -1515,12 +1511,30 @@ private fun PlayingBar(
             .padding(top = 22.dp)
             .height(70.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        thumbBitmap.value?.let { bmp ->
-            Image(
-                bitmap = bmp, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = modifier.size(69.dp).clip(YosRoundedCornerShape(8))
+        stickyUrl.value?.let { url ->
+            val smallShape = YosRoundedCornerShape(8)
+            Box(
+                modifier = modifier.size(69.dp)
+                    .drawBehind {
+                        val blur = size.width * 0.075f
+                        val cr = size.minDimension * 0.04f
+                        val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
+                        val p = android.graphics.Path().apply { addRoundRect(rect, cr, cr, android.graphics.Path.Direction.CW) }
+                        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.argb((0.42f * 255).toInt(), 0, 0, 0)
+                            maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
+                        }
+                        drawContext.canvas.nativeCanvas.drawPath(p, paint)
+                    }
+                    .clip(smallShape)
                     .clickable(MutableInteractionSource(), null) { onAlbumClick() }
-            )
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(true).build(),
+                    contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
         Column(
             Modifier
@@ -1533,7 +1547,7 @@ private fun PlayingBar(
                 fontSize = 16.5.sp,
                 maxLines = 1,
                 modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Bold,
                 lineHeight = 16.5.sp
             )
             Text(
@@ -1544,7 +1558,8 @@ private fun PlayingBar(
                     .overlayEffect()
                     .basicMarquee(iterations = Int.MAX_VALUE),
                 maxLines = 1,
-                color = Color.White.copy(alpha = 0.35f)
+                color = Color.White.copy(alpha = 0.35f),
+                fontWeight = FontWeight.SemiBold
             )
         }
 
@@ -1779,6 +1794,7 @@ private fun PlayerControl(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
                             .overlayEffect()
                             .alpha(0.45f)
                             .height(14.dp)
@@ -1872,8 +1888,8 @@ private fun PlayerControl(
 
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxSize(),
+                            .fillMaxWidth()
+                            .padding(top = 25.dp, bottom = 35.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -1976,6 +1992,7 @@ private fun PlayerControl(
                     VolumeSlider(context = context, onSlider)
                 }
             }
+            Spacer(modifier = Modifier.height(16.dp))
 
             // 底部 歌词&播放列表
             YosWrapper {
@@ -2109,7 +2126,7 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .padding(end = 1.5.dp)
-            .padding(horizontal = 8.dp)
+            .padding(horizontal = 12.dp)
             .padding(top = 4.dp, bottom = 2.5.dp)
             .overlayEffect()
             .alpha(0.45f)
@@ -2163,14 +2180,15 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
                     },
                 contentAlignment = Alignment.Center
             ) {
-                val animatedProgress by animateFloatAsState(
-                    targetValue = sliderPosition.floatValue,
-                    animationSpec = if (sliding.value)
-                        spring(stiffness = 600f, dampingRatio = 1f)
-                    else
-                        ProgressIndicatorDefaults.ProgressAnimationSpec,
-                    visibilityThreshold = 0.0001f
-                )
+                val animatedProgress = if (sliding.value) {
+                    sliderPosition.floatValue
+                } else {
+                    animateFloatAsState(
+                        targetValue = sliderPosition.floatValue,
+                        animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
+                        visibilityThreshold = 0.0001f
+                    ).value
+                }
 
                 Box(
                     modifier = Modifier

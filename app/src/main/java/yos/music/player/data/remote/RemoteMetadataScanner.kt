@@ -85,18 +85,24 @@ object RemoteMetadataScanner {
         scanJob?.cancel()
         scanJob = scope.launch {
             val pending = items.filter { it.tagScanStatus == "PENDING" }
-            if (pending.isEmpty()) return@launch
+            // 包含未达重试上限的 FAILED 项
+            val recoverableUris = RemoteRetryManager.getPendingBackgroundRetries(serverId)
+                .map { it.uri }.toSet()
+            val failedRetry = items.filter {
+                it.tagScanStatus == "FAILED" && it.uri?.toString() in recoverableUris
+            }
+            val toProcess = pending + failedRetry
+            if (toProcess.isEmpty()) return@launch
 
-            _scanProgress.value = ScanProgress(serverId, pending.size, 0, "", true)
+            _scanProgress.value = ScanProgress(serverId, toProcess.size, 0, "", true)
 
-            for ((i, item) in pending.withIndex()) {
+            for ((i, item) in toProcess.withIndex()) {
                 val path = item.uri?.path ?: continue
-                _scanProgress.value = ScanProgress(serverId, pending.size, i, item.title ?: path, true)
+                val uri = item.uri?.toString() ?: path
+                _scanProgress.value = ScanProgress(serverId, toProcess.size, i, item.title ?: path, true)
 
                 try {
-                    val result = RemoteTagExtractor.extract(
-                        serverId, path, item.uri?.toString() ?: path
-                    )
+                    val result = RemoteTagExtractor.extract(serverId, path, uri)
                     val updated = item.copy(
                         duration = result.duration ?: item.duration,
                         title = result.title ?: item.title,
@@ -112,8 +118,8 @@ object RemoteMetadataScanner {
                         thumb = result.coverUri ?: item.thumb,
                         tagScanStatus = "COMPLETE"
                     )
-                    RemoteTagDatabase.put(item.uri?.toString() ?: "", CachedTags(
-                        uri = item.uri?.toString() ?: "",
+                    RemoteTagDatabase.put(uri, CachedTags(
+                        uri = uri,
                         title = updated.title,
                         artist = updated.artists,
                         album = updated.album,
@@ -122,14 +128,18 @@ object RemoteMetadataScanner {
                         coverPath = result.coverUri?.toString(),
                         lyrics = result.lyrics
                     ))
+                    RemoteRetryManager.onBackgroundScanSuccess(uri)
                     onItemUpdated(updated)
                 } catch (_: Exception) {
-                    val failed = item.copy(tagScanStatus = "FAILED")
+                    val failCount = RemoteRetryManager.onBackgroundScanFailed(uri, serverId, path)
+                    val newStatus = if (failCount >= RemoteRetryManager.MAX_BACKGROUND_RETRIES) "FAILED"
+                        else RemoteRetryManager.encodeFailStatus(failCount)
+                    val failed = item.copy(tagScanStatus = newStatus)
                     onItemUpdated(failed)
                 }
             }
 
-            _scanProgress.value = ScanProgress(serverId, pending.size, pending.size, "", false)
+            _scanProgress.value = ScanProgress(serverId, toProcess.size, toProcess.size, "", false)
         }
     }
 

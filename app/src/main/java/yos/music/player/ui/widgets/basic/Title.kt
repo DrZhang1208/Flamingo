@@ -1,6 +1,7 @@
 package yos.music.player.ui.widgets.basic
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.animation.core.EaseInCirc
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.tween
@@ -160,6 +161,7 @@ fun Title(
     onRightIcon: (() -> Unit)? = null,
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     bottomPadding: Dp = 134.dp,
+    showLargeTitle: Boolean = true,
     content: LazyListScope.() -> Unit
 ) =
     BaseTitle(
@@ -171,6 +173,7 @@ fun Title(
         rightBarIcon = rightBarIcon,
         grid = false,
         bottomPadding = bottomPadding,
+        showLargeTitle = showLargeTitle,
         content = content
     )
 
@@ -208,6 +211,7 @@ private fun BaseTitle(
     columns: () -> Int = { 2 },
     grid: Boolean,
     bottomPadding: Dp = 134.dp,
+    showLargeTitle: Boolean = true,
     content: Any
 ) {
     if (grid) {
@@ -230,6 +234,7 @@ private fun BaseTitle(
             onRightIcon = onRightIcon,
             rightBarIcon = rightBarIcon,
             bottomPadding = bottomPadding,
+            showLargeTitle = showLargeTitle,
             content = content as LazyListScope.() -> Unit
         )
     }
@@ -307,6 +312,7 @@ private fun BaseTitleList(
     onRightIcon: (() -> Unit)? = null,
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     bottomPadding: Dp = 134.dp,
+    showLargeTitle: Boolean = true,
     content: LazyListScope.() -> Unit
 ) {
     val state = rememberLazyListState()
@@ -325,17 +331,19 @@ private fun BaseTitleList(
             flingBehavior = rememberOverscrollFlingBehavior { state },
             contentPadding = PaddingValues(top = 54.dp)
         ) {
-            item("title") {
-                Column {
-                    Spacer(modifier = Modifier.statusBarsHeight())
-                    TitleItem(
-                        title,
-                        subTitle,
-                        rightIcon,
-                        onRightIcon,
-                        alpha,
-                        false
-                    )
+            if (showLargeTitle) {
+                item("title") {
+                    Column {
+                        Spacer(modifier = Modifier.statusBarsHeight())
+                        TitleItem(
+                            title,
+                            subTitle,
+                            rightIcon,
+                            onRightIcon,
+                            alpha,
+                            false
+                        )
+                    }
                 }
             }
             content()
@@ -526,7 +534,9 @@ private fun TitleBar(
                         Text(
                             text = title,
                             fontSize = 18.5.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                         )
                     }
                 }

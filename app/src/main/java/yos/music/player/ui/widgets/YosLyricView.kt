@@ -1296,7 +1296,18 @@ fun LazyItemScope.LyricItem(
                                                 text = it,
                                                 fontSize = SettingsLibrary.TranslationFontSize.sp,
                                                 color = subTextBasicColor,
-                                                fontWeight = FontWeight.Bold,
+                                                fontWeight = when (SettingsLibrary.LyricFontWeight) {
+                                                    "Thin" -> FontWeight.Thin
+                                                    "ExtraLight" -> FontWeight.ExtraLight
+                                                    "Light" -> FontWeight.Light
+                                                    "Regular" -> FontWeight.Normal
+                                                    "Medium" -> FontWeight.Medium
+                                                    "SemiBold" -> FontWeight.SemiBold
+                                                    "Bold" -> FontWeight.Bold
+                                                    "ExtraBold" -> FontWeight.ExtraBold
+                                                    "Black" -> FontWeight.Black
+                                                    else -> FontWeight.Bold
+                                                },
                                                 modifier = Modifier
                                                     .graphicsLayer {
                                                         this.alpha =

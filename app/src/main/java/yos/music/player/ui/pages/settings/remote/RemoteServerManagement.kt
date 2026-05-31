@@ -101,11 +101,9 @@ fun RemoteServerManagement(navController: NavController) {
                 val connected = RemoteServerManager.isConnected(sid)
                 val menuOpen = openMenuId == sid
                 item("server_$sid") {
-                    val shape = RoundedCornerShape(12.dp)
                     RoundColumn {
                         Row(
                             Modifier.fillMaxWidth()
-                                .clip(shape)
                                 .clickable {
                                     if (connected) {
                                         navController.navigate("RemoteFolderPicker/$sid")

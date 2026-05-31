@@ -92,7 +92,9 @@ object RemoteTagExtractor {
                 albumArtist = map["ALBUMARTIST"]?.lastOrNull()
                 genre = map["GENRE"]?.lastOrNull()
                 year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull()
-                duration = props?.length?.toLong()?.times(1000L)
+                // TagLib JNI 不同音频格式可能返回秒或毫秒，安全换算
+                val rawLength = props?.length?.toLong() ?: 0L
+                duration = if (rawLength in 1..10000) rawLength * 1000L else rawLength
                 trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull()
                 discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull()
                 composer = map["COMPOSER"]?.lastOrNull()

@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.google.accompanist.insets.statusBarsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -77,18 +82,47 @@ fun ArtistInfo(navController: NavController) {
         songCount to totalMinutes
     }
 
-    Title(title = artistName.value, onBack = { navController.popBackStack() }) {
+    Title(title = artistName.value, onBack = { navController.popBackStack() }, showLargeTitle = false) {
         item("ArtistHeader") {
             Column(
-                Modifier.fillMaxWidth().padding(top = 9.5.dp).padding(horizontal = 18.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 9.5.dp)
+                    .padding(horizontal = 18.dp)
+                    .statusBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(songs.value.maxByOrNull { MusicLibrary.getPlayCount(it.uri) }?.thumb).crossfade(true).build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(170.dp).clip(CircleShape)
+                Box(
+                    modifier = Modifier
+                        .size(170.dp)
+                        .drawBehind {
+                            val blur = 24.dp.toPx()
+                            val paint = Paint().apply {
+                                color = Color.Black.copy(alpha = 0.25f)
+                                asFrameworkPaint().maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
+                            }
+                            val inset = blur / 2f
+                            drawContext.canvas.drawCircle(center, size.minDimension / 2f - inset, paint)
+                        }
+                        .clip(CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(songs.value.maxByOrNull { MusicLibrary.getPlayCount(it.uri) }?.thumb)
+                            .crossfade(true).build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = artistName.value,
+                    fontSize = 17.5.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 23.5.sp,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth().padding(bottom = 15.dp)) {

@@ -139,7 +139,7 @@ fun AlbumInfo(
 
             val scope = rememberCoroutineScope()
 
-            Title(title = albumName.value, onBack = { navController.popBackStack() }) {
+            Title(title = albumName.value, onBack = { navController.popBackStack() }, showLargeTitle = false) {
                 item("AlbumInfo") {
                     Column(
                         Modifier

@@ -10,9 +10,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import yos.music.player.ui.theme.YosRoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,11 +25,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -140,15 +149,55 @@ private fun LyricPreview(mainSize: Float, transSize: Float, weightName: String) 
         else -> FontWeight.ExtraBold
     }
 
+    val bgColor = (if (isDark) Color.White else Color.Black).copy(alpha = 0.06f)
+
+    val scrollState = rememberScrollState()
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val atTop = scrollState.value == 0
+                val atBottom = scrollState.value >= scrollState.maxValue
+                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
+                return Offset.Zero
+            }
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val atTop = scrollState.value == 0
+                val atBottom = scrollState.value >= scrollState.maxValue
+                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
+                return Offset.Zero
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                val atTop = scrollState.value == 0
+                val atBottom = scrollState.value >= scrollState.maxValue
+                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
+                return Velocity.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                val atTop = scrollState.value == 0
+                val atBottom = scrollState.value >= scrollState.maxValue
+                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
+                return Velocity.Zero
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background((if (isDark) Color.White else Color.Black).copy(alpha = 0.06f))
-            .padding(horizontal = 20.dp, vertical = 24.dp)
+            .height(160.dp)
+            .clip(YosRoundedCornerShape(12.dp))
+            .background(bgColor)
+            .nestedScroll(nestedScrollConnection)
     ) {
-        Column {
+        Column(
+            Modifier
+                .verticalScroll(scrollState)
+                .padding(horizontal = 20.dp, vertical = 34.dp)
+        ) {
             Column {
                 Text(
                     text = "Walking through a crowd",
@@ -162,7 +211,7 @@ private fun LyricPreview(mainSize: Float, transSize: Float, weightName: String) 
                     text = "穿过人山人海",
                     fontSize = transSp.sp,
                     lineHeight = (transSp + 6).sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = fontWeight,
                     color = subColor.copy(alpha = currentAlpha * 0.6f),
                     maxLines = 2
                 )
@@ -181,12 +230,25 @@ private fun LyricPreview(mainSize: Float, transSize: Float, weightName: String) 
                     text = "整个城市流光溢彩",
                     fontSize = transSp.sp,
                     lineHeight = (transSp + 6).sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = fontWeight,
                     color = subColor.copy(alpha = nextAlpha * 0.6f),
                     maxLines = 2
                 )
             }
         }
+
+        Box(
+            Modifier
+                .fillMaxWidth().height(28.dp)
+                .align(Alignment.TopCenter)
+                .background(Brush.verticalGradient(listOf(bgColor, Color.Transparent)))
+        )
+        Box(
+            Modifier
+                .fillMaxWidth().height(28.dp)
+                .align(Alignment.BottomCenter)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, bgColor)))
+        )
     }
 }
 
