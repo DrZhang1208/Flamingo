@@ -906,7 +906,9 @@ class YosPlaybackService : MediaSessionService() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     super.onIsPlayingChanged(isPlaying)
-                    // 不跟随 ExoPlayer 实际状态，避免切歌/缓冲/拖进度条时 UI 跳到暂停态
+                    // 只在主动暂停时（playWhenReady=false）同步 UI，避免切歌/缓冲/拖进度条误触发
+                    if (!isPlaying && player.playWhenReady) return
+                    MediaViewModelObject.isPlaying.value = isPlaying
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
