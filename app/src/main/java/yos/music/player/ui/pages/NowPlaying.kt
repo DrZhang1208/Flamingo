@@ -274,7 +274,6 @@ fun NowPlaying(
             MediaViewModelObject.lrcEntries
         val bitmap: MutableState<Uri?> = MediaViewModelObject.bitmap
 
-        val isSwitchingTrack = remember("NowPlaying_isSwitching") { mutableStateOf(false) }
         val lastClickTime = rememberSaveable(key = "NowPlaying_lastClickTime") {
             mutableLongStateOf(0L)
         }
@@ -297,12 +296,6 @@ fun NowPlaying(
             MainViewModelObject.nowPage
         }*/
 
-
-        // 切歌时保持封面大小不变
-        LaunchedEffect(thisMusicPlaying.value) {
-            delay(300)
-            isSwitchingTrack.value = false
-        }
 
         // 触摸超时：仅在歌词页面且开启自动隐藏时隐藏控件
         YosWrapper {
@@ -462,7 +455,6 @@ fun NowPlaying(
                                                 ),
                                                 albumUrl = { thisMusicPlaying.value?.thumb },
                                                 isPlaying = isPlayingStatusLambda,
-                                                isSwitching = { isSwitchingTrack.value },
                                                 isVisible = { isVisible }
                                             )
                                             AnimatedContent(
@@ -656,7 +648,6 @@ fun NowPlaying(
                                         isPlayingLambda = isPlayingStatusLambda,
                                         isPlayingOnChanged = isPlayingOnChanged,
                                         onPrevious = {
-                                            isSwitchingTrack.value = true
                                             mediaControl?.seekToPreviousMediaItem()
                                             showControl.value = true
                                             lastClickTime.longValue = TimeUtils.getNowMills()
@@ -671,7 +662,6 @@ fun NowPlaying(
                                             lastClickTime.longValue = TimeUtils.getNowMills()
                                         },
                                         onNext = {
-                                            isSwitchingTrack.value = true
                                             mediaControl?.seekToNextMediaItem()
                                             showControl.value = true
                                             lastClickTime.longValue = TimeUtils.getNowMills()
@@ -780,21 +770,7 @@ private fun ColumnScope.Album(
         .padding(bottom = 33.dp),
     contentAlignment = Alignment.BottomCenter
 ) {
-    val springSpec: AnimationSpec<Float> = remember("Album_springSpec") {
-        SpringSpec(stiffness = 300f, dampingRatio = 1f, visibilityThreshold = 0.001f)
-    }
-    val tweenSpec: AnimationSpec<Float> = remember("Album_tweenSpec") {
-        TweenSpec(durationMillis = 350, easing = EaseOutQuart)
-    }
-
-    val targetScale = if (isSwitching()) null else if (isPlaying()) 0f else 1f
-    val scale = remember("Album_scale") { Animatable(targetScale ?: 0f) }
-    LaunchedEffect(targetScale) {
-        targetScale?.let {
-            scale.animateTo(it, animationSpec = if (it == 0f) springSpec else tweenSpec)
-        }
-    }
-
+    val albumShape = YosRoundedCornerShape(8)
     val currentUrl = remember { mutableStateOf(albumUrl()) }
 
     LaunchedEffect(albumUrl()) {
@@ -805,8 +781,7 @@ private fun ColumnScope.Album(
     }
 
     YosWrapper {
-        val dp = (7 + (27 * scale.value)).dp
-        val albumShape = YosRoundedCornerShape(8)
+        val dp = 7.dp
         Box(
             Modifier
                 .fillMaxWidth()
@@ -824,18 +799,30 @@ private fun ColumnScope.Album(
                     drawContext.canvas.nativeCanvas.drawPath(p, paint)
                 }
         ) {
-            // Coil crossfade 自动处理封面切换渐变，无需手动两层叠加
-            currentUrl.value?.let { url ->
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(true).build(),
-                    contentDescription = null, contentScale = ContentScale.Crop,
+            // 使用 AnimatedContent 实现封面交叉渐变
+            AnimatedContent(
+                targetState = currentUrl.value,
+                transitionSpec = {
+                    // 新图片淡入,旧图片淡出,同时进行
+                    fadeIn(animationSpec = tween(600)) togetherWith 
+                    fadeOut(animationSpec = tween(600))
+                },
+                label = "AlbumCoverCrossfade"
+            ) { url ->
+                url?.let {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current).data(it).crossfade(false).build(),
+                        contentDescription = null, 
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
+                    )
+                } ?: AsyncImage(
+                    model = R.drawable.placeholder_music_default_artwork,
+                    contentDescription = null, 
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
                 )
-            } ?: AsyncImage(
-                model = R.drawable.placeholder_music_default_artwork,
-                contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
-            )
+            }
         }
     }
 }

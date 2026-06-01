@@ -378,7 +378,11 @@ fun YosLyricView(
                 blankSpacer()
                 itemsIndexed(
                     items = lrcEntries,
-                    key = { _, lines -> lines }/*,
+                    key = { index, lines ->
+                        // 使用索引作为稳定 key,避免 LazyColumn 复用导致的状态污染
+                        // 歌词列表顺序在播放过程中保持稳定,索引是安全的标识符
+                        index
+                    }/*,
                 contentType = { _, _ -> "YosLyricView_item" }*/
                 ) { index, lines ->
                     val isCurrent = remember(lines) {
@@ -405,55 +409,34 @@ fun YosLyricView(
                         )
                     }
 
-                    key(SettingsLibrary.LyricFontSize, SettingsLibrary.TranslationFontSize, SettingsLibrary.LyricFontWeight) {
-                        val translation = remember(lines) {
-                            val str = lines.last().second
-                            str.ifBlank { null }
+                    key(SettingsLibrary.LyricFontSize, SettingsLibrary.TranslationFontSize, SettingsLibrary.LyricFontWeight, SettingsLibrary.LyricLineBalance) {
+                        val translation = lines.last().second.ifBlank { null }
+                        val blurVal = if (!showStateAnimation.value || index == currentLyricIndex.intValue || !blurLambda() || !supportBlur) {
+                            0f
+                        } else {
+                            (abs(index - currentLyricIndex.intValue) * 2.5f).coerceAtMost(8f)
                         }
-
-                        val blur = remember(index) {
-                            derivedStateOf {
-                                if (!showStateAnimation.value || index == currentLyricIndex.intValue || !blurLambda() || !supportBlur) {
-                                    0f
-                                } else {
-                                    (abs(index - currentLyricIndex.intValue) * 2.5f).coerceAtMost(
-                                        8f
-                                    )
-                                }
-                            }
-                        }
-
-                        val otherSide = remember(index) {
-                            otherSideForLines.getOrElse(index) { false }
-                        }
+                        val otherSideVal = otherSideForLines.getOrElse(index) { false }
+                        // 直接从 MediaController 获取当前播放位置
+                        val currentTime = yos.music.player.code.MediaController.mediaControl?.currentPosition?.toInt() ?: 0
 
                         YosWrapper {
                             LyricItem(
-                                isCurrentLambda = {
-                                    isCurrent.value
-                                },
-                                isTopLambda = {
-                                    isTop.value
-                                },
+                                isCurrent = index == currentLyricIndex.intValue,
+                                isTop = index == (currentLyricIndex.intValue - 1),
                                 mainLyric = lines.dropLast(1),
-                                translation,
-                                translationLambda(),
+                                translation = translation,
+                                showTranslation = translationLambda(),
                                 mainTextSize = SettingsLibrary.LyricFontSize,
                                 subTextSize = SettingsLibrary.TranslationFontSize,
-                                blur = { blur.value },
-                                mainTextBasicColor,
-                                subTextBasicColor,
-                                otherSide = otherSide,
-                                liveTimeLambda = liveTimeLambda,
+                                blurValue = blurVal,
+                                mainTextBasicColor = mainTextBasicColor,
+                                subTextBasicColor = subTextBasicColor,
+                                otherSide = otherSideVal,
+                                liveTime = currentTime,
                                 measurer = measurer,
-                                isLyricEmpty = { isLyricEmpty.value },
-                                nextTime = {
-                                    if (index + 1 > lrcEntries.size - 1) {
-                                        0f
-                                    } else {
-                                        lrcEntries[(index + 1)].first().first
-                                    }
-                                }
+                                isLyricEmpty = lines.all { it.second.isBlank() },
+                                nextTime = if (index + 1 > lrcEntries.size - 1) 0f else lrcEntries[(index + 1)].first().first,
                             ) {
                                 Vibrator.doubleClick(context)
                                 isUserScrolling.value = false
@@ -772,60 +755,31 @@ val easing: Easing = EaseInOutQuad
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 fun LazyItemScope.LyricItem(
-    isCurrentLambda: () -> Boolean,
-    isTopLambda: () -> Boolean,
+    isCurrent: Boolean,  // 改为直接传值,而非 lambda
+    isTop: Boolean,      // 改为直接传值
     mainLyric: List<Pair<Float, String>>,
     translation: String?,
     showTranslation: Boolean,
     mainTextSize: Int,
     subTextSize: Int,
-    blur: () -> Float,
-    /*showBlur: Boolean,*/
+    blurValue: Float,
     mainTextBasicColor: Color,
     subTextBasicColor: Color,
     measurer: TextMeasurer,
-    isLyricEmpty: () -> Boolean,
-    nextTime: () -> Float,
+    isLyricEmpty: Boolean,  // 改为直接传值
+    nextTime: Float,
     otherSide: Boolean,
-    liveTimeLambda: () -> Int,
+    liveTime: Int,  // 改为直接传值
     onClick: () -> Unit
 ) {
-
     val viewAlign = Alignment.Start
-
     val focusedColor = Color(0xFFFFFFFF)
     val unfocusedColor = Color(0x2EFFFFFF)
-    //Color(0x33FFFFFF)
-
-    //val focusedSolidBrush = SolidColor(focusedColor)
-
     val unfocusedSolidBrush = SolidColor(unfocusedColor)
 
-    val isNotOneByOne = rememberSaveable(mainLyric) {
-        mutableStateOf(
-            mainLyric.all { it.first == mainLyric.firstOrNull()?.first }
-        )
-
-    }
-
-    val liveTime = remember(mainLyric) { mutableIntStateOf(liveTimeLambda()) }
-
-    YosWrapper {
-        val launch = remember(mainLyric) {
-            derivedStateOf {
-                isLyricEmpty() || !isNotOneByOne.value
-            }
-        }
-        if (launch.value) {
-            LaunchedEffect(Unit) {
-                while (true) {
-                    withContext(Dispatchers.Main) {
-                        liveTime.intValue = liveTimeLambda()
-                    }
-                    delay(10L)
-                }
-            }
-        }
+    // 使用 remember 保存状态,确保 LazyColumn 复用时状态正确
+    val isNotOneByOne = remember(mainLyric) {
+        mainLyric.all { it.first == mainLyric.firstOrNull()?.first }
     }
 
     YosWrapper {
@@ -839,45 +793,19 @@ fun LazyItemScope.LyricItem(
             } else {
                 TransformOrigin(0f, 0.25f)
             }
-            //println("重组：倒计时 "+ mainLyric.isBlank()+ " "+ isCurrentLambda() + " " + (progress() != 0f))
 
             val otherSideTransformOrigin =
-                if (otherSide) TransformOrigin(
-                    1f,
-                    0.5f
-                ) else TransformOrigin(
-                    0f,
-                    0.5f
-                )
+                if (otherSide) TransformOrigin(1f, 0.5f)
+                else TransformOrigin(0f, 0.5f)
 
-            /*val otherSideThisLine = remember(mainLyric) {
-                mainLyric.last().second.endsWith(":") || mainLyric.last().second.endsWith(
-                    "："
-                )
-            }*/
-
-            val tweenSpecWithDelay: AnimationSpec<Float> = remember(mainLyric) {
-                TweenSpec(
-                    durationMillis = 270,
-                    easing = yosEasing,
-                    delay = /*45*/ /*115*/ 110
-                )
-            }
-
-            val tweenSpecWithoutDelay: AnimationSpec<Float> = remember(mainLyric) {
-                TweenSpec(durationMillis = /*270*/ 300, easing = yosEasing,delay = 45)
-            }
-
+            // Scale 动画使用 isCurrent 状态,避免 lambda 引用问题
             val scale = animateFloatAsState(
-                targetValue = if (isCurrentLambda()) 1.04f else 1f,
-                animationSpec = if (isCurrentLambda()) tweenSpecWithDelay else tweenSpecWithoutDelay
+                targetValue = if (isCurrent) 1.04f else 1f,
+                animationSpec = if (isCurrent) 
+                    TweenSpec(durationMillis = 270, easing = yosEasing, delay = 110)
+                else
+                    TweenSpec(durationMillis = 300, easing = yosEasing, delay = 45)
             )
-
-            /*val blurValue = remember(mainLyric) {
-                derivedStateOf {
-                    if (blur() == 0f || !showBlur) 0f else blur()
-                }
-            }*/
 
             val cardPadding = if (otherSide) {
                 Modifier.padding(start = 28.dp)
@@ -885,44 +813,16 @@ fun LazyItemScope.LyricItem(
                 Modifier.padding(end = 28.dp)
             }
 
-            if (isLyricEmpty()) {
+            if (isLyricEmpty) {
                 Column {
-                    val percent = remember(mainLyric) {
-                        derivedStateOf {
-                            val m = mainLyric.first().first
-                            /*(if ((nextTime() - m) < 900f) {
-                                0f
-                            } else {
-                                */((liveTime.intValue - m).coerceAtLeast(0f) / (nextTime() - m))
-                            /*})*/.coerceAtMost(1f)
-                        }
-                    }
-                    val show = remember(mainLyric) {
-                        derivedStateOf { (isLyricEmpty() && isCurrentLambda() && percent.value != 0f) }
-                    }
+                    val percent = ((liveTime - mainLyric.first().first).coerceAtLeast(0f) / (nextTime - mainLyric.first().first)).coerceAtMost(1f)
+                    val show = isLyricEmpty && isCurrent && percent != 0f
+                    
                     AnimatedVisibility(
-                        show.value,
-                        enter = fadeIn(animationSpec = TweenSpec(
-                            durationMillis = 550,
-                            easing = yosEasing,
-                            delay = 300
-                        )) + scaleIn(
-                            initialScale = 0.85f,
-                            transformOrigin = otherSideAnimate,
-                            animationSpec = TweenSpec(
-                                durationMillis = 550,
-                                easing = yosEasing,
-                                delay = 300
-                            )
-                        ),
-                        exit = fadeOut() + scaleOut(
-                            targetScale = 0.85f,
-                            transformOrigin = otherSideAnimate,
-                            animationSpec = TweenSpec(
-                                durationMillis = 340,
-                                easing = yosEasing
-                            )
-                        )
+                        show,
+                        enter = fadeIn(animationSpec = TweenSpec(durationMillis = 550, easing = yosEasing, delay = 300)) + 
+                                scaleIn(initialScale = 0.85f, transformOrigin = otherSideAnimate, animationSpec = TweenSpec(durationMillis = 550, easing = yosEasing, delay = 300)),
+                        exit = fadeOut() + scaleOut(targetScale = 0.85f, transformOrigin = otherSideAnimate, animationSpec = TweenSpec(durationMillis = 340, easing = yosEasing))
                     ) {
                         YosWrapper {
                             LyricCard(
@@ -930,21 +830,13 @@ fun LazyItemScope.LyricItem(
                                 cardPadding,
                                 otherSideTransformOrigin,
                                 viewAlign,
-                                //{ otherSideThisLine },
-                                //onClick
                             ) {
-
                                 Column(
-                                    Modifier
-                                        .padding(start = 20.dp, end = 20.dp)
-                                        .padding(top = 8.dp, bottom = 10.dp),
+                                    Modifier.padding(start = 20.dp, end = 20.dp).padding(top = 8.dp, bottom = 10.dp),
                                     horizontalAlignment = viewAlign
                                 ) {
-                                    CountdownAnimation(
-                                        { percent.value },
-                                        colorLambda = { mainTextBasicColor })
+                                    CountdownAnimation({ percent }, colorLambda = { mainTextBasicColor })
                                 }
-
                             }
                         }
                     }
@@ -956,155 +848,87 @@ fun LazyItemScope.LyricItem(
                         cardPadding,
                         otherSideTransformOrigin,
                         viewAlign,
-                        //{ otherSideThisLine },
-                        //onClick
                     ) {
-
-                        val blurValue = animateDpAsState(
-                            blur().dp, SnapSpec(delay = if (isTopLambda()) 260 else 0)
-                        )
-
-                        val blurModifier = remember(mainLyric) {
-                            derivedStateOf {
-                                val thisBlur = blur()
-                                if (thisBlur == 0f) {
-                                    Modifier
-                                } else {
-                                    Modifier.blur(
-                                        blurValue.value,
-                                        /*thisBlur.dp*/
-                                        edgeTreatment = BlurredEdgeTreatment.Unbounded,
-                                    )
-                                }
-                            }
+                        val blurModifier = if (blurValue == 0f) {
+                            Modifier
+                        } else {
+                            Modifier.blur(blurValue.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
                         }
 
                         YosWrapper {
                             Column(
-                                Modifier
-                                    .then(blurModifier.value)
-                                    .fillMaxWidth(),
+                                Modifier.then(blurModifier).fillMaxWidth(),
                                 horizontalAlignment = viewAlign
                             ) {
                                 val textAlign = if (otherSide) TextAlign.End else TextAlign.Start
 
-                                val alphaTweenSpecWithDelay: AnimationSpec<Float> =
-                                    remember(mainLyric) {
-                                        TweenSpec(
-                                            durationMillis = 350,
-                                            easing = yosEasing,
-                                            delay = 145
-                                        )
-                                    }
+                                // Alpha 动画
+                                val thisAlpha = animateFloatAsState(
+                                    targetValue = if (isCurrent) 1f else 0.14f,
+                                    animationSpec = if (isCurrent) 
+                                        TweenSpec(durationMillis = 350, easing = yosEasing, delay = 145)
+                                    else
+                                        TweenSpec(durationMillis = 350, easing = yosEasing, delay = 80)
+                                )
 
-                                val alphaTweenSpecWithoutDelay: AnimationSpec<Float> =
-                                    remember(mainLyric) {
-                                        TweenSpec(
-                                            durationMillis = 350,
-                                            easing = yosEasing,
-                                            delay = 80
-                                        )
-                                    }
-
-                                YosWrapper {
-                                    val thisAlphaAnimated = animateFloatAsState(
-                                        targetValue = if (isCurrentLambda()) /*0.78f*/ 1f else 0.14f,
-                                        animationSpec = if (isCurrentLambda()) alphaTweenSpecWithDelay else alphaTweenSpecWithoutDelay
+                                // 修复: otherSidePadding 依赖 otherSide
+                                val otherSidePadding = if (otherSide) {
+                                    Modifier.padding(
+                                        start = 20.dp,
+                                        end = if (mainLyric.last().second.endsWith("：")) 3.dp else 20.dp
                                     )
+                                } else {
+                                    Modifier.padding(start = 20.dp, end = 20.dp)
+                                }
 
-                                    val thisAlpha = remember(mainLyric) {
-                                        derivedStateOf {
-                                            if (isNotOneByOne.value) {
-                                                thisAlphaAnimated.value
-                                            } else {
-                                                1f
-                                            }
+                                // 高亮状态
+                                val showHighLight = isNotOneByOne || 
+                                    liveTime >= mainLyric[mainLyric.size - (if (translation != null) 3 else 1)].first
+
+                                val lyricTextStyle = mainTextStyle()
+                                // 修复: charLayoutCache 使用 mainLyric 作为 key
+                                val charLayoutCache = remember(mainLyric) { mutableMapOf<String, TextLayoutResult>() }
+                                
+                                Line(
+                                    lines = mainLyric,
+                                    style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
+                                    measurer = measurer,
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            this.alpha = thisAlpha.value
+                                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                                        }
+                                        .padding(vertical = 4.dp)
+                                        .then(otherSidePadding)
+                                        .clickable(
+                                            indication = null,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) {
+                                            onClick()
+                                        },
+                                    viewAlign = viewAlign
+                                ) { parentConstraints, measureResult ->
+                                    // 非逐字歌词:全高亮
+                                    if (isNotOneByOne) {
+                                        return@Line onDrawWithContent {
+                                            drawText(textLayoutResult = measureResult, color = focusedColor)
                                         }
                                     }
 
-                                    val otherSidePadding = remember(mainLyric) {
-                                        derivedStateOf {
-                                            if (otherSide) {
-                                                Modifier.padding(
-                                                    start = 20.dp,
-                                                    end = if (mainLyric.last().second.endsWith("：")) 3.dp else 20.dp
-                                                )
-                                            } else {
-                                                Modifier.padding(
-                                                    start = 20.dp,
-                                                    end = 20.dp
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    val showHighLight = remember(mainLyric) {
-                                        derivedStateOf {
-                                            if (isNotOneByOne.value) {
-                                                true
-                                            } else {
-                                                liveTime.intValue >= mainLyric[mainLyric.size - (if (translation != null) 3 else 1)].first
-                                            }
-                                        }
-                                    }
-
-                                    val lyricTextStyle = mainTextStyle()
-                                    val charLayoutCache = remember { mutableMapOf<String, TextLayoutResult>() }
-                                    Line(
-                                        lines = mainLyric,
-                                        style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
-                                        measurer = measurer,
-                                        modifier = Modifier
-                                            .graphicsLayer {
-                                                this.alpha = thisAlpha.value
-                                                compositingStrategy =
-                                                    CompositingStrategy.ModulateAlpha
-                                            }
-                                            .padding(vertical = 4.dp)
-                                            .then(otherSidePadding.value)
-                                            .clickable(
-                                                indication = null,
-                                                interactionSource = remember { MutableInteractionSource() }
-                                            ) {
-                                                onClick()
-                                            },
-                                        viewAlign = viewAlign
-                                    ) { parentConstraints, measureResult ->
-
-
-                                        if (isNotOneByOne.value) {
-                                            // 当不是逐字时
-                                            // 不论情况全高亮
+                                    // 逐字歌词但不是当前行
+                                    if (!isCurrent) {
+                                        if (showHighLight) {
+                                            // 已播放完,高亮
                                             return@Line onDrawWithContent {
-                                                drawText(
-                                                    textLayoutResult = measureResult,
-                                                    color = focusedColor
-                                                )
+                                                drawText(textLayoutResult = measureResult, color = focusedColor, topLeft = Offset(0F, -4F))
+                                            }
+                                        } else {
+                                            // 未播放,不高亮
+                                            return@Line onDrawWithContent {
+                                                drawText(textLayoutResult = measureResult, color = unfocusedColor)
                                             }
                                         }
-
-                                        if (!isCurrentLambda()) {
-                                            // 是逐字 但不是当前行
-                                            // 是否已播放完？
-                                            if (showHighLight.value) {
-                                                // 高亮
-                                                return@Line onDrawWithContent {
-                                                    drawText(
-                                                        textLayoutResult = measureResult,
-                                                        color = focusedColor,
-                                                        topLeft = Offset(0F, -4F)
-                                                    )
-                                                }
-                                            } else {
-                                                // 不高亮
-                                                return@Line onDrawWithContent {
-                                                    drawText(
-                                                        textLayoutResult = measureResult,
-                                                        color = unfocusedColor
-                                                    )
-                                                }
-                                            }
-                                        }
+                                    }
 
                                         // 以下为逐字处理
 
@@ -1172,7 +996,7 @@ fun LazyItemScope.LyricItem(
                                                 if ((word.first - thisWordGroupLastTime) == 0f) {
                                                     0f
                                                 } else {
-                                                    ((liveTime.intValue - thisWordGroupLastTime).coerceAtLeast(
+                                                    ((liveTime - thisWordGroupLastTime).coerceAtLeast(
                                                         0f
                                                     ) / (word.first - thisWordGroupLastTime)).coerceIn(
                                                         0f,
@@ -1248,7 +1072,7 @@ fun LazyItemScope.LyricItem(
                                                             return@DrawWord 0f
                                                         }
 
-                                                        ((liveTime.intValue - thisWordLastTime) / thisWordAverageTime)
+                                                        ((liveTime - thisWordLastTime) / thisWordAverageTime)
 
                                                     }
                                                 ).also {
@@ -1272,25 +1096,21 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
                                 }
+                                // 翻译文本 - 需要在 textAlign 定义的作用域内
+                                val textAlign = if (otherSide) TextAlign.End else TextAlign.Start
+                                
                                 YosWrapper {
                                     AnimatedVisibility(showTranslation && translation != null) {
                                         translation?.let {
                                             val translationAlpha = animateFloatAsState(
-                                                targetValue = if (isCurrentLambda()) 0.5f else 0.14f,
-                                                animationSpec = if (isCurrentLambda()) alphaTweenSpecWithDelay else alphaTweenSpecWithoutDelay
+                                                targetValue = if (isCurrent) 0.5f else 0.14f,
+                                                animationSpec = if (isCurrent) 
+                                                    TweenSpec(durationMillis = 350, easing = yosEasing, delay = 145)
+                                                else
+                                                    TweenSpec(durationMillis = 350, easing = yosEasing, delay = 80)
                                             )
 
-                                            val translationOtherSidePadding = if (otherSide) {
-                                                Modifier.padding(
-                                                    start = 20.dp,
-                                                    end = 20.dp
-                                                )
-                                            } else {
-                                                Modifier.padding(
-                                                    start = 20.dp,
-                                                    end = 20.dp
-                                                )
-                                            }
+                                            val translationOtherSidePadding = Modifier.padding(start = 20.dp, end = 20.dp)
 
                                             Text(
                                                 text = it,
@@ -1310,10 +1130,8 @@ fun LazyItemScope.LyricItem(
                                                 },
                                                 modifier = Modifier
                                                     .graphicsLayer {
-                                                        this.alpha =
-                                                            translationAlpha.value
-                                                        compositingStrategy =
-                                                            CompositingStrategy.ModulateAlpha
+                                                        this.alpha = translationAlpha.value
+                                                        compositingStrategy = CompositingStrategy.ModulateAlpha
                                                     }
                                                     .then(translationOtherSidePadding)
                                                     .padding(top = 5.dp),
@@ -1328,10 +1146,9 @@ fun LazyItemScope.LyricItem(
                         }
                     }
                 }
-            }
-        }
-    }
-}
+            } // 关闭 if (isLyricEmpty) else
+        } // 关闭 Column (786行)
+    } // 关闭 YosWrapper (785行)
 
 @Composable
 private fun LyricCard(
