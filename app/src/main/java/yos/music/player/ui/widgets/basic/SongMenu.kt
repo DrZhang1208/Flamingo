@@ -1,5 +1,6 @@
 package yos.music.player.ui.widgets.basic
 
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.draw.clip
@@ -53,7 +54,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import yos.music.player.R
 import yos.music.player.code.MediaController
 import yos.music.player.data.libraries.MusicLibrary
@@ -230,15 +233,22 @@ fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
             { Text("暂无歌单", fontSize = 14.sp, modifier = Modifier.alpha(0.5f).padding(16.dp)) }
         } else {
             {
-                Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
-                    playlists.forEach { pl ->
-                        val coverUri = remember(pl.songDataList) {
-                            val allSongs = yos.music.player.data.libraries.MusicLibrary.songs
-                            pl.songDataList
+                // 预计算封面 URI，避免在 remember 中访问 MusicLibrary.songs 阻塞 UI
+                var coverUris by remember { mutableStateOf(emptyMap<String, Uri?>()) }
+                LaunchedEffect(playlists) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val allSongs = yos.music.player.data.libraries.MusicLibrary.songs
+                        playlists.associate { pl ->
+                            pl.name to pl.songDataList
                                 .mapNotNull { uri -> allSongs.find { it.uri == uri } }
                                 .maxByOrNull { MusicLibrary.getPlayCount(it.uri) }
                                 ?.thumb
                         }
+                    }.let { coverUris = it }
+                }
+                Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                    playlists.forEach { pl ->
+                        val coverUri = coverUris[pl.name]
                         Row(
                             Modifier.fillMaxWidth().clickable {
                                 PlayListLibrary.run { pl.addMusic(music) }
@@ -277,14 +287,21 @@ fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
 @Composable
 fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
     val filePath = music.uri?.path
-    val info = remember(filePath) {
-        if (filePath != null) yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath) else null
-    }
-    val yearFromFile = remember(filePath) {
-        if (filePath != null) yos.music.player.code.AudioMetadataUtils.getYear(filePath) else null
-    }
+    var info by remember(filePath) { mutableStateOf<yos.music.player.code.AudioMetadataUtils.AudioFileInfo?>(null) }
+    var yearFromFile by remember(filePath) { mutableStateOf<Int?>(null) }
     val playCount = remember(music.uri) {
         yos.music.player.data.libraries.MusicLibrary.getPlayCount(music.uri)
+    }
+
+    LaunchedEffect(filePath) {
+        if (filePath != null) {
+            val (fileInfo, year) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath) to
+                        yos.music.player.code.AudioMetadataUtils.getYear(filePath)
+            }
+            info = fileInfo
+            yearFromFile = year
+        }
     }
 
     OptionDialog(
@@ -297,14 +314,16 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                 music.album?.let { DetailRow("专辑", it) }
                 DetailRow("时长", formatDuration(music.duration))
                 DetailRow("播放次数", "${playCount}")
-                if (yearFromFile != null) DetailRow("年份", "$yearFromFile")
-                if (info != null) {
-                    if (info.bitrate != null && info.bitrate > 0) DetailRow("比特率", "${info.bitrate} kbps")
-                    if (info.sampleRate != null && info.sampleRate > 0) DetailRow("采样率", "${"%.1f".format(info.sampleRate / 1000.0)} kHz")
-                    if (info.bitsPerSample != null && info.bitsPerSample > 0) DetailRow("位深", "${info.bitsPerSample} bit")
-                    if (info.channels != null && info.channels > 0) DetailRow("声道", "${info.channels}")
-                    DetailRow("文件格式", info.format)
-                    DetailRow("文件来源", info.source)
+                val year = yearFromFile
+                if (year != null) DetailRow("年份", "$year")
+                val fileInfo = info
+                if (fileInfo != null) {
+                    if (fileInfo.bitrate != null && fileInfo.bitrate > 0) DetailRow("比特率", "${fileInfo.bitrate} kbps")
+                    if (fileInfo.sampleRate != null && fileInfo.sampleRate > 0) DetailRow("采样率", "${"%.1f".format(fileInfo.sampleRate / 1000.0)} kHz")
+                    if (fileInfo.bitsPerSample != null && fileInfo.bitsPerSample > 0) DetailRow("位深", "${fileInfo.bitsPerSample} bit")
+                    if (fileInfo.channels != null && fileInfo.channels > 0) DetailRow("声道", "${fileInfo.channels}")
+                    DetailRow("文件格式", fileInfo.format)
+                    DetailRow("文件来源", fileInfo.source)
                 }
             }
         },

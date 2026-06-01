@@ -169,7 +169,7 @@ fun AlbumInfo(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Text(
-                            text = mainArtistsName.value,
+                            text = albumName.value,
                             fontSize = 17.5.sp,
                             textAlign = TextAlign.Center,
                             lineHeight = 23.5.sp,

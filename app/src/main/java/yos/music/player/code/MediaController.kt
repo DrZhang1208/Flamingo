@@ -69,6 +69,7 @@ import yos.music.player.code.utils.player.FadeExo.fadePlay
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.MusicLibrary.toMediaItem
 import yos.music.player.data.libraries.MusicLibrary.toYosMediaItem
+import yos.music.player.data.libraries.toUriStrings
 import yos.music.player.data.libraries.PlayListV1
 import yos.music.player.data.libraries.PlayStatus
 import yos.music.player.data.libraries.SettingsLibrary
@@ -123,7 +124,7 @@ object MediaController {
             override fun run() {
                 hooked = lyricAPI?.hasEnable ?: false
                 SettingsLibrary.StatusBarLyricHooked = hooked
-                handler.postDelayed(this, 350)
+                handler.postDelayed(this, 2000)
             }
         }
 
@@ -204,7 +205,7 @@ object MediaController {
                         }
                     }
 
-                    handler.postDelayed(this, 70)
+                    handler.postDelayed(this, 150)
                 }
             }
         }
@@ -303,7 +304,8 @@ object MediaController {
         val shuffle = shuffleEnabled.value
         val repeat = withContext(Dispatchers.Main) { control.repeatMode }
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
-        MusicLibrary.updatePlayList(PlayListV1(mainMusicList, playlist, sourceMusicList))
+        MusicLibrary.updatePlayList(PlayListV1(
+            mainMusicList.toUriStrings(), playlist, sourceMusicList))
     }
 
     fun toggleShuffle() {
@@ -569,23 +571,35 @@ class YosPlaybackService : MediaSessionService() {
     private var saveJob: Job? = null
 
     fun saveDataNow() {
-        saveJob?.cancel()
-        saveJob = CoroutineScope(Dispatchers.Main).launch {
-            saveData()
-        }
+        saveDataAsync(delayMs = 0)
     }
 
     fun saveDataWithDelay() {
+        saveDataAsync(delayMs = 200)
+    }
+
+    private fun saveDataAsync(delayMs: Long) {
         saveJob?.cancel()
-        saveJob = CoroutineScope(Dispatchers.IO).launch {
-            delay(200)
-            withContext(Dispatchers.Main) {
-                saveData()
+        saveJob = CoroutineScope(Dispatchers.Main).launch {
+            // 在主线程读取所有需要的值
+            val music = musicPlaying.value ?: return@launch
+            val playlist = playingMusicList.value ?: listOf(music)
+            val pos = runCatching { mediaControl?.currentPosition ?: 0 }.getOrDefault(0)
+            val shuffle = shuffleEnabled.value
+            val repeat = runCatching { mediaControl?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
+            val mainListUris = yos.music.player.code.MediaController.mainMusicList.toUriStrings()
+            val srcList = yos.music.player.code.MediaController.sourceMusicList
+            if (delayMs > 0) delay(delayMs)
+            // 序列化和 MMKV 写入移到 IO 线程
+            withContext(Dispatchers.IO) {
+                MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
+                MusicLibrary.updatePlayList(PlayListV1(mainListUris, playlist, srcList))
             }
         }
     }
 
     private fun saveData() {
+        // 同步保存，仅用于 onDestroy/onTaskRemoved
         val music = musicPlaying.value ?: return
         val playlist = playingMusicList.value ?: listOf(music)
         val control = mediaControl
@@ -593,7 +607,10 @@ class YosPlaybackService : MediaSessionService() {
         val shuffle = shuffleEnabled.value
         val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
         MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
-        MusicLibrary.updatePlayList(PlayListV1(yos.music.player.code.MediaController.mainMusicList, playlist, yos.music.player.code.MediaController.sourceMusicList))
+        MusicLibrary.updatePlayList(PlayListV1(
+            yos.music.player.code.MediaController.mainMusicList.toUriStrings(),
+            playlist,
+            yos.music.player.code.MediaController.sourceMusicList))
     }
 
     @OptIn(UnstableApi::class)
@@ -659,89 +676,79 @@ class YosPlaybackService : MediaSessionService() {
         forwardingPlayer.addListener(
             object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
-                    runCatching {
+                    if (tracks.isEmpty) return
 
-                        if (tracks.isEmpty) return@runCatching
+                    val path = player.currentMediaItem?.uri
+                    val thisPath = path?.path
+                    val rawUri = path?.toString() ?: ""
+                    val isRemote = rawUri.startsWith("smb://") || rawUri.startsWith("webdav://")
 
-                        val lrcEntries: MutableState<List<List<Pair<Float, String>>>> =
-                            MediaViewModelObject.lrcEntries
+                    var samplingRate = 0
+                    var bitrate = 0
+                    var haveJOC = false
 
-                        val path = player.currentMediaItem?.uri
-
-                        var samplingRate = 0
-                        var bitrate = 0
-                        var haveJOC = false
-
-                        for (i in tracks.groups) {
-                            for (j in 0 until i.length) {
-                                if (!i.isTrackSelected(j)) continue
-                                val trackFormat = i.getTrackFormat(j)
-                                samplingRate = trackFormat.sampleRate
-                                bitrate = trackFormat.bitrate / 1000
-                                haveJOC =
-                                    trackFormat.sampleMimeType?.contains("-joc", ignoreCase = true)
-                                        ?: false
-                                break
-                            }
+                    for (i in tracks.groups) {
+                        for (j in 0 until i.length) {
+                            if (!i.isTrackSelected(j)) continue
+                            val trackFormat = i.getTrackFormat(j)
+                            samplingRate = trackFormat.sampleRate
+                            bitrate = trackFormat.bitrate / 1000
+                            haveJOC =
+                                trackFormat.sampleMimeType?.contains("-joc", ignoreCase = true)
+                                    ?: false
+                            break
                         }
+                    }
 
-                        val thisPath = path?.path
-                        val rawUri = path?.toString() ?: ""
-                        val isRemote = rawUri.startsWith("smb://") || rawUri.startsWith("webdav://")
-
-                        // 远程文件的歌词由 RemoteTagExtractor 异步提取，不从本地路径读取
-                        var lrcContent: String? = null
-                        if (!isRemote && thisPath != null) {
-                            lrcContent = AudioMetadataUtils.extractEmbeddedLyrics(thisPath)
-                        }
-
-                        // 2. 回退到外部 LRC 文件读取（同样仅本地文件）
-                        val finalLrcContent = if (!lrcContent.isNullOrBlank()) {
-                            lrcContent
-                        } else if (!isRemote && thisPath != null) {
-                            val lrcPath = "${thisPath.substringBeforeLast(".")}.lrc"
-                            AudioMetadataUtils.loadLrcFile(this@YosPlaybackService, lrcPath) ?: ""
-                        } else {
-                            ""
-                        }
-
-                        // 仅当从本地文件成功提取到歌词时才设置，远程文件等 RemoteTagExtractor 结果
-                        if (finalLrcContent.isNotBlank()) {
-                            val lrcFactory = YosLrcFactory()
-                            val parsedEntries = lrcFactory.formatLrcEntries(finalLrcContent)
-                            if (parsedEntries.isNotEmpty()) {
-                                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                    lrcEntries.value = parsedEntries
-                                    yos.music.player.data.objects.MediaViewModelObject.cacheLrc(rawUri, parsedEntries)
-                                }
-                            }
-                        }
-
-                        if (thisPath != null) {
-                            if (samplingRate == 0 || bitrate == 0) {
-                                val audioInfo = AudioMetadataUtils.getQualityInfos(thisPath)
-                                if (samplingRate == 0) {
-                                    samplingRate = audioInfo.second
-                                } else {
-                                    bitrate = audioInfo.first
-                                }
-                            }
-                        }
-
-                        android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            MediaViewModelObject.isDolby.value = haveJOC
-                            MediaViewModelObject.samplingRate.intValue = samplingRate
-                            MediaViewModelObject.bitrate.intValue = bitrate
-                        }
-
-                        // 用 ExoPlayer 实际时长修正存储的 duration
-                        val playerDuration = player.duration
+                    val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                    val playerDuration = player.duration
+                    handler.post {
+                        MediaViewModelObject.isDolby.value = haveJOC
+                        MediaViewModelObject.samplingRate.intValue = samplingRate
+                        MediaViewModelObject.bitrate.intValue = bitrate
+                        // 用 ExoPlayer 实际时长修正存储的 duration，合并在同一个 handler post 中避免多次重组
                         if (playerDuration > 0L && !isRemote) {
                             val cur = musicPlaying.value
                             if (cur != null && cur.serverId == null && cur.duration != playerDuration) {
                                 val corrected = cur.copy(duration = playerDuration)
                                 musicPlaying.value = corrected
                                 MusicLibrary.updateSongInFullList(corrected)
+                            }
+                        }
+                    }
+
+                    // 将文件 I/O 移到后台线程，避免阻塞 UI
+                    if (!isRemote && thisPath != null) {
+                        val context = this@YosPlaybackService
+                        val capturedUri = rawUri // 捕获当前曲目 URI，用于回调时校验
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            runCatching {
+                                var lrcContent: String? = AudioMetadataUtils.extractEmbeddedLyrics(thisPath)
+                                if (lrcContent.isNullOrBlank()) {
+                                    val lrcPath = "${thisPath.substringBeforeLast(".")}.lrc"
+                                    lrcContent = AudioMetadataUtils.loadLrcFile(context, lrcPath)
+                                }
+                                if (!lrcContent.isNullOrBlank()) {
+                                    val lrcFactory = YosLrcFactory()
+                                    val parsedEntries = lrcFactory.formatLrcEntries(lrcContent)
+                                    if (parsedEntries.isNotEmpty()) {
+                                        handler.post {
+                                            // 仅当曲目未变时才更新 UI，避免在已 deactivated 节点上触发重组
+                                            if (player.currentMediaItem?.uri?.toString() == capturedUri) {
+                                                MediaViewModelObject.lrcEntries.value = parsedEntries
+                                                yos.music.player.data.objects.MediaViewModelObject.cacheLrc(capturedUri, parsedEntries)
+                                            }
+                                        }
+                                    }
+                                }
+                                if (samplingRate == 0 || bitrate == 0) {
+                                    val audioInfo = AudioMetadataUtils.getQualityInfos(thisPath)
+                                    handler.post {
+                                        if (player.currentMediaItem?.uri?.toString() != capturedUri) return@post
+                                        if (samplingRate == 0) MediaViewModelObject.samplingRate.intValue = audioInfo.second
+                                        if (bitrate == 0) MediaViewModelObject.bitrate.intValue = audioInfo.first
+                                    }
+                                }
                             }
                         }
                     }

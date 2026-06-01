@@ -184,7 +184,7 @@ class YosBasicApplication : Application() {
 
         // 预加载 MMKV 数据到内存，避免 UI 线程首次访问时卡顿
         Thread {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 yos.music.player.data.libraries.MusicLibrary.songs.size
                 yos.music.player.data.libraries.MusicLibrary.folders.size

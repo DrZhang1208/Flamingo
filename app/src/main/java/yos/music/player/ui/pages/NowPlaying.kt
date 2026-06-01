@@ -482,14 +482,8 @@ fun NowPlaying(
                                                             .weight(1f)
                                                             .padding(end = 15.dp)
                                                     ) {
-                                                        Text(
-                                                            text = it?.title
-                                                                ?: defaultTitle,
-                                                            fontSize = 19.5.sp,
-                                                            lineHeight = 26.sp,
-                                                            maxLines = 1,
+                                                        Box(
                                                             modifier = Modifier
-                                                                .basicMarquee(iterations = Int.MAX_VALUE)
                                                                 .clickable(
                                                                     indication = null,
                                                                     interactionSource = remember { MutableInteractionSource() }
@@ -499,17 +493,20 @@ fun NowPlaying(
                                                                         closeSheet()
                                                                         navController.toUI(UI.AlbumInfo)
                                                                     }
-                                                                },
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                        Text(
-                                                            text = it?.artistsName
-                                                                ?: defaultArtistsName,
-                                                            fontSize = 18.5.sp,
-                                                            lineHeight = 24.sp,
+                                                                }
+                                                        ) {
+                                                            Text(
+                                                                text = it?.title
+                                                                    ?: defaultTitle,
+                                                                fontSize = 19.5.sp,
+                                                                lineHeight = 26.sp,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                        Box(
                                                             modifier = Modifier
-                                                                .overlayEffect()
-                                                                .basicMarquee(iterations = Int.MAX_VALUE)
                                                                 .clickable(
                                                                     indication = null,
                                                                     interactionSource = remember { MutableInteractionSource() }
@@ -524,11 +521,19 @@ fun NowPlaying(
                                                                             navController.toUI(UI.ArtistInfo)
                                                                         }
                                                                     }
-                                                                },
-                                                            maxLines = 1,
-                                                            color = Color.White.copy(alpha = 0.35f),
-                                                            fontWeight = FontWeight.SemiBold
-                                                        )
+                                                                }
+                                                        ) {
+                                                            Text(
+                                                                text = it?.artistsName
+                                                                    ?: defaultArtistsName,
+                                                                fontSize = 18.5.sp,
+                                                                lineHeight = 24.sp,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                                color = Color.White.copy(alpha = 0.35f),
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
                                                     }
 
                                                     YosWrapper {
@@ -622,7 +627,7 @@ fun NowPlaying(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(top = 20.dp, bottom = 20.dp)
+                                        .padding(top = 42.dp, bottom = 20.dp)
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null,
@@ -808,12 +813,12 @@ private fun ColumnScope.Album(
                 .padding(start = dp, end = dp, bottom = dp)
                 .then(modifier)
                 .drawBehind {
-                    val blur = size.width * 0.075f
+                    val blur = size.width * 0.1f
                     val cr = size.minDimension * 0.04f
                     val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
                     val p = android.graphics.Path().apply { addRoundRect(rect, cr, cr, android.graphics.Path.Direction.CW) }
                     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.argb((0.42f * 255).toInt(), 0, 0, 0)
+                        color = android.graphics.Color.argb((0.36f * 255).toInt(), 0, 0, 0)
                         maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
                     }
                     drawContext.canvas.nativeCanvas.drawPath(p, paint)
@@ -1516,12 +1521,12 @@ private fun PlayingBar(
             Box(
                 modifier = modifier.size(69.dp)
                     .drawBehind {
-                        val blur = size.width * 0.075f
+                        val blur = size.width * 0.1f
                         val cr = size.minDimension * 0.04f
                         val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
                         val p = android.graphics.Path().apply { addRoundRect(rect, cr, cr, android.graphics.Path.Direction.CW) }
                         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                            color = android.graphics.Color.argb((0.42f * 255).toInt(), 0, 0, 0)
+                            color = android.graphics.Color.argb((0.36f * 255).toInt(), 0, 0, 0)
                             maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
                         }
                         drawContext.canvas.nativeCanvas.drawPath(p, paint)

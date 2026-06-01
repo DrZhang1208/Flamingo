@@ -49,6 +49,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.github.promeg.pinyinhelper.Pinyin
 import yos.music.player.R
 import yos.music.player.code.MediaController
 import yos.music.player.data.libraries.MusicLibrary
@@ -69,11 +70,19 @@ fun ArtistInfo(navController: NavController) {
         mutableStateOf(LibraryObject.getTargetArtistName())
     }
     val songs = remember(artistName.value) {
-        mutableStateOf(MusicLibrary.Artist[artistName.value])
+        mutableStateOf(MusicLibrary.Artist[artistName.value].sortedWith(
+            compareBy { song -> (song.title ?: defaultTitle).map { Pinyin.toPinyin(it) }.joinToString("") }
+        ))
     }
     val scope = rememberCoroutineScope()
 
-    val albums = remember(songs.value) { songs.value.mapNotNull { it.album }.distinct().sorted() }
+    val albums = remember(songs.value) {
+        songs.value.groupBy { it.album }.mapNotNull { (album, albumSongs) ->
+            if (album == null) return@mapNotNull null
+            val year = albumSongs.mapNotNull { it.releaseYear ?: it.recordingYear }.maxOrNull()
+            album to year
+        }.sortedByDescending { it.second ?: 0 }.map { it.first }
+    }
 
     val (songCount, totalMinutes) = rememberSaveable(songs.value) {
         val totalDuration = songs.value.sumOf { it.duration }

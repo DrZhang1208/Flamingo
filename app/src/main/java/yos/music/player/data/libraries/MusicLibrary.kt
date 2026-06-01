@@ -53,9 +53,9 @@ data class Time(
 @Parcelize
 @Stable
 data class PlayListV1(
-    val mainMusicList: List<YosMediaItem>?,
+    val mainMusicList: List<String>?,
     val playingMusicList: List<YosMediaItem>?,
-    val sourceMusicList: List<YosMediaItem>? = null  // 打乱前的原始顺序，v1 升级默认 null
+    val sourceMusicList: List<YosMediaItem>? = null  // 打乱前的原始顺序
 ) : Parcelable
 
 @Parcelize
@@ -181,8 +181,12 @@ object MusicLibrary {
     }
 
     fun loadPlayList(): PlayListV1 {
-        val loadedData = loadData(playListKey) ?: PlayListV1(null, null)
-        return loadedData
+        return try {
+            loadData(playListKey) ?: PlayListV1(null, null)
+        } catch (_: Exception) {
+            // 旧格式（完整 YosMediaItem 对象）反序列化失败，返回空
+            PlayListV1(null, null)
+        }
     }
 
     fun MediaItem.toYosMediaItem(): YosMediaItem {
@@ -363,20 +367,21 @@ object MusicLibrary {
         folderListVersion++
     }
 
+    private val cachedGson by lazy {
+        GsonBuilder().registerTypeAdapter(Uri::class.java, UriTypeAdapter()).create()
+    }
+    private val cachedMmkv by lazy { MMKV.mmkvWithID(mmkvID) }
+
     private inline fun <reified T> updateData(key: String, value: T) {
-        val gson = GsonBuilder().registerTypeAdapter(Uri::class.java, UriTypeAdapter()).create()
-        val mmkv = MMKV.mmkvWithID(mmkvID)
-        val json = gson.toJson(value)
-        mmkv.encode(key, json)
+        val json = cachedGson.toJson(value)
+        cachedMmkv.encode(key, json)
     }
 
     private inline fun <reified T> loadData(key: String): T? {
-        val gson = GsonBuilder().registerTypeAdapter(Uri::class.java, UriTypeAdapter()).create()
-        val mmkv = MMKV.mmkvWithID(mmkvID)
-        val json = mmkv.decodeString(key)
+        val json = cachedMmkv.decodeString(key)
         return json?.let {
             val type = object : TypeToken<T>() {}.type
-            gson.fromJson(it, type)
+            cachedGson.fromJson(it, type)
         }
     }
 
@@ -528,7 +533,7 @@ object MusicLibrary {
             if (playing != null) {
                 updatePlayList(
                     PlayListV1(
-                        MediaController.mainMusicList,
+                        MediaController.mainMusicList.toUriStrings(),
                         playing,
                         yos.music.player.code.MediaController.sourceMusicList
                     )
@@ -539,3 +544,5 @@ object MusicLibrary {
         }
     }
 }
+
+fun List<YosMediaItem>.toUriStrings() = mapNotNull { it.uri?.toString() }
