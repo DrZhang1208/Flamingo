@@ -251,7 +251,8 @@ fun OptionDialog(
                 }
             }
             val height = 50.dp
-            val shape = RoundedCornerShape(height.div(2))
+            // 平滑圆角矩形（14dp圆角，与拖动条背景一致）
+            val smoothShape = YosRoundedCornerShape(14.dp)
 
             val hasButtons = positiveContent != null || negativeContent != null
             if (hasButtons) {
@@ -265,8 +266,8 @@ fun OptionDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(height)
-                                .background(MaterialTheme.colorScheme.primary, shape = shape)
-                                .clip(shape)
+                                .background(MaterialTheme.colorScheme.primary, shape = smoothShape)
+                                .clip(smoothShape)
                                 .clickable {
                                     if (dismissOnPositive) {
                                         scope.launch {
@@ -292,7 +293,7 @@ fun OptionDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(height)
-                                .clip(shape)
+                                .clip(smoothShape)
                                 .background(
                                     color = (Color.LightGray withNight Color.DarkGray).copy(alpha = 0.25f),
                                 )

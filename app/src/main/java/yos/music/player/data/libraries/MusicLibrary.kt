@@ -146,13 +146,44 @@ object MusicLibrary {
         dataSaverInterface = SongListSaver, key = "songs", initialValue = listOf<YosMediaItem>()
     )
 
+    // 缓存过滤结果，避免每次访问 songs 都做 O(n²) 计算
+    @Volatile private var songsCacheVersion = -1
+    @Volatile private var songsCache: List<YosMediaItem> = emptyList()
+    @Volatile private var folderListVersionForCache = -1
+
+    /** 使 songs 缓存失效，在数据变更时调用 */
+    private fun invalidateSongsCache() { songsCacheVersion = -1 }
+
     val songs: List<YosMediaItem>
-        get() = songSaver
-            .filter { it !in hideSongs && it.uri !in allFolders.filter { thisFolders -> thisFolders.path in hideFolders }
-                .flatMap { thisFlatMap -> thisFlatMap.songs }
-                .map { thisMap -> thisMap.uri } &&
-                (it.serverId != null || !SettingsLibrary.EnableExcludeSongsUnderOneMinute || it.duration >= 60000)
+        get() {
+            // 使用版本号快速判断是否需要重新计算
+            val currentSongVersion = songSaver.hashCode()
+            val currentFolderVersion = folderListVersion
+            if (songsCacheVersion == currentSongVersion && folderListVersionForCache == currentFolderVersion) {
+                return songsCache
             }
+            
+            val hiddenUris = lazy {
+                val hideFolderPaths = hideFolders.toSet()
+                allFolders.filter { it.path in hideFolderPaths }
+                    .flatMap { it.songs }
+                    .mapNotNull { it.uri }
+                    .toSet()
+            }
+            val hideSongSet = lazy { hideSongs.toSet() }
+            val excludeShort = SettingsLibrary.EnableExcludeSongsUnderOneMinute
+            
+            val result = songSaver.filter {
+                it !in hideSongSet.value &&
+                it.uri !in hiddenUris.value &&
+                (it.serverId != null || !excludeShort || it.duration >= 60000)
+            }
+            
+            songsCache = result
+            songsCacheVersion = currentSongVersion
+            folderListVersionForCache = currentFolderVersion
+            return result
+        }
 
     val artists
         get() = songs/*.distinctBy { it.artist }.map { it.artist }*/.flatMap {
@@ -309,13 +340,13 @@ object MusicLibrary {
         return loadData<String>(remoteServersKey)
     }
 
-    fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs }
+    fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs; invalidateSongsCache() }
 
     /** 直接更新 songSaver 中某首歌，绕过 hideSongs/hideFolders 过滤 */
     fun updateSongInFullList(updated: YosMediaItem) {
         val all = songSaver.toMutableList()
         val i = all.indexOfFirst { it.uri == updated.uri }
-        if (i >= 0) { all[i] = updated; songSaver = all }
+        if (i >= 0) { all[i] = updated; songSaver = all; invalidateSongsCache() }
     }
 
     fun updateFolderSongs(serverId: String, folderName: String, updatedSong: YosMediaItem) {
@@ -341,6 +372,7 @@ object MusicLibrary {
         folders = folders + folder.copy(serverId = null)  // folders 存储时去掉 serverId 避免序列化问题
         songSaver = songSaver + folder.songs
         folderListVersion++
+        invalidateSongsCache()
     }
 
     fun rebuildRemoteFolders() {
@@ -365,6 +397,7 @@ object MusicLibrary {
         folders = folders.filter { it.name != folderName }
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
         folderListVersion++
+        invalidateSongsCache()
     }
 
     private val cachedGson by lazy {
@@ -395,10 +428,12 @@ object MusicLibrary {
 
     fun hideSong(song: YosMediaItem) {
         hideSongs = hideSongs + song
+        invalidateSongsCache()
     }
 
     fun unHideSong(song: YosMediaItem) {
         hideSongs = hideSongs - song
+        invalidateSongsCache()
     }
 
     /*fun removeSong(song: YosMediaItem) {
@@ -419,6 +454,7 @@ object MusicLibrary {
         } else {
             hideFoldersSaver = hideFoldersSaver.minus(YosStringWrapper(folder.path))
         }
+        invalidateSongsCache()
     }
 
     private val readerConfiguration = ReaderConfiguration(
@@ -540,6 +576,7 @@ object MusicLibrary {
                 )
             }
 
+            invalidateSongsCache()
             result
         }
     }

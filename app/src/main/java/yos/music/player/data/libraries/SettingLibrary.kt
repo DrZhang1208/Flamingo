@@ -8,6 +8,44 @@ import yos.music.player.data.SettingsSaver
 object SettingsLibrary {
 
     /**
+     * 一次性预加载所有设置值到内存。
+     * 在 Application 的后台线程中调用，避免 UI 线程首次访问时触发 MMKV 磁盘 IO。
+     */
+    fun preload() {
+        try {
+            // 触发所有 mutableDataSaverStateOf 的 lazy 初始化
+            NowPlayingShowVolumeBar
+            CustomTheme
+            ScreenCornerSet
+            ScreenCorner
+            SongSort
+            EnableDescending
+            NowPlayingTranslation
+            RefreshEveryTime
+            LyricFontWeight
+            LyricFontSize
+            TranslationFontSize
+            LyricLineBalance
+            LyricBlurEffect
+            NowplayingBackgroundEffect
+            BarBlurEffect
+            LyricsHideControls
+            NotificationEnableIcon
+            NotificationSmallerIcon
+            FadePlay
+            ListenHistory
+            StatusBarLyricEnabled
+            StatusBarLyricHooked
+            AudioAttributes
+            Codec
+            HardwareAudioTrackPlayBackParams
+            AudioFloatOutput
+            RemoteCacheSizeMB
+            EnableExcludeSongsUnderOneMinute
+        } catch (_: Exception) {}
+    }
+
+    /**
      * 是否显示音量条
      */
     @Stable

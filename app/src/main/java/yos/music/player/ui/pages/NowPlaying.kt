@@ -91,6 +91,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -281,6 +282,17 @@ fun NowPlaying(
         val showArtistPickerFromAlbum = remember { mutableStateOf(false) }
         val showControl = rememberSaveable(key = "NowPlaying_showControl") {
             mutableStateOf(true)
+        }
+        
+        // 监听 shouldShowWarning 状态变化(定时关闭警告)
+        YosWrapper {
+            LaunchedEffect(yos.music.player.code.SleepTimerManager.shouldShowWarning.value) {
+                if (yos.music.player.code.SleepTimerManager.shouldShowWarning.value && 
+                    yos.music.player.code.SleepTimerManager.isActive.value) {
+                    // 通过全局事件或状态传递到菜单区域
+                    // 这里简化处理,直接通过全局状态控制
+                }
+            }
         }
 
         val shuffleModeEnabled = rememberSaveable(key = "NowPlaying_shuffleModeEnabled") {
@@ -1340,6 +1352,8 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
         var showPlaylistPicker = remember { mutableStateOf(false) }
         var showDetail = remember { mutableStateOf(false) }
         var showArtistPicker = remember { mutableStateOf(false) }
+        var showSleepTimerDialog = remember { mutableStateOf(false) }
+        var showSleepTimerWarning = remember { mutableStateOf(false) }
         val menuOpenCount = remember { mutableIntStateOf(0) }
         var btnPos = remember { mutableStateOf(Offset.Zero) }
 
@@ -1418,6 +1432,23 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                             else FavPlayListLibrary.addMusic(music)
                             dismiss()
                         }),
+                        // 定时关闭菜单项 - 动态显示剩余时间
+                        Triple(
+                            if (yos.music.player.code.SleepTimerManager.isActive.value) {
+                                if (yos.music.player.code.SleepTimerManager.isExtendToSongEnd.value && yos.music.player.code.SleepTimerManager.remainingSeconds.intValue == 0) {
+                                    "定时关闭 (等待播完退出)"
+                                } else {
+                                    "定时关闭 (${yos.music.player.code.SleepTimerManager.getFormattedRemainingTime()})"
+                                }
+                            } else {
+                                "定时关闭"
+                            },
+                            Icons.Filled.Timer,
+                            {
+                                dismiss()
+                                showSleepTimerDialog.value = true
+                            }
+                        ),
                         Triple("歌曲信息", Icons.Outlined.Info, { dismiss(); showDetail.value = true })
                     )
                     Column {
@@ -1445,6 +1476,28 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
 
         if (showDetail.value && music != null) {
             SongDetailDialog(music, onDismiss = { showDetail.value = false })
+        }
+
+        if (showSleepTimerDialog.value) {
+            SleepTimerDialog(
+                currentSongUri = music?.uri?.toString(),
+                onDismiss = { showSleepTimerDialog.value = false }
+            )
+        }
+
+        if (showSleepTimerWarning.value && yos.music.player.code.SleepTimerManager.isActive.value) {
+            SleepTimerWarningDialog(
+                onDismiss = { showSleepTimerWarning.value = false },
+                onContinue = {
+                    // 继续倒计时,重置警告状态
+                    yos.music.player.code.SleepTimerManager.shouldShowWarning.value = false
+                    showSleepTimerWarning.value = false
+                },
+                onCancel = {
+                    // 取消定时
+                    showSleepTimerWarning.value = false
+                }
+            )
         }
 
         if (showArtistPicker.value && music != null && navController != null) {

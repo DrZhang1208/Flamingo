@@ -7,7 +7,6 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.funny.data_saver.core.DataSaverConverter.registerTypeConverters
-import com.google.common.util.concurrent.MoreExecutors
 import com.google.gson.GsonBuilder
 import com.google.gson.TypeAdapter
 import com.google.gson.stream.JsonReader
@@ -91,6 +90,7 @@ class YosBasicApplication : Application() {
         // 初始化媒体控制器
         val sessionToken = SessionToken(this, ComponentName(this, YosPlaybackService::class.java))
         val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         controllerFuture.addListener(
             {
                 mediaControl = controllerFuture.get()
@@ -103,8 +103,9 @@ class YosBasicApplication : Application() {
                         val savedMusic = playStatusData.music
                         val savedPlayingMusicList = playListData.playingMusicList
 
+                        // 切到主线程修改 Compose State，避免 snapshot 锁竞争
                         if (savedMusic != null) {
-                            musicPlaying.value = savedMusic
+                            mainHandler.post { musicPlaying.value = savedMusic }
                         }
 
                         if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
@@ -119,8 +120,7 @@ class YosBasicApplication : Application() {
                                     savedSourceList
                                 )
                             }
-                            playingMusicList.value = savedPlayingMusicList
-                        } else {
+                            mainHandler.post { playingMusicList.value = savedPlayingMusicList }
                         }
 
                         // 清理过期标签缓存（超过 30 天未更新的标签）
@@ -179,13 +179,17 @@ class YosBasicApplication : Application() {
                     }
                 }
             },
-            MoreExecutors.directExecutor()
+            { command -> mainHandler.post { command.run() } }  // 修复: 使用主线程 executor
         )
 
-        // 预加载 MMKV 数据到内存，避免 UI 线程首次访问时卡顿
+        // 预加载 MMKV 数据到内存，延迟启动避免与 UI 线程竞争 CPU
         Thread {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
+                // 延迟 2 秒，让 UI 先完成首帧渲染
+                Thread.sleep(2000)
+                // 一次性预加载所有设置值，避免 UI 线程首次读取时磁盘 IO
+                yos.music.player.data.libraries.SettingsLibrary.preload()
                 yos.music.player.data.libraries.MusicLibrary.songs.size
                 yos.music.player.data.libraries.MusicLibrary.folders.size
                 yos.music.player.data.libraries.MusicLibrary.hideSongs.size

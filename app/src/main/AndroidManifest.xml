@@ -17,6 +17,8 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!-- 精确闹钟权限 (Android 12+, 用于定时关闭) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:allowBackup="true"
@@ -68,6 +70,11 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- 定时关闭广播接收器 -->
+        <receiver
+            android:name=".code.SleepTimerReceiver"
+            android:exported="false" />
 
     </application>
 

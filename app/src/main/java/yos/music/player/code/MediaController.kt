@@ -804,6 +804,17 @@ class YosPlaybackService : MediaSessionService() {
                     yos.music.player.data.remote.RemoteRetryManager.onTrackChanged(
                         mediaItem?.localConfiguration?.uri?.toString()
                     )
+                    
+                    // 定时关闭: 切歌时检查是否需要取消
+                    // reason == TRANSITION_REASON_AUTO 表示歌曲自然播放结束，不算切歌
+                    val newUri = mediaItem?.localConfiguration?.uri?.toString()
+                    SleepTimerManager.onTrackChanged(newUri, reason)
+                    
+                    // 定时关闭: 歌曲自然播放完毕时检查是否应该退出
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                        SleepTimerManager.checkFinishCurrentSong(newUri)
+                    }
+                    
                     mediaItem?.let {
                         val yosItem = it.toYosMediaItem()
                         // 开始追踪新歌的播放次数
@@ -916,6 +927,11 @@ class YosPlaybackService : MediaSessionService() {
                     // 只在主动暂停时（playWhenReady=false）同步 UI，避免切歌/缓冲/拖进度条误触发
                     if (!isPlaying && player.playWhenReady) return
                     MediaViewModelObject.isPlaying.value = isPlaying
+                    
+                    // 定时关闭: 手动暂停时检测
+                    if (!isPlaying) {
+                        SleepTimerManager.onManualPause()
+                    }
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -925,6 +941,14 @@ class YosPlaybackService : MediaSessionService() {
 
                 override fun onEvents(player: Player, events: Player.Events) {
                     super.onEvents(player, events)
+
+                    // 定时关闭: 检测歌曲播放完毕(STATE_ENDED)
+                    if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+                        if (player.playbackState == Player.STATE_ENDED) {
+                            val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+                            SleepTimerManager.checkFinishCurrentSong(currentUri)
+                        }
+                    }
 
                     // 播放次数统计：播放超过一半时长才算一次有效播放
                     val counting = yos.music.player.code.MediaController.countingUri
