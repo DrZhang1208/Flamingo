@@ -8,20 +8,19 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.net.Uri
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -33,11 +32,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
 import coil.request.ImageRequest
 import com.google.android.renderscript.Toolkit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.data.libraries.SettingsLibrary.NowplayingBackgroundEffect
 
@@ -93,7 +97,7 @@ fun YosFloatingLight(
                 targetState = rawBg.value,
                 animationSpec = tween(1200, easing = FastOutSlowInEasing)
             ) { bg ->
-                if (bg != null) DynamicBlurLayer(bg) else FallbackLayer()
+                if (bg != null) DynamicBlurLayer(bg, showMiniPlayer) else FallbackLayer()
             }
         } else {
             Crossfade(
@@ -124,23 +128,42 @@ private fun StaticBlurLayer(bitmap: ImageBitmap) {
     }
 }
 
-/** 动态模式:原图 + GPU 模糊 + 缓慢位移 */
+/** 动态模式:原图 + GPU 模糊 + 缓慢位移。生命周期感知：后台/锁屏/最小化时冻结动画 */
 @Composable
-private fun DynamicBlurLayer(bitmap: ImageBitmap) {
-    val transition = rememberInfiniteTransition(label = "flow")
-    // 增加动画范围从 10% 到 20%
-    val tx by transition.animateFloat(
-        initialValue = -0.10f, targetValue = 0.10f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing), repeatMode = RepeatMode.Reverse
-        ), label = "tx"
-    )
-    val ty by transition.animateFloat(
-        initialValue = -0.10f, targetValue = 0.10f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(10000, easing = LinearEasing), repeatMode = RepeatMode.Reverse
-        ), label = "ty"
-    )
+private fun DynamicBlurLayer(bitmap: ImageBitmap, showMiniPlayer: () -> Boolean) {
+    var isForeground by remember { mutableStateOf(true) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            isForeground = event == Lifecycle.Event.ON_RESUME
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val tx = remember { Animatable(0f) }
+    val ty = remember { Animatable(0f) }
+
+    // 仅当前台且播放页全屏时运行动画
+    val shouldAnimate = isForeground && !showMiniPlayer()
+
+    LaunchedEffect(shouldAnimate) {
+        if (!shouldAnimate) return@LaunchedEffect
+
+        val jobX = launch {
+            while (isActive) {
+                tx.animateTo(-0.10f, tween(8000, easing = LinearEasing))
+                tx.animateTo(0.10f, tween(8000, easing = LinearEasing))
+            }
+        }
+        val jobY = launch {
+            while (isActive) {
+                ty.animateTo(-0.10f, tween(10000, easing = LinearEasing))
+                ty.animateTo(0.10f, tween(10000, easing = LinearEasing))
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Image(
@@ -150,13 +173,11 @@ private fun DynamicBlurLayer(bitmap: ImageBitmap) {
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    // 放大图片到 1.25 倍,确保位移 20% 时不会露出边界
                     scaleX = 1.25f
                     scaleY = 1.25f
-                    translationX = tx * size.width
-                    translationY = ty * size.height
+                    translationX = tx.value * size.width
+                    translationY = ty.value * size.height
                 }
-                // 增加模糊程度从 40.dp 到 60.dp
                 .blur(60.dp)
         )
         Box(
