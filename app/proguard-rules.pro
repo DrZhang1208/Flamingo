@@ -53,16 +53,6 @@
 
 -keep class com.cormor.overscroll.core.OverScrollKt
 
-# smbj / SMB library
--dontwarn javax.el.**
--dontwarn com.hierynomus.**
--keep class com.hierynomus.smbj.** { *; }
--keep class com.hierynomus.protocol.** { *; }
--keep class com.hierynomus.mssmb2.** { *; }
--keep class com.hierynomus.msdtyp.** { *; }
--keep class com.hierynomus.msfscc.** { *; }
--keep class net.engio.mbassy.** { *; }
-
 # OkHttp (WebDAV)
 -dontwarn okhttp3.**
 -dontwarn okio.**

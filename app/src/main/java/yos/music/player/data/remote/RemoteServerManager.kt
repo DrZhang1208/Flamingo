@@ -5,35 +5,23 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.hierynomus.msdtyp.AccessMask
-import com.hierynomus.msfscc.fileinformation.FileIdBothDirectoryInformation
-import com.hierynomus.mssmb2.SMB2CreateDisposition
-import com.hierynomus.mssmb2.SMB2ShareAccess
-import com.hierynomus.smbj.SMBClient
-import com.hierynomus.smbj.SmbConfig
-import com.hierynomus.smbj.auth.AuthenticationContext
-import com.hierynomus.smbj.connection.Connection
-import com.hierynomus.smbj.session.Session
-import com.hierynomus.smbj.share.DiskShare
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.util.EnumSet
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-enum class ServerType { SMB, WEBDAV }
+enum class ServerType { WEBDAV }
 
 data class ServerConfig(
     val id: String = UUID.randomUUID().toString(),
     val type: ServerType,
     val label: String,
     val host: String,
-    val port: Int = if (type == ServerType.SMB) 445 else 8080,
+    val port: Int = 8080,
     val shareName: String? = null,
     val basePath: String = "/",
     val username: String? = null,
@@ -58,10 +46,6 @@ object RemoteServerManager {
     private val configCache = mutableListOf<ServerConfig>()
     private var credPrefs: android.content.SharedPreferences? = null
 
-    // Connections
-    private val smbClients = java.util.concurrent.ConcurrentHashMap<String, SMBClient>()
-    private val smbSessions = java.util.concurrent.ConcurrentHashMap<String, Session>()
-    private val smbShares = java.util.concurrent.ConcurrentHashMap<String, DiskShare>()
     private val webDavClients = java.util.concurrent.ConcurrentHashMap<String, OkHttpClient>()
 
     var lastListBody: String = ""
@@ -77,7 +61,6 @@ object RemoteServerManager {
     fun init(context: Context) {
         appContext = context.applicationContext
         if (credPrefs == null) {
-            // Keystore 操作可能耗时 50-200ms，移到后台线程避免阻塞 UI
             val appCtx = context.applicationContext
             Thread {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
@@ -135,34 +118,16 @@ object RemoteServerManager {
     // --- Connection ---
 
     fun testConnection(config: ServerConfig, password: String?): String {
-        if (config.type == ServerType.WEBDAV && config.host.isBlank()) return "请输入 WebDAV 地址"
+        if (config.host.isBlank()) return "请输入 WebDAV 地址"
         return runCatching {
-            when (config.type) {
-                ServerType.SMB -> testSmb(config, password)
-                ServerType.WEBDAV -> testWebDav(config, password)
-            }
+            testWebDav(config, password)
         }.getOrElse { e ->
             val msg = (e.message ?: e.javaClass.simpleName).ifBlank { e.javaClass.simpleName }
             when (e) {
-                is java.net.UnknownHostException -> "连接失败：无法解析主机（请只填 IP/域名，不要填 smb:// 前缀或路径）"
+                is java.net.UnknownHostException -> "连接失败：无法解析主机（请检查地址是否正确）"
                 is java.net.SocketTimeoutException -> "连接失败：超时（请检查网络、端口、服务器在线状态）"
                 else -> "连接失败：$msg"
             }
-        }
-    }
-
-    private fun testSmb(config: ServerConfig, password: String?): String {
-        val client = SMBClient(SmbConfig.builder().withTimeout(15, TimeUnit.SECONDS).withSoTimeout(15, TimeUnit.SECONDS).build())
-        return try {
-            val (host, shareName) = parseSmbEndpoint(config.host, config.shareName)
-            val conn = client.connect(host, config.port)
-            val session = authenticateSmb(conn, config, password)
-            val share = session.connectShare(shareName ?: return "SMB 需要共享名") as DiskShare
-            val files = share.list("", "*")
-            share.close(); session.close(); conn.close()
-            "连接成功，根目录 ${files.size} 个项目"
-        } finally {
-            client.close()
         }
     }
 
@@ -175,29 +140,8 @@ object RemoteServerManager {
     fun connect(serverId: String, password: String? = null): Boolean {
         return runCatching {
             val cfg = getServer(serverId) ?: return false
-            when (cfg.type) {
-                ServerType.SMB -> connectSmb(cfg)
-                ServerType.WEBDAV -> connectWebDav(cfg, password)
-            }
+            connectWebDav(cfg, password)
         }.isSuccess
-    }
-
-    private fun connectSmb(config: ServerConfig): Boolean {
-        val client = SMBClient(SmbConfig.builder().withTimeout(30, TimeUnit.SECONDS).withSoTimeout(30, TimeUnit.SECONDS).build())
-        val (host, shareName) = parseSmbEndpoint(config.host, config.shareName)
-        val conn = client.connect(host, config.port)
-        val session = authenticateSmb(conn, config, getPassword(config.id))
-        val share = session.connectShare(shareName ?: throw IllegalStateException("SMB 需要共享名")) as DiskShare
-        smbClients[config.id] = client; smbSessions[config.id] = session; smbShares[config.id] = share
-        return true
-    }
-
-    private fun authenticateSmb(conn: Connection, config: ServerConfig, password: String?): Session {
-        return if (config.authRequired) {
-            conn.authenticate(AuthenticationContext(config.username ?: "guest", (password ?: "").toCharArray(), ""))
-        } else {
-            conn.authenticate(AuthenticationContext.guest())
-        }
     }
 
     private fun connectWebDav(config: ServerConfig, password: String? = null): Boolean {
@@ -207,28 +151,19 @@ object RemoteServerManager {
     }
 
     fun disconnect(serverId: String) {
-        runCatching { smbShares[serverId]?.close() }
-        runCatching { smbSessions[serverId]?.close() }
-        runCatching { smbClients[serverId]?.close() }
-        smbShares.remove(serverId); smbSessions.remove(serverId); smbClients.remove(serverId)
         webDavClients.remove(serverId)
     }
 
-    fun disconnectAll() = smbShares.keys.toList().forEach { disconnect(it) }
+    fun disconnectAll() = webDavClients.keys.toList().forEach { disconnect(it) }
 
-    fun isConnected(serverId: String) = getServer(serverId)?.let {
-        when (it.type) { ServerType.SMB -> smbShares.containsKey(serverId); ServerType.WEBDAV -> webDavClients.containsKey(serverId) }
-    } ?: false
+    fun isConnected(serverId: String) = webDavClients.containsKey(serverId)
 
     // --- File listing ---
 
     fun listFolder(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
         return runCatching {
-            when (cfg.type) {
-                ServerType.SMB -> listSmb(serverId, remotePath)
-                ServerType.WEBDAV -> listWebDav(serverId, remotePath)
-            }
+            listWebDav(serverId, remotePath)
         }.getOrElse { e ->
             lastParseError = connectionErrorMessage(cfg, e)
             emptyList()
@@ -241,104 +176,25 @@ object RemoteServerManager {
 
     private fun isAudioFile(name: String) = name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
 
-    private fun listSmb(serverId: String, path: String): List<RemoteFile> {
-        val share = smbShares[serverId] ?: return emptyList()
-        val clean = path.trim('/').replace('/', '\\')
-        val search = if (clean.isEmpty()) "*" else "$clean\\*"
-        return share.list(clean, search).map { f -> f.toRemoteFile(isDir = false) }.mapNotNull { rf ->
-            if (isSmbDir(share, rf, clean)) {
-                rf.copy(isDirectory = true, size = 0L)
-            } else {
-                rf
-            }
-        }
-    }
-
-    private fun FileIdBothDirectoryInformation.toRemoteFile(isDir: Boolean): RemoteFile {
-        return RemoteFile(
-            name = fileName,
-            path = fileName,
-            isDirectory = isDir,
-            size = if (isDir) 0L else endOfFile,
-            modifiedDate = lastWriteTime.toEpochMillis()
-        )
-    }
-
-    private fun isSmbDir(share: DiskShare, rf: RemoteFile, parentPath: String): Boolean {
-        return runCatching {
-            val fullPath = if (parentPath.isEmpty()) rf.name.replace('/', '\\') else "$parentPath\\${rf.name}".replace('/', '\\')
-            val info = share.getFileInformation(fullPath)
-            (info.basicInformation.fileAttributes and 0x10L) != 0L // FILE_ATTRIBUTE_DIRECTORY
-        }.getOrDefault(false)
-    }
-
     // --- File reading ---
 
     fun readFileBytes(serverId: String, remotePath: String, offset: Long, length: Int): ByteArray {
         val cfg = getServer(serverId) ?: return ByteArray(0)
-        return when (cfg.type) {
-            ServerType.SMB -> readSmbBytes(serverId, remotePath, offset, length)
-            ServerType.WEBDAV -> readWebDavBytes(serverId, remotePath, offset, length)
-        }
+        return readWebDavBytes(serverId, remotePath, offset, length)
     }
 
     fun openFileStream(serverId: String, remotePath: String): InputStream {
         val cfg = getServer(serverId) ?: throw IllegalStateException("Server not found")
-        return when (cfg.type) {
-            ServerType.SMB -> openSmbStream(serverId, remotePath)
-            ServerType.WEBDAV -> openWebDavStream(serverId, remotePath)
-        }
+        return openWebDavStream(serverId, remotePath)
     }
 
     fun getFileSize(serverId: String, remotePath: String): Long {
         return runCatching {
             val cfg = getServer(serverId) ?: return 0L
-            when (cfg.type) {
-                ServerType.SMB -> {
-                    val path = remotePath.replace('/', '\\')
-                    smbShares[serverId]?.getFileInformation(path)?.standardInformation?.endOfFile ?: 0L
-                }
-                ServerType.WEBDAV -> {
-                    val url = buildWebDavUrl(cfg, remotePath)
-                    val resp = webDavClients[serverId]?.newCall(Request.Builder().url(url).head().build())?.execute()
-                    resp?.body?.contentLength()?.coerceAtLeast(0) ?: 0L
-                }
-            }
+            val url = buildWebDavUrl(cfg, remotePath)
+            val resp = webDavClients[serverId]?.newCall(Request.Builder().url(url).head().build())?.execute()
+            resp?.body?.contentLength()?.coerceAtLeast(0) ?: 0L
         }.getOrDefault(0L)
-    }
-
-    private fun readSmbBytes(serverId: String, path: String, offset: Long, length: Int): ByteArray {
-        val share = smbShares[serverId] ?: return ByteArray(0)
-        val smbPath = path.replace('/', '\\')
-        val file = share.openFile(
-            smbPath, EnumSet.of(AccessMask.GENERIC_READ), null,
-            EnumSet.noneOf(SMB2ShareAccess::class.java), SMB2CreateDisposition.FILE_OPEN, null
-        )
-        val size = share.getFileInformation(smbPath).standardInformation.endOfFile
-        val bufLen = minOf(length, (size - offset).coerceAtLeast(0).toInt())
-        val buf = ByteArray(bufLen)
-        if (bufLen > 0) file.read(buf, offset)
-        file.close()
-        return buf
-    }
-
-    private fun openSmbStream(serverId: String, path: String): InputStream {
-        val share = smbShares[serverId] ?: throw IllegalStateException("Not connected: $serverId")
-        val smbPath = path.replace('/', '\\')
-        val file = share.openFile(smbPath, EnumSet.of(AccessMask.GENERIC_READ), null,
-            EnumSet.noneOf(SMB2ShareAccess::class.java), SMB2CreateDisposition.FILE_OPEN, null)
-        val size = share.getFileInformation(smbPath).standardInformation.endOfFile
-        return object : InputStream() {
-            private var pos = 0L
-            override fun read(): Int { val b = ByteArray(1); return if (read(b) == 1) b[0].toInt() and 0xFF else -1 }
-            override fun read(b: ByteArray, off: Int, len: Int): Int {
-                val remaining = size - pos; if (remaining <= 0) return -1
-                val toRead = minOf(len, remaining.toInt())
-                val read = file.read(b, pos, off, toRead)
-                if (read > 0) pos += read; return if (read == 0) -1 else read
-            }
-            override fun close() { runCatching { file.close() } }
-        }
     }
 
     private fun readWebDavBytes(serverId: String, path: String, offset: Long, length: Int): ByteArray {
@@ -352,7 +208,6 @@ object RemoteServerManager {
             if (!resp.isSuccessful) throw java.io.IOException("WebDAV read failed: HTTP ${resp.code}")
             val body = resp.body ?: throw java.io.IOException("WebDAV empty body")
             val full = body.bytes()
-            // 如果服务器不支持 Range 返回了完整文件，只取需要的部分
             if (length > 0 && full.size > length) full.copyOf(length) else full
         } finally {
             resp.close()
@@ -395,36 +250,9 @@ object RemoteServerManager {
     }
 
     private fun buildWebDavUrl(config: ServerConfig, path: String): String {
-        // WebDAV: host 字段存储完整 URL（如 http://192.168.1.1:8080/dav）
         val base = config.host.trimEnd('/')
         val clean = path.trimStart('/')
         return if (clean.isEmpty()) base else "$base/$clean"
-    }
-
-    private fun parseSmbEndpoint(rawHostInput: String, rawShareInput: String?): Pair<String, String?> {
-        val hostInput = rawHostInput.trim()
-        val shareInput = rawShareInput?.trim().orEmpty().ifBlank { null }
-
-        fun splitHostAndShare(hostPart: String): Pair<String, String?> {
-            val trimmed = hostPart.trim().removeSuffix("/")
-            val hostOnly = trimmed.substringBefore('/')
-            val shareFromHost = trimmed.substringAfter('/', missingDelimiterValue = "").substringBefore('/').ifBlank { null }
-            return hostOnly to shareFromHost
-        }
-
-        val (hostPart, shareFromHost) = when {
-            hostInput.startsWith("smb://", ignoreCase = true) -> {
-                val uri = android.net.Uri.parse(hostInput)
-                val host = uri.host ?: hostInput.removePrefix("smb://").substringBefore('/').substringBefore('?').substringBefore('#')
-                val share = uri.pathSegments.firstOrNull()
-                host to share
-            }
-            else -> splitHostAndShare(hostInput)
-        }
-
-        val host = hostPart.substringBefore(':').trim()
-        val share = shareInput ?: shareFromHost
-        return host to share
     }
 
     private fun listWebDav(serverId: String, remotePath: String): List<RemoteFile> {
@@ -467,12 +295,8 @@ object RemoteServerManager {
         }
     }
 
-    /**
-     * 解析 WebDAV 服务器返回的 HTML 目录列表（Apache/Nginx/内置索引页）
-     */
     private fun parseHtmlDirectory(html: String, parentPath: String, baseUrl: String): List<RemoteFile> {
         val results = mutableListOf<RemoteFile>()
-        // 匹配 <a href="...">name</a> 链接
         val linkRegex = Regex("""<a\s+href\s*=\s*["']([^"']+)["'][^>]*>\s*(.*?)\s*</a>""", RegexOption.IGNORE_CASE)
         for (m in linkRegex.findAll(html)) {
             val href = m.groupValues[1]
@@ -496,7 +320,6 @@ object RemoteServerManager {
 
     private fun parsePropfind(xml: String, parentPath: String, selfPath: String = ""): List<RemoteFile> {
         val results = mutableListOf<RemoteFile>()
-        // 简单字符串解析：按 <D:response> 分割，逐块提取字段
         val responseTag = Regex("<(\\w+:)?response>", RegexOption.IGNORE_CASE)
         val closeTag = Regex("</(\\w+:)?response>", RegexOption.IGNORE_CASE)
         var searchFrom = 0
@@ -520,7 +343,6 @@ object RemoteServerManager {
             if (name.isBlank()) continue
 
             val resolvedPath = resolveRelativePath(parentPath.trimEnd('/'), href.trimEnd('/'))
-            // 跳过当前目录自身：比较路径最后一段（处理中英文/编码差异）
             if (resolvedPath == parentPath.trimEnd('/')) continue
             val hrefLast = href.trimEnd('/').substringAfterLast('/')
             val selfLast = selfPath.substringAfterLast('/').ifEmpty { selfPath.substringAfterLast('/') }
@@ -543,13 +365,7 @@ object RemoteServerManager {
         return xml.substring(start, end).trim()
     }
 
-    /**
-     * 将 PROPFIND 返回的绝对路径 href 转为相对于 basePath 的相对路径。
-     * 例：basePath="" href="/dav/Music" → "Music"
-     *     basePath="Music" href="/dav/Music/Rock" → "Rock"
-     */
     private fun resolveRelativePath(basePath: String, href: String): String {
-        // href 的最后一个路径段作为简单相对路径（适用于 Depth: 1）
         val name = href.substringAfterLast('/')
         return if (basePath.isEmpty()) name else "$basePath/$name"
     }
@@ -558,16 +374,12 @@ object RemoteServerManager {
         val msg = (e.message ?: e.javaClass.simpleName).ifBlank { e.javaClass.simpleName }
         return when (e) {
             is javax.net.ssl.SSLHandshakeException, is javax.net.ssl.SSLException -> {
-                if (cfg.type == ServerType.WEBDAV) {
-                    val schemeHint = if (cfg.host.trim().startsWith("https://", ignoreCase = true)) {
-                        "（如果服务器是 http，请把地址改成 http://；若是自签名证书可勾选“跳过 SSL 证书验证”）"
-                    } else {
-                        "（若使用 https 且为自签名证书可勾选“跳过 SSL 证书验证”）"
-                    }
-                    "WebDAV SSL 握手失败：$msg $schemeHint"
+                val schemeHint = if (cfg.host.trim().startsWith("https://", ignoreCase = true)) {
+                    "（如果服务器是 http，请把地址改成 http://；若是自签名证书可勾选「跳过 SSL 证书验证」）"
                 } else {
-                    "SSL 握手失败：$msg"
+                    "（若使用 https 且为自签名证书可勾选「跳过 SSL 证书验证」）"
                 }
+                "WebDAV SSL 握手失败：$msg $schemeHint"
             }
             is java.net.UnknownHostException -> "连接失败：无法解析主机（请检查地址是否正确）"
             is java.net.SocketTimeoutException -> "连接失败：超时（请检查网络、端口、服务器在线状态）"

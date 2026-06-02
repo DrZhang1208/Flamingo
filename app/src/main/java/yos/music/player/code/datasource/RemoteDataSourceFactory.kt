@@ -5,6 +5,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
 import yos.music.player.data.remote.RemoteServerManager
+import yos.music.player.data.remote.ServerType
 
 class RemoteDataSourceFactory(
     private val context: Context
@@ -35,11 +36,9 @@ class RemoteDataSource(
         val rawUri = uri.toString()
         val scheme = uri.scheme ?: when {
             rawUri.startsWith("webdav://") -> "webdav"
-            rawUri.startsWith("smb://") -> "smb"
             else -> null
         }
         delegate = (when (scheme) {
-            "smb" -> createSmbSource(uri)
             "webdav" -> createWebDavSource(uri)
             "http", "https" -> {
                 val matchingServer = findMatchingWebDavServer(uri.toString())
@@ -57,14 +56,6 @@ class RemoteDataSource(
         return delegate!!.open(dataSpec)
     }
 
-    private fun createSmbSource(uri: android.net.Uri): SmbDataSource {
-        val raw = uri.toString()
-        val serverId = uri.host ?: raw.substringAfter("smb://").substringBefore("/")
-        val config = findOrLoadServer(serverId) ?: throw IllegalStateException("SMB server not found: $serverId")
-        val path = uri.path?.trimStart('/') ?: raw.substringAfter("smb://$serverId/")
-        return SmbDataSource(config, path)
-    }
-
     private fun createWebDavSource(uri: android.net.Uri): WebDavDataSource {
         val raw = uri.toString()
         val serverId = uri.host ?: raw.substringAfter("webdav://").substringBefore("/")
@@ -79,7 +70,6 @@ class RemoteDataSource(
         RemoteServerManager.getServer(serverId)
     }
 
-    /** 查找 HTTP URL 是否匹配已注册的 WebDAV 服务器 */
     private fun findMatchingWebDavServer(httpUrl: String): yos.music.player.data.remote.ServerConfig? {
         val servers = RemoteServerManager.getAllServers()
         if (servers.isEmpty()) {
@@ -87,7 +77,7 @@ class RemoteDataSource(
             if (!saved.isNullOrBlank()) RemoteServerManager.loadConfigs(saved)
         }
         return RemoteServerManager.getAllServers().firstOrNull { cfg ->
-            cfg.type == yos.music.player.data.remote.ServerType.WEBDAV && httpUrl.startsWith(cfg.host.trimEnd('/'))
+            cfg.type == ServerType.WEBDAV && httpUrl.startsWith(cfg.host.trimEnd('/'))
         }
     }
 

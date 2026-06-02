@@ -182,17 +182,12 @@ class YosBasicApplication : Application() {
             { command -> mainHandler.post { command.run() } }  // 修复: 使用主线程 executor
         )
 
-        // 预加载 MMKV 数据到内存，延迟启动避免与 UI 线程竞争 CPU
+        // 立即在后台线程预加载 MMKV 数据，避免主线程首次访问时触发磁盘 IO + Gson 反序列化
         Thread {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT)
             try {
-                // 延迟 2 秒，让 UI 先完成首帧渲染
-                Thread.sleep(2000)
-                // 一次性预加载所有设置值，避免 UI 线程首次读取时磁盘 IO
                 yos.music.player.data.libraries.SettingsLibrary.preload()
-                yos.music.player.data.libraries.MusicLibrary.songs.size
-                yos.music.player.data.libraries.MusicLibrary.folders.size
-                yos.music.player.data.libraries.MusicLibrary.hideSongs.size
+                yos.music.player.data.libraries.MusicLibrary.preload()
             } catch (_: Exception) {}
         }.start()
 

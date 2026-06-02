@@ -146,23 +146,31 @@ object MusicLibrary {
         dataSaverInterface = SongListSaver, key = "songs", initialValue = listOf<YosMediaItem>()
     )
 
-    // 缓存过滤结果，避免每次访问 songs 都做 O(n²) 计算
-    @Volatile private var songsCacheVersion = -1
+    // 缓存过滤结果，使用版本号避免 O(n) hashCode 计算
+    @Volatile private var songsCacheVersion = -1L
     @Volatile private var songsCache: List<YosMediaItem> = emptyList()
     @Volatile private var folderListVersionForCache = -1
 
     /** 使 songs 缓存失效，在数据变更时调用 */
-    private fun invalidateSongsCache() { songsCacheVersion = -1 }
+    private fun invalidateSongsCache() { songsCacheVersion = -1L }
+
+    /** 在后台线程预加载 songSaver，避免主线程首次访问时触发 MMKV + Gson 反序列化 */
+    fun preload() {
+        songSaver.hashCode()  // 触发 lazy MMKV 加载 + Gson 反序列化
+        songs.size           // 预热缓存
+        folders.size
+        hideSongs.size
+        hideFolders.size
+    }
 
     val songs: List<YosMediaItem>
         get() {
-            // 使用版本号快速判断是否需要重新计算
-            val currentSongVersion = songSaver.hashCode()
+            val currentSongVersion = songsDataVersion
             val currentFolderVersion = folderListVersion
             if (songsCacheVersion == currentSongVersion && folderListVersionForCache == currentFolderVersion) {
                 return songsCache
             }
-            
+
             val hiddenUris = lazy {
                 val hideFolderPaths = hideFolders.toSet()
                 allFolders.filter { it.path in hideFolderPaths }
@@ -172,18 +180,26 @@ object MusicLibrary {
             }
             val hideSongSet = lazy { hideSongs.toSet() }
             val excludeShort = SettingsLibrary.EnableExcludeSongsUnderOneMinute
-            
+
             val result = songSaver.filter {
                 it !in hideSongSet.value &&
                 it.uri !in hiddenUris.value &&
                 (it.serverId != null || !excludeShort || it.duration >= 60000)
             }
-            
+
             songsCache = result
             songsCacheVersion = currentSongVersion
             folderListVersionForCache = currentFolderVersion
             return result
         }
+
+    /** 简单自增版本号，替代 O(n) 的 songSaver.hashCode() */
+    @Volatile private var songsDataVersion = 0L
+
+    private fun bumpSongsVersion() {
+        songsDataVersion++
+        invalidateSongsCache()
+    }
 
     val artists
         get() = songs/*.distinctBy { it.artist }.map { it.artist }*/.flatMap {
@@ -225,7 +241,6 @@ object MusicLibrary {
         val rawUri = this.localConfiguration?.uri?.toString() ?: ""
         val serverId = when {
             rawUri.startsWith("webdav://") -> rawUri.substringAfter("webdav://").substringBefore("/")
-            rawUri.startsWith("smb://") -> rawUri.substringAfter("smb://").substringBefore("/")
             else -> null
         }
         return YosMediaItem(
@@ -340,13 +355,13 @@ object MusicLibrary {
         return loadData<String>(remoteServersKey)
     }
 
-    fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs; invalidateSongsCache() }
+    fun updateSongSaver(songs: List<YosMediaItem>) { songSaver = songs; bumpSongsVersion() }
 
     /** 直接更新 songSaver 中某首歌，绕过 hideSongs/hideFolders 过滤 */
     fun updateSongInFullList(updated: YosMediaItem) {
         val all = songSaver.toMutableList()
         val i = all.indexOfFirst { it.uri == updated.uri }
-        if (i >= 0) { all[i] = updated; songSaver = all; invalidateSongsCache() }
+        if (i >= 0) { all[i] = updated; songSaver = all; bumpSongsVersion() }
     }
 
     fun updateFolderSongs(serverId: String, folderName: String, updatedSong: YosMediaItem) {
@@ -372,7 +387,7 @@ object MusicLibrary {
         folders = folders + folder.copy(serverId = null)  // folders 存储时去掉 serverId 避免序列化问题
         songSaver = songSaver + folder.songs
         folderListVersion++
-        invalidateSongsCache()
+        bumpSongsVersion()
     }
 
     fun rebuildRemoteFolders() {
@@ -397,7 +412,7 @@ object MusicLibrary {
         folders = folders.filter { it.name != folderName }
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
         folderListVersion++
-        invalidateSongsCache()
+        bumpSongsVersion()
     }
 
     private val cachedGson by lazy {
@@ -576,7 +591,7 @@ object MusicLibrary {
                 )
             }
 
-            invalidateSongsCache()
+            bumpSongsVersion()
             result
         }
     }

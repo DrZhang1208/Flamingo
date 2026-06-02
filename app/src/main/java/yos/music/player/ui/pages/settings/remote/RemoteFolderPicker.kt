@@ -53,7 +53,6 @@ import yos.music.player.data.remote.RemoteFile
 import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
 import yos.music.player.data.remote.ServerConfig
-import yos.music.player.data.remote.ServerType
 import yos.music.player.ui.pages.settings.GroupSpacer
 import yos.music.player.ui.pages.settings.SettingBackground
 import yos.music.player.ui.widgets.basic.RoundColumn
@@ -115,7 +114,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
     BackHandler(enabled = true) { goToParent() }
 
     val folderName = currentPath.substringAfterLast('/').ifEmpty { config.label }
-    val sourceLabel = if (config.type == ServerType.SMB) "SMB" else "WebDAV"
+    val sourceLabel = "WebDAV"
 
     SettingBackground {
         Title(title = folderName.ifEmpty { config.label }, onBack = { goToParent() }) {
