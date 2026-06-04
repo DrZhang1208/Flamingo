@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -59,7 +60,7 @@ fun SleepTimerDialog(
     
     // 拖动条状态 (1-120分钟)
     val minutes = remember { mutableFloatStateOf(15f) }
-    val extendToSongEnd = remember { mutableStateOf(false) }
+    val extendToSongEnd = rememberSaveable { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     
     OptionDialog(

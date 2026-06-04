@@ -1,5 +1,12 @@
 package yos.music.player.ui.widgets.basic
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -213,6 +220,7 @@ fun OptionDialog(
     dismissOnPositive: Boolean = true,
     dismissOnNegative: Boolean = true,
     horizontalTitle: Boolean = false,
+    contentKey: Any? = null,
     bottomSheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     properties: ModalBottomSheetProperties = ModalBottomSheetDefaults.properties(),
     cornerRadius: () -> Dp = { SettingsLibrary.ScreenCorner.toInt().dp },
@@ -247,7 +255,19 @@ fun OptionDialog(
                         .fillMaxWidth()
                         .padding(bottom = 19.5.dp)
                 ) {
-                    content(animatedDismiss)
+                    if (contentKey != null) {
+                        AnimatedContent(
+                            targetState = contentKey,
+                            transitionSpec = {
+                                (slideInVertically(initialOffsetY = { it / 4 }) + fadeIn(tween(200))) togetherWith
+                                (slideOutVertically(targetOffsetY = { -it / 4 }) + fadeOut(tween(150)))
+                            }
+                        ) {
+                            content(animatedDismiss)
+                        }
+                    } else {
+                        content(animatedDismiss)
+                    }
                 }
             }
             val height = 50.dp

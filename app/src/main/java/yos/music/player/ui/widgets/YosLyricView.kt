@@ -145,20 +145,30 @@ fun YosLyricView(
 
     // 每帧更新播放位置和歌词行索引，驱动逐字歌词动画
     val framePosition = remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        delay(100) // 等待初始组合完成，避免冷启动卡顿
+    // 手动 seek 后的冷却时间戳，防止 LaunchedEffect 循环立即覆盖手动设置的索引
+    val manualSeekCooldown = remember { mutableStateOf(0L) }
+    LaunchedEffect(lrcEntries) {
+        // 歌词切换时重置状态，确保入场动画和首句 scale 动画完整播放
+        MainViewModelObject.syncLyricIndex.intValue = -1
+        framePosition.intValue = 0
+        manualSeekCooldown.value = 0L
+        delay(80)
         while (isActive) {
             val pos =
                 yos.music.player.code.MediaController.mediaControl?.currentPosition?.toInt() ?: 0
             framePosition.intValue = pos
 
-            // 同步更新歌词行索引，消除与逐字高亮的速率差（之前 150ms vs 8ms 导致闪烁）
-            val entries = lrcEntriesLambda()
-            if (entries.isNotEmpty()) {
-                val nextIdx = entries.indexOfFirst { (it.firstOrNull()?.first ?: Float.MAX_VALUE) > pos }
-                MainViewModelObject.syncLyricIndex.intValue =
-                    if (nextIdx != -1) (nextIdx - 1).coerceAtLeast(0)
-                    else (entries.size - 1).coerceAtLeast(0)
+            // 手动 seek 冷却期内不覆盖 syncLyricIndex，避免色闪
+            val inCooldown = manualSeekCooldown.value > 0L &&
+                    (System.currentTimeMillis() - manualSeekCooldown.value) < 300L
+            if (!inCooldown) {
+                val entries = lrcEntriesLambda()
+                if (entries.isNotEmpty()) {
+                    val nextIdx = entries.indexOfFirst { (it.firstOrNull()?.first ?: Float.MAX_VALUE) > pos }
+                    MainViewModelObject.syncLyricIndex.intValue =
+                        if (nextIdx != -1) (nextIdx - 1).coerceAtLeast(0)
+                        else (entries.size - 1).coerceAtLeast(0)
+                }
             }
 
             delay(8) // ~120fps
@@ -309,7 +319,7 @@ fun YosLyricView(
 
         // 遮罩在 AnimatedVisibility 外层，确保歌词上浮时遮罩固定在原位
         val lyricVisible = remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { lyricVisible.value = true }
+        LaunchedEffect(lrcEntries) { lyricVisible.value = true }
         Box(modifier = modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = lyricVisible.value,
@@ -465,6 +475,7 @@ fun YosLyricView(
                                 isUserScrolling.value = false
                                 enableLyricScroll.value = true
                                 currentLyricIndex.intValue = index
+                                manualSeekCooldown.value = System.currentTimeMillis()
                                 mediaEvent.onSeek((lines.firstOrNull()?.first ?: 0f).toInt())
                             }
                         }

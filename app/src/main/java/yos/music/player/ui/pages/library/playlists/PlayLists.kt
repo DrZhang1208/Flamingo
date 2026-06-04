@@ -43,11 +43,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.material.icons.Icons
@@ -91,10 +89,7 @@ import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.OptionDialog
-import yos.music.player.ui.widgets.basic.PopupMenu
-import yos.music.player.ui.widgets.basic.PopupMenuItem
 import yos.music.player.ui.widgets.basic.Title
-import androidx.compose.ui.window.Popup
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,7 +110,7 @@ fun PlayLists(navController: NavController) {
                     onValueChange = { newPlaylistName = it },
                     label = { Text("歌单名称") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             positiveContent = "创建",
@@ -182,7 +177,7 @@ private enum class PlayListType { Add, Favorite }
 @Composable
 private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
-    var showRenameDialog by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf(playList.name) }
 
     val coverUri = remember(playList.songDataList) {
@@ -190,22 +185,6 @@ private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit
             .mapNotNull { uri -> songs.find { it.uri == uri } }
             .maxByOrNull { MusicLibrary.getPlayCount(it.uri) }
             ?.thumb
-    }
-
-    if (showRenameDialog) {
-        OptionDialog(
-            icon = { Spacer(Modifier.size(0.dp)) },
-            title = "重命名歌单",
-            content = {
-                OutlinedTextField(value = renameText, onValueChange = { renameText = it },
-                    label = { Text("歌单名称") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            },
-            positiveContent = "确定", negativeContent = "取消",
-            onPositive = { if (renameText.isNotBlank()) { PlayListLibrary.run { playList.rename(renameText) }; showRenameDialog = false } },
-            onNegative = { showRenameDialog = false },
-            onDismissRequest = { showRenameDialog = false }
-        )
     }
 
     Row(
@@ -235,21 +214,71 @@ private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit
         Column(Modifier.padding(start = 16.dp).weight(1f)) {
             Text(playList.name, modifier = Modifier.padding(bottom = 1.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 16.sp, lineHeight = 16.sp)
         }
-        var btnPos by remember { mutableStateOf(Offset.Zero) }
         Icon(painterResource(R.drawable.ic_nowplaying_more), "菜单",
-            Modifier.size(20.dp).alpha(0.3f)
-                .onGloballyPositioned { btnPos = it.localToRoot(Offset.Zero) }
-                .clickable(remember { MutableInteractionSource() }, null) { showMenu = true })
+            Modifier.size(20.dp).alpha(0.3f).clickable(remember { MutableInteractionSource() }, null) { showMenu = true })
 
-        PopupMenu(
-            items = listOf(
-                PopupMenuItem("重命名", Icons.Outlined.Edit) { showMenu = false; renameText = playList.name; showRenameDialog = true },
-                PopupMenuItem("删除", Icons.Outlined.Delete) { showMenu = false; PlayListLibrary.remove(playList) }
-            ),
-            buttonPosition = btnPos,
-            expanded = showMenu,
-            onDismiss = { showMenu = false }
-        )
+        // 菜单对话框 — 参考 SongMenuIcon 的两对话框模式
+        if (showMenu) {
+            OptionDialog(
+                icon = {
+                    if (coverUri != null) {
+                        AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(coverUri).size(128).build(),
+                            contentDescription = null, contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(52.dp).clip(YosRoundedCornerShape(6.dp)))
+                    } else {
+                        Image(painter = painterResource(R.drawable.placeholder_playlist_default), contentDescription = null,
+                            modifier = Modifier.size(52.dp).clip(YosRoundedCornerShape(6.dp)))
+                    }
+                },
+                title = playList.name,
+                horizontalTitle = true,
+                content = { dismiss ->
+                    Column {
+                        Row(Modifier.fillMaxWidth().height(48.dp).clickable {
+                            dismiss(); renameText = playList.name; showRename = true
+                        }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("重命名", fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Icon(Icons.Outlined.Edit, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)
+                        }
+                        Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                        Row(Modifier.fillMaxWidth().height(48.dp).clickable {
+                            PlayListLibrary.remove(playList); dismiss()
+                        }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("删除", fontSize = 16.sp, modifier = Modifier.weight(1f), color = Color.Red.copy(alpha = 0.7f))
+                            Icon(Icons.Outlined.Delete, null, Modifier.size(22.dp), tint = Color.Red.copy(alpha = 0.7f))
+                        }
+                    }
+                },
+                onDismissRequest = { showMenu = false }
+            )
+        }
+
+        // 重命名对话框 — 独立的 OptionDialog，dismiss 后再出现 = 下滑 + 上滑
+        if (showRename) {
+            OptionDialog(
+                icon = {
+                    if (coverUri != null) {
+                        AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(coverUri).size(128).build(),
+                            contentDescription = null, contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(52.dp).clip(YosRoundedCornerShape(6.dp)))
+                    } else {
+                        Image(painter = painterResource(R.drawable.placeholder_playlist_default), contentDescription = null,
+                            modifier = Modifier.size(52.dp).clip(YosRoundedCornerShape(6.dp)))
+                    }
+                },
+                title = "重命名歌单",
+                horizontalTitle = true,
+                content = {
+                    OutlinedTextField(value = renameText, onValueChange = { renameText = it },
+                        label = { Text("歌单名称") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                },
+                positiveContent = "确定", negativeContent = "取消",
+                onPositive = { if (renameText.isNotBlank()) { PlayListLibrary.run { playList.rename(renameText) }; showRename = false } },
+                onNegative = { showRename = false },
+                onDismissRequest = { showRename = false }
+            )
+        }
     }
 }
 

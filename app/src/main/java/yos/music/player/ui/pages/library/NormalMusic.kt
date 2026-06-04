@@ -1,17 +1,7 @@
 package yos.music.player.ui.pages.library
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,15 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.QueueMusic
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.rounded.ArrowDownward
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,21 +35,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
 import androidx.navigation.NavController
 import com.github.promeg.pinyinhelper.Pinyin
 import kotlinx.coroutines.Dispatchers
@@ -82,11 +62,13 @@ import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.pages.library.albums.NormalButton
 import yos.music.player.ui.theme.withNight
+import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.ui.widgets.basic.SearchTextField
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.TitleBarIcon
 import yos.music.player.ui.widgets.basic.YosWrapper
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun NormalMusic(navController: NavController) {
     val context = LocalContext.current
@@ -152,14 +134,62 @@ fun NormalMusic(navController: NavController) {
 
             val scope = rememberCoroutineScope()
 
-            val expanded = remember { mutableStateOf(false) }
-            val buttonPosition = remember { mutableStateOf(Offset.Zero) }
+            val showSortDialog = remember { mutableStateOf(false) }
 
             Box(Modifier.fillMaxSize()) {
-                YosWrapper {
-                    FloatingMenu({ expanded.value }, {
-                        expanded.value = it
-                    }, buttonPosition.value)
+                if (showSortDialog.value) {
+                    val sortOptions = listOf(
+                        SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal to "标题",
+                        SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal to "专辑",
+                        SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal to "艺术家",
+                        SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal to "修改日期",
+                        SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal to "添加时间",
+                        SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal to "播放次数"
+                    )
+                    val sortIcons = mapOf(
+                        SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal to Icons.AutoMirrored.Outlined.QueueMusic,
+                        SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal to Icons.AutoMirrored.Outlined.QueueMusic,
+                        SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal to Icons.Outlined.Person,
+                        SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal to Icons.Outlined.AccessTime,
+                        SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal to Icons.Outlined.AccessTime,
+                        SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal to Icons.Filled.Star
+                    )
+                    OptionDialog(
+                        icon = { Spacer(Modifier.size(0.dp)) },
+                        title = "排序方式",
+                        content = { dismiss ->
+                            Column {
+                                sortOptions.forEachIndexed { index, (ordinal, label) ->
+                                    if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                                    Row(
+                                        Modifier.fillMaxWidth().height(48.dp).clickable {
+                                            SongSort = ordinal; dismiss()
+                                        }.padding(horizontal = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
+                                            color = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                                        Icon(sortIcons[ordinal] ?: Icons.Filled.Check, null, Modifier.size(22.dp),
+                                            tint = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground)
+                                    }
+                                }
+                                Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                                Row(
+                                    Modifier.fillMaxWidth().height(48.dp).clickable { EnableDescending = !EnableDescending }
+                                        .padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("降序", fontSize = 16.sp, modifier = Modifier.weight(1f))
+                                    io.github.alexzhirkevich.cupertino.CupertinoSwitch(
+                                        checked = EnableDescending,
+                                        onCheckedChange = { EnableDescending = !EnableDescending },
+                                        modifier = Modifier.height(25.dp)
+                                    )
+                                }
+                            }
+                        },
+                        onDismissRequest = { showSortDialog.value = false }
+                    )
                 }
 
                 Title(
@@ -168,14 +198,9 @@ fun NormalMusic(navController: NavController) {
                     },
                     rightBarIcon = {
                         TitleBarIcon(
-                            modifier = Modifier.onGloballyPositioned {
-                                if (buttonPosition.value.y == 0f) {
-                                    buttonPosition.value = it.localToRoot(Offset.Zero)
-                                }
-                            },
-                            icon = Icons.Rounded.MoreHoriz,
+                            icon = Icons.Rounded.Sort,
                             onBack = {
-                                expanded.value = true
+                                showSortDialog.value = true
                             }
                         )
                     }
@@ -307,220 +332,3 @@ private fun List<YosMediaItem>.sortX() =
         }
     }
 
-@Composable
-fun FloatingMenu(
-    expandedLambda: () -> Boolean,
-    expandedOnChanged: (Boolean) -> Unit,
-    buttonPosition: Offset = Offset.Zero
-) {
-
-    val keepPopup = remember("FloatingMenu_keepPopup") {
-        mutableStateOf(false)
-    }
-    val showPopup = remember("FloatingMenu_showPopup") {
-        mutableStateOf(false)
-    }
-
-    if (keepPopup.value) {
-        BackHandler {
-            showPopup.value = false
-        }
-
-        Popup(
-            //offset = IntOffset(0, buttonPosition.y.toInt()),
-            onDismissRequest = {
-                expandedOnChanged(false)
-            }
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }) {
-                        expandedOnChanged(false)
-                    }) {
-                val animationSpec =
-                    spring(dampingRatio = 0.7f, stiffness = 340f, visibilityThreshold = 0.0001f)
-                val shadow = animateFloatAsState(
-                    targetValue = if (showPopup.value) 225f else 0f,
-                    animationSpec = if (showPopup.value) tween(
-                        durationMillis = 300,
-                        delayMillis = 430
-                    ) else tween(durationMillis = 0)
-                )
-                AnimatedVisibility(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = with(LocalDensity.current) {
-                            buttonPosition.y
-                                .toDp()
-                                .plus(10.dp)
-                        }),
-                    visible = showPopup.value,
-                    enter = fadeIn(animationSpec = animationSpec) + scaleIn(
-                        initialScale = 0.618f,
-                        animationSpec = animationSpec,
-                        transformOrigin = TransformOrigin(0.95f, 0f)
-                    ),
-                    exit = fadeOut(animationSpec = animationSpec) + scaleOut(
-                        targetScale = 0.618f,
-                        animationSpec = animationSpec,
-                        transformOrigin = TransformOrigin(0.95f, 0f)
-                    )
-                ) {
-                    val shape = RoundedCornerShape(10.dp)
-                    val shadowColor = Color(0xB3000000)
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.TopEnd
-                    ) {
-                        Column(
-                            Modifier
-                                .padding(end = 12.dp)
-                                /*.shadow(
-                                    spotColor = shadowColor,
-                                    shape = shape,
-                                    elevation = shadow.value.dp,
-                                    clip = false
-                                )*/
-                                .graphicsLayer {
-                                    this.shape = shape
-                                    this.spotShadowColor = shadowColor
-                                    this.shadowElevation = shadow.value
-                                }
-                                .graphicsLayer {
-                                    this.shape = shape
-                                    this.clip = true
-                                }
-                                .background(Color(0xF2E9E9E9) withNight Color(0xFA161616), shape),
-                        ) {
-                            // --- 排序方式 ---
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_name),
-                                icon = Icons.AutoMirrored.Outlined.QueueMusic
-                            ) {
-                                SongSort =
-                                    SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal
-                            }
-                            FloatingMenuItemDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_artist),
-                                icon = Icons.Outlined.Person
-                            ) {
-                                SongSort =
-                                    SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal
-                            }
-                            FloatingMenuItemDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_album),
-                                icon = Icons.AutoMirrored.Outlined.QueueMusic
-                            ) {
-                                SongSort = SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal
-                            }
-                            FloatingMenuItemDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_modify_date),
-                                icon = Icons.Outlined.AccessTime
-                            ) {
-                                SongSort =
-                                    SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal
-                            }
-                            FloatingMenuItemDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_add_date),
-                                icon = Icons.Outlined.AccessTime
-                            ) {
-                                SongSort = SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal
-                            }
-                            FloatingMenuItemDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_by_play_count),
-                                icon = Icons.Filled.Star
-                            ) {
-                                SongSort = SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal
-                            }
-                            // --- 排序顺序 ---
-                            FloatingMenuDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_ascending),
-                                icon = Icons.Rounded.ArrowUpward
-                            ) {
-                                EnableDescending = false
-                            }
-                            FloatingMenuItemDivider()
-                            FloatingMenuItem(
-                                label = stringResource(id = R.string.normal_button_sort_descending),
-                                icon = Icons.Rounded.ArrowDownward
-                            ) {
-                                EnableDescending = true
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // println("Popup 显示")
-    } else {
-        // println("Popup 隐藏")
-    }
-
-    LaunchedEffect(key1 = expandedLambda()) {
-        if (expandedLambda()) {
-            keepPopup.value = true
-            delay(100)
-            showPopup.value = true
-        } else {
-            showPopup.value = false
-            delay(300)
-            keepPopup.value = false
-        }
-    }
-}
-
-
-@Composable
-fun FloatingMenuItem(label: String, icon: ImageVector, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth(0.618f)
-            .height(48.dp)
-            .background((Color.White withNight Color.Black).copy(alpha = 0.68f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            fontSize = 17.5.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .alpha(0.9f)
-                .padding(end = 18.dp)
-        )
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onBackground
-        )
-    }
-}
-
-@Composable
-fun FloatingMenuItemDivider() =
-    Spacer(
-        modifier = Modifier
-            .fillMaxWidth(0.618f)
-            .alpha(0.1f)
-            .height(0.65.dp)
-            .background(Color.Black withNight Color.White)
-    )
-
-@Composable
-fun FloatingMenuDivider() =
-    Spacer(
-        modifier = Modifier.height(8.dp)
-    )

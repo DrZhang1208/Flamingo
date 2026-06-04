@@ -194,6 +194,8 @@ import yos.music.player.data.libraries.PlayListLibrary
 import yos.music.player.ui.widgets.basic.PlaylistPickerDialog
 import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.ui.widgets.basic.SongDetailDialog
+import yos.music.player.ui.widgets.basic.SongMenuIcon
+import yos.music.player.ui.widgets.basic.songMenuTrigger
 import yos.music.player.ui.theme.withNight
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
@@ -596,6 +598,7 @@ fun NowPlaying(
                                         }
                                         YosWrapper {
                                             PlayingList(
+                                                navController = navController,
                                                 shuffleModeEnabledLambda = { shuffleModeEnabled.value },
                                                 shuffleModeOnChanged = { shuffleModeSet ->
                                                     shuffleModeEnabled.value = shuffleModeSet
@@ -845,6 +848,7 @@ private fun ColumnScope.Album(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayingList(
+    navController: NavController,
     shuffleModeEnabledLambda: () -> Boolean,
     shuffleModeOnChanged: (Boolean) -> Unit,
     repeatModeLambda: () -> Int,
@@ -1105,7 +1109,7 @@ private fun PlayingList(
                                 key = { index, music -> "${index}_${music.uri}" }
                             ) { _, music ->
                                 SmallMusicListItem(
-                                    music
+                                    music, navController
                                 ) {
                                     scope.launch(Dispatchers.IO) {
                                         MediaController.prepare(
@@ -1126,8 +1130,9 @@ private fun PlayingList(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () -> Unit) {
+private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, navController: NavController? = null, itemClick: () -> Unit) {
     val isPlaying = MediaController.musicPlaying.value?.uri == music.uri
     val normalColor = Color.White
 
@@ -1135,9 +1140,7 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
         modifier = Modifier
             .height(64.dp)
             .fillMaxWidth()
-            .clickable {
-                itemClick()
-            }
+            .songMenuTrigger(onClick = itemClick, onLongClick = {})
             .padding(horizontal = rememberAdaptive(30)),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1150,7 +1153,7 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
             imageQuality = ImageQuality.LOW
         )
 
-        Column(Modifier.padding(start = 14.dp)) {
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
             Text(
                 text = music.title ?: defaultTitle,
                 modifier = Modifier
@@ -1177,6 +1180,7 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
                 fontWeight = if (isPlaying) FontWeight.SemiBold else FontWeight.Normal
             )
         }
+        SongMenuIcon(music, navController)
     }
 }
 
