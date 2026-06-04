@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -61,6 +62,7 @@ import yos.music.player.data.libraries.defaultArtists
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.pages.library.albums.NormalButton
+import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.ui.widgets.basic.SearchTextField
@@ -154,29 +156,38 @@ fun NormalMusic(navController: NavController) {
                         SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal to Icons.Outlined.AccessTime,
                         SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal to Icons.Filled.Star
                     )
+                    val groupShape = YosRoundedCornerShape(9.dp)
+                    val groupBg = MaterialTheme.colorScheme.onSecondary
                     OptionDialog(
                         icon = { Spacer(Modifier.size(0.dp)) },
                         title = "排序方式",
                         content = { dismiss ->
                             Column {
-                                sortOptions.forEachIndexed { index, (ordinal, label) ->
-                                    if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
-                                    Row(
-                                        Modifier.fillMaxWidth().height(48.dp).clickable {
-                                            SongSort = ordinal; dismiss()
-                                        }.padding(horizontal = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
-                                            color = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else Color.Unspecified)
-                                        Icon(sortIcons[ordinal] ?: Icons.Filled.Check, null, Modifier.size(22.dp),
-                                            tint = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground)
+                                Text("排序依据", fontSize = 13.sp, modifier = Modifier.alpha(0.5f).padding(bottom = 8.dp, start = 2.dp))
+                                Column(
+                                    Modifier.fillMaxWidth().clip(groupShape).background(groupBg)
+                                ) {
+                                    sortOptions.forEachIndexed { index, (ordinal, label) ->
+                                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                                        Row(
+                                            Modifier.fillMaxWidth().height(48.dp).clickable {
+                                                SongSort = ordinal; dismiss()
+                                            }.padding(horizontal = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
+                                                color = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                                            Icon(sortIcons[ordinal] ?: Icons.Filled.Check, null, Modifier.size(22.dp),
+                                                tint = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground)
+                                        }
                                     }
                                 }
-                                Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                                Spacer(Modifier.height(20.dp))
+                                Text("排序顺序", fontSize = 13.sp, modifier = Modifier.alpha(0.5f).padding(bottom = 8.dp, start = 2.dp))
                                 Row(
-                                    Modifier.fillMaxWidth().height(48.dp).clickable { EnableDescending = !EnableDescending }
-                                        .padding(horizontal = 8.dp),
+                                    Modifier.fillMaxWidth().height(48.dp).clip(groupShape).background(groupBg)
+                                        .clickable { EnableDescending = !EnableDescending }
+                                        .padding(horizontal = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("降序", fontSize = 16.sp, modifier = Modifier.weight(1f))

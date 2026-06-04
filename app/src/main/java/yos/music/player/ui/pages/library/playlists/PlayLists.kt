@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -73,6 +74,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.R
@@ -179,6 +181,16 @@ private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit
     var showMenu by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf(playList.name) }
+    var pendingRename by remember { mutableStateOf(false) }
+
+    // 菜单关闭后再打开重命名，避免两个对话框重叠
+    LaunchedEffect(showMenu) {
+        if (!showMenu && pendingRename) {
+            delay(80)
+            showRename = true
+            pendingRename = false
+        }
+    }
 
     val coverUri = remember(playList.songDataList) {
         playList.songDataList
@@ -235,7 +247,7 @@ private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit
                 content = { dismiss ->
                     Column {
                         Row(Modifier.fillMaxWidth().height(48.dp).clickable {
-                            dismiss(); renameText = playList.name; showRename = true
+                            renameText = playList.name; pendingRename = true; dismiss()
                         }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("重命名", fontSize = 16.sp, modifier = Modifier.weight(1f))
                             Icon(Icons.Outlined.Edit, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)

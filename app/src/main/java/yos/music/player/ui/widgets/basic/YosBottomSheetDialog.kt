@@ -259,8 +259,8 @@ fun OptionDialog(
                         AnimatedContent(
                             targetState = contentKey,
                             transitionSpec = {
-                                (slideInVertically(initialOffsetY = { it / 4 }) + fadeIn(tween(200))) togetherWith
-                                (slideOutVertically(targetOffsetY = { -it / 4 }) + fadeOut(tween(150)))
+                                (slideInVertically(initialOffsetY = { it / 3 }) + fadeIn(tween(350))) togetherWith
+                                (slideOutVertically(targetOffsetY = { -it / 3 }) + fadeOut(tween(250)))
                             }
                         ) {
                             content(animatedDismiss)
