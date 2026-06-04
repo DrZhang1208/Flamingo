@@ -111,6 +111,16 @@ object SettingsLibrary {
     )
 
     /**
+     * 逐字歌词
+     */
+    @Stable
+    var EnableWordByWordLyric by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "yos_player_word_by_word_lyric",
+        initialValue = true
+    )
+
+    /**
      * 歌词界面 - 翻译
      */
     @Stable

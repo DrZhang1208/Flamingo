@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,7 +68,7 @@ fun SleepTimerDialog(
     OptionDialog(
         icon = {
             Icon(
-                Icons.Filled.Timer,
+                if (SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
                 contentDescription = null,
                 modifier = Modifier.size(40.dp),
                 tint = MaterialTheme.colorScheme.primary
@@ -87,7 +89,7 @@ fun SleepTimerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Filled.Timer,
+                        if (SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
                         contentDescription = null,
                         tint = Color(0xFF2196F3),
                         modifier = Modifier.size(20.dp)
@@ -222,12 +224,20 @@ fun SleepTimerDialog(
             Spacer(Modifier.height(20.dp))
             
             // 延长到整首歌曲开关
-            SwitchItem(
-                title = "延长到整首歌曲播完",
-                desc = "倒计时结束后,等待当前歌曲播放完毕再暂停",
-                onClick = { extendToSongEnd.value = !extendToSongEnd.value },
-                checkedLambda = { extendToSongEnd.value }
-            )
+            Row(
+                Modifier.fillMaxWidth().height(48.dp)
+                    .clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                    .clickable { extendToSongEnd.value = !extendToSongEnd.value }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("延长到整首歌曲播完", fontSize = 16.sp, modifier = Modifier.weight(1f))
+                io.github.alexzhirkevich.cupertino.CupertinoSwitch(
+                    checked = extendToSongEnd.value,
+                    onCheckedChange = { extendToSongEnd.value = !extendToSongEnd.value },
+                    modifier = Modifier.height(25.dp)
+                )
+            }
         },
         // 高亮确认按钮(复用调整圆角页面的样式)
         positiveContent = "开始定时",
@@ -260,7 +270,7 @@ fun SleepTimerWarningDialog(
     OptionDialog(
         icon = {
             Icon(
-                Icons.Filled.Timer,
+                if (SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
                 contentDescription = null,
                 modifier = Modifier.size(40.dp),
                 tint = Color(0xFFFF9800)

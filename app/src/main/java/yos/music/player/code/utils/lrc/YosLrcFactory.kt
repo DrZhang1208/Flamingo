@@ -3,6 +3,7 @@ package yos.music.player.code.utils.lrc
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.compose.ui.util.fastJoinToString
+import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.objects.MediaViewModelObject
 import kotlin.math.abs
 
@@ -186,7 +187,18 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
                 !text.startsWith("LENGTH=")
         }
-        return processOtherSide(filteredPairs)
+        // 关闭逐字歌词时，将逐字时间戳折叠为逐行
+        val result = if (!SettingsLibrary.EnableWordByWordLyric) {
+            filteredPairs.map { line ->
+                if (line.isEmpty()) return@map line
+                val firstTime = line.first().first
+                // 最后一位是翻译占位，只拼接前面的文本
+                val text = line.dropLast(1).fastJoinToString(separator = "") { it.second }
+                val translationSlot = line.last()
+                listOf(firstTime to "") + listOf(firstTime to text) + listOf(translationSlot)
+            }
+        } else filteredPairs
+        return processOtherSide(result)
     }
 
     /**

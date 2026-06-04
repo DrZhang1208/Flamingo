@@ -184,16 +184,24 @@ fun NormalMusic(navController: NavController) {
                                 }
                                 Spacer(Modifier.height(20.dp))
                                 Text("排序顺序", fontSize = 13.sp, modifier = Modifier.alpha(0.5f).padding(bottom = 8.dp, start = 2.dp))
+                                val descChecked = remember { mutableStateOf(EnableDescending) }
                                 Row(
-                                    Modifier.fillMaxWidth().height(48.dp).clip(groupShape).background(groupBg)
-                                        .clickable { EnableDescending = !EnableDescending }
+                                    Modifier.fillMaxWidth().height(48.dp)
+                                        .clip(groupShape).background(groupBg)
+                                        .clickable {
+                                            descChecked.value = !descChecked.value
+                                            EnableDescending = descChecked.value
+                                        }
                                         .padding(horizontal = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("降序", fontSize = 16.sp, modifier = Modifier.weight(1f))
                                     io.github.alexzhirkevich.cupertino.CupertinoSwitch(
-                                        checked = EnableDescending,
-                                        onCheckedChange = { EnableDescending = !EnableDescending },
+                                        checked = descChecked.value,
+                                        onCheckedChange = {
+                                            descChecked.value = !descChecked.value
+                                            EnableDescending = descChecked.value
+                                        },
                                         modifier = Modifier.height(25.dp)
                                     )
                                 }

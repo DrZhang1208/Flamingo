@@ -71,6 +71,7 @@ import yos.music.player.data.libraries.artistsName
 import yos.music.player.data.libraries.defaultArtistsName
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.ui.UI
+import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
 
@@ -107,10 +108,12 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
             title = music.title ?: defaultTitle,
             subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
             content = { dismiss ->
-                Column {
+                Column(
+                    Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                ) {
                     val items = buildList {
-                        add(Triple("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay, { dismiss(); showPlaylistPicker = true }))
-                        add(Triple("下一首播放", Icons.Filled.Add, {
+                        add(Triple("添加到歌单", Icons.Filled.Add, { dismiss(); showPlaylistPicker = true }))
+                        add(Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
                             val currentMusic = MediaController.musicPlaying.value ?: return@Triple
                             val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
                             val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
@@ -149,7 +152,7 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                     items.forEachIndexed { index, (label, icon, onClick) ->
                         if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                         Row(
-                            Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 8.dp),
+                            Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -188,7 +191,9 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
             subTitle = music.artistsName ?: defaultArtistsName,
             horizontalTitle = true,
             content = { dismiss ->
-                Column {
+                Column(
+                    Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                ) {
                     artists.forEachIndexed { index, artist ->
                         if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                         Row(
@@ -196,7 +201,7 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                                 yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
                                 navController.toUI(UI.ArtistInfo)
                                 dismiss()
-                            }.padding(horizontal = 8.dp),
+                            }.padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -246,15 +251,19 @@ fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                         }
                     }.let { coverUris = it }
                 }
-                Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
-                    playlists.forEach { pl ->
+                Column(
+                    Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())
+                        .clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                ) {
+                    playlists.forEachIndexed { index, pl ->
+                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                         val coverUri = coverUris[pl.name]
                         Row(
                             Modifier.fillMaxWidth().clickable {
                                 PlayListLibrary.run { pl.addMusic(music) }
                                 Toast.makeText(context, "已添加到${pl.name}", Toast.LENGTH_SHORT).show()
                                 animatedDismiss()
-                            }.padding(horizontal = 16.dp, vertical = 12.dp),
+                            }.padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (coverUri != null) {

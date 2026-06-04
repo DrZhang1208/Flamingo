@@ -92,6 +92,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -748,7 +749,9 @@ fun NowPlaying(
                 subTitle = m.artistsName ?: defaultArtistsName,
                 horizontalTitle = true,
                 content = { dismiss ->
-                    Column {
+                    Column(
+                        Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                    ) {
                         artists.forEachIndexed { index, artist ->
                             if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                             Row(
@@ -757,7 +760,7 @@ fun NowPlaying(
                                     closeSheet()
                                     navController.toUI(UI.ArtistInfo)
                                     dismiss()
-                                }.padding(horizontal = rememberAdaptive(8)),
+                                }.padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -1424,8 +1427,8 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                 subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
                 content = { dismiss ->
                     val items = listOf(
-                        Triple("添加到歌单", Icons.AutoMirrored.Filled.PlaylistPlay, { dismiss(); showPlaylistPicker.value = true }),
-                        Triple("下一首播放", Icons.Filled.Add, {
+                        Triple("添加到歌单", Icons.Filled.Add, { dismiss(); showPlaylistPicker.value = true }),
+                        Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
                             val currentMusic = MediaController.musicPlaying.value ?: return@Triple
                             val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
                             val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
@@ -1455,7 +1458,7 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                             } else {
                                 "定时关闭"
                             },
-                            Icons.Filled.Timer,
+                            if (yos.music.player.code.SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
                             {
                                 dismiss()
                                 showSleepTimerDialog.value = true
@@ -1463,11 +1466,13 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                         ),
                         Triple("歌曲信息", Icons.Outlined.Info, { dismiss(); showDetail.value = true })
                     )
-                    Column {
+                    Column(
+                        Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                    ) {
                         items.forEachIndexed { index, (label, icon, onClick) ->
                             if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                             Row(
-                                Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 8.dp),
+                                Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -1528,7 +1533,9 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                 subTitle = music.artistsName ?: defaultArtistsName,
                 horizontalTitle = true,
                 content = { dismiss ->
-                    Column {
+                    Column(
+                        Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                    ) {
                         artists.forEachIndexed { index, artist ->
                             if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                             Row(
@@ -1536,7 +1543,7 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                                     yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
                                     navController.toUI(UI.ArtistInfo)
                                     dismiss()
-                                }.padding(horizontal = rememberAdaptive(8)),
+                                }.padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))

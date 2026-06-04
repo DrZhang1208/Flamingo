@@ -616,11 +616,18 @@ object MusicLibrary {
             )
 
             // 刷新远程文件夹：逐目录重新列出文件，检测新增和删除
+            val existingRemoteSongs = songSaver.filter { it.serverId != null }
             val updatedRemoteSongs = refreshRemoteFolders()
+            // 安全保护：刷新失败时保留已有的远程歌曲，避免列表突然变空
+            val finalRemoteSongs = if (updatedRemoteSongs.isEmpty() && existingRemoteSongs.isNotEmpty()) {
+                existingRemoteSongs
+            } else {
+                updatedRemoteSongs
+            }
 
             songSaver = result.songList.fastMap {
                 it.toYosMediaItem()
-            } + updatedRemoteSongs
+            } + finalRemoteSongs
 
             result.shallowFolder.folderList.map {
                 val name = it.key
@@ -727,7 +734,7 @@ object MusicLibrary {
         for ((serverId, songs) in allSongsByServer) {
             if (songs.isNotEmpty()) {
                 yos.music.player.data.remote.RemoteMetadataScanner.startBackgroundScan(
-                    songs, serverId, true
+                    songs, serverId
                 ) { updated ->
                     updateSongInFullList(updated)
                     val path = updated.uri?.path?.substringBeforeLast('/') ?: return@startBackgroundScan

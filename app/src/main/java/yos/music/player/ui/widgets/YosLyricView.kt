@@ -165,9 +165,11 @@ fun YosLyricView(
                 val entries = lrcEntriesLambda()
                 if (entries.isNotEmpty()) {
                     val nextIdx = entries.indexOfFirst { (it.firstOrNull()?.first ?: Float.MAX_VALUE) > pos }
-                    MainViewModelObject.syncLyricIndex.intValue =
-                        if (nextIdx != -1) (nextIdx - 1).coerceAtLeast(0)
-                        else (entries.size - 1).coerceAtLeast(0)
+                    MainViewModelObject.syncLyricIndex.intValue = when {
+                        nextIdx == 0 -> -1  // 尚未到达第一句歌词的时间
+                        nextIdx != -1 -> (nextIdx - 1).coerceAtLeast(0)
+                        else -> (entries.size - 1).coerceAtLeast(0)
+                    }
                 }
             }
 
@@ -495,6 +497,7 @@ fun YosLyricView(
             //val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
             LaunchedEffect(currentLyricIndex.intValue, translationLambda()) {
                 try {
+                    if (currentLyricIndex.intValue < 0) return@LaunchedEffect
                     if (enableLyricScroll.value) {
                         /*visibleItems = scrollState.layoutInfo.visibleItemsInfo
                         targetItem =

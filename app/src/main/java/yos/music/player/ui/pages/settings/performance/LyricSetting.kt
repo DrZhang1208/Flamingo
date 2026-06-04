@@ -113,6 +113,15 @@ fun LyricSetting(navController: NavController) =
                         GroupSpacer()
                         RoundColumn {
                             SwitchItem(
+                                title = "逐字歌词",
+                                desc = "关闭后将逐字歌词解析为逐行歌词",
+                                onClick = { SettingsLibrary.EnableWordByWordLyric = !SettingsLibrary.EnableWordByWordLyric },
+                                checkedLambda = { SettingsLibrary.EnableWordByWordLyric }
+                            )
+                        }
+                        GroupSpacer()
+                        RoundColumn {
+                            SwitchItem(
                                 title = stringResource(id = R.string.settings_performance_lyric_blur_effect),
                                 onClick = { SettingsLibrary.LyricBlurEffect = !SettingsLibrary.LyricBlurEffect },
                                 checkedLambda = { SettingsLibrary.LyricBlurEffect }
