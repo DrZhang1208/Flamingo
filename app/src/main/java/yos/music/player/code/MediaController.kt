@@ -374,7 +374,10 @@ object MediaController {
             year = result.year ?: cur.releaseYear ?: cur.recordingYear,
             duration = if ((result.duration ?: 0) > 0) result.duration else null,
             coverPath = result.coverUri?.toString(),
-            lyrics = result.lyrics
+            lyrics = result.lyrics,
+            bitrate = result.bitrate ?: cur.bitrate,
+            sampleRate = result.sampleRate ?: cur.sampleRate,
+            channels = result.channels ?: cur.channels
         ))
         val newDuration = result.duration
         val u = cur.copy(
@@ -386,6 +389,9 @@ object MediaController {
             recordingYear = result.year ?: cur.recordingYear,
             trackNumber = result.trackNumber ?: cur.trackNumber,
             discNumber = result.discNumber ?: cur.discNumber,
+            bitrate = result.bitrate ?: cur.bitrate,
+            sampleRate = result.sampleRate ?: cur.sampleRate,
+            channels = result.channels ?: cur.channels,
             tagScanStatus = "COMPLETE",
             duration = if (newDuration != null && newDuration > 0 && newDuration != cur.duration) newDuration else cur.duration
         )
@@ -708,8 +714,8 @@ class YosPlaybackService : MediaSessionService() {
                     val playerDuration = player.duration
                     handler.post {
                         MediaViewModelObject.isDolby.value = haveJOC
-                        MediaViewModelObject.samplingRate.intValue = samplingRate
-                        MediaViewModelObject.bitrate.intValue = bitrate
+                        if (samplingRate > 0) MediaViewModelObject.samplingRate.intValue = samplingRate
+                        if (bitrate > 0) MediaViewModelObject.bitrate.intValue = bitrate
                         // 用 ExoPlayer 实际时长修正存储的 duration，合并在同一个 handler post 中避免多次重组
                         if (playerDuration > 0L && !isRemote) {
                             val cur = musicPlaying.value
@@ -769,6 +775,26 @@ class YosPlaybackService : MediaSessionService() {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    } else if (isRemote && (samplingRate == 0 || bitrate == 0)) {
+                        // 远程歌曲：ExoPlayer TrackFormat 未提供时，从 YosMediaItem 或缓存回退
+                        val cur = musicPlaying.value
+                        val capturedUri = rawUri
+                        if (cur != null && ((cur.bitrate ?: 0) > 0 || (cur.sampleRate ?: 0) > 0)) {
+                            handler.post {
+                                if (player.currentMediaItem?.uri?.toString() != capturedUri) return@post
+                                if (samplingRate == 0) MediaViewModelObject.samplingRate.intValue = cur.sampleRate ?: 0
+                                if (bitrate == 0) MediaViewModelObject.bitrate.intValue = cur.bitrate ?: 0
+                            }
+                        } else {
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                val cached = yos.music.player.data.remote.RemoteTagDatabase.get(capturedUri)
+                                handler.post {
+                                    if (player.currentMediaItem?.uri?.toString() != capturedUri) return@post
+                                    if (samplingRate == 0) MediaViewModelObject.samplingRate.intValue = cached?.sampleRate ?: 0
+                                    if (bitrate == 0) MediaViewModelObject.bitrate.intValue = cached?.bitrate ?: 0
                                 }
                             }
                         }
@@ -860,6 +886,19 @@ class YosPlaybackService : MediaSessionService() {
                                 if (hasTags) {
                                     applyTags(yosItem, "DB_CACHE", cached!!.title, cached.artist, cached.album, coverUri, cached.year, cached.lyrics, cached.duration)
                                 }
+                                // 从缓存恢复质量信息，避免后台扫描结果丢失
+                                val q = cached
+                                if (q != null && ((q.bitrate ?: 0) > 0 || (q.sampleRate ?: 0) > 0)) {
+                                    val updated = (musicPlaying.value ?: yosItem).copy(
+                                        bitrate = q.bitrate ?: yosItem.bitrate,
+                                        sampleRate = q.sampleRate ?: yosItem.sampleRate,
+                                        channels = q.channels ?: yosItem.channels
+                                    )
+                                    musicPlaying.value = updated
+                                    MusicLibrary.updateSongInFullList(updated)
+                                    MediaViewModelObject.samplingRate.intValue = q.sampleRate ?: 0
+                                    MediaViewModelObject.bitrate.intValue = q.bitrate ?: 0
+                                }
                             }
                             // 始终后台提取最新标签（远程文件标签可能已更新），缓存先展示
                             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { extractAndApplyTags(yosItem) }
@@ -887,7 +926,10 @@ class YosPlaybackService : MediaSessionService() {
                             year = result.year ?: item.releaseYear ?: item.recordingYear,
                             duration = if ((result.duration ?: 0) > 0) result.duration else null,
                             coverPath = result.coverUri?.toString(),
-                            lyrics = result.lyrics
+                            lyrics = result.lyrics,
+                            bitrate = result.bitrate,
+                            sampleRate = result.sampleRate,
+                            channels = result.channels
                         ))
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (musicPlaying.value?.uri != item.uri) return@withContext
@@ -899,6 +941,15 @@ class YosPlaybackService : MediaSessionService() {
                                 result.album ?: item.album,
                                 result.coverUri, result.year, result.lyrics,
                                 result.duration)
+                            // 同步更新质量信息到 musicPlaying
+                            val q = musicPlaying.value
+                            if (q != null && ((result.bitrate ?: 0) > 0 || (result.sampleRate ?: 0) > 0 || (result.channels ?: 0) > 0)) {
+                                musicPlaying.value = q.copy(
+                                    bitrate = result.bitrate ?: q.bitrate,
+                                    sampleRate = result.sampleRate ?: q.sampleRate,
+                                    channels = result.channels ?: q.channels
+                                )
+                            }
                             musicPlaying.value?.let { MusicLibrary.updateSongInFullList(it) }
                             uiRefreshTrigger++
                         }

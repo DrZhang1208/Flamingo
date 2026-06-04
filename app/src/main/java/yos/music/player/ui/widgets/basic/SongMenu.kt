@@ -296,8 +296,23 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
     LaunchedEffect(filePath) {
         if (filePath != null) {
             val (fileInfo, year) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath) to
-                        yos.music.player.code.AudioMetadataUtils.getYear(filePath)
+                if (music.serverId != null) {
+                    // 远程歌曲：从 YosMediaItem 字段构建 AudioFileInfo，不读本地文件
+                    val format = music.mimeType?.substringAfterLast("/")?.uppercase()
+                        ?: music.uri?.path?.substringAfterLast(".")?.uppercase() ?: ""
+                    yos.music.player.code.AudioMetadataUtils.AudioFileInfo(
+                        bitrate = music.bitrate,
+                        sampleRate = music.sampleRate,
+                        channels = music.channels,
+                        bitsPerSample = null,
+                        fileSize = 0L,
+                        format = format,
+                        source = "WebDAV"
+                    ) to (music.releaseYear ?: music.recordingYear)
+                } else {
+                    yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath) to
+                            yos.music.player.code.AudioMetadataUtils.getYear(filePath)
+                }
             }
             info = fileInfo
             yearFromFile = year

@@ -101,7 +101,10 @@ data class YosMediaItem(
     val modifiedDate: Long?,
     val cdTrackNumber: Int?,
     val serverId: String? = null,
-    val tagScanStatus: String? = null  // "PENDING"/"SCANNING"/"COMPLETE"/"FAILED"，null 等同于 COMPLETE
+    val tagScanStatus: String? = null,  // "PENDING"/"SCANNING"/"COMPLETE"/"FAILED"，null 等同于 COMPLETE
+    val bitrate: Int? = null,   // kbps，远程扫描填充
+    val sampleRate: Int? = null, // Hz，远程扫描填充
+    val channels: Int? = null   // 声道数，远程扫描填充
 ) : Parcelable {
 
     val effectiveTagScanStatus: String get() = tagScanStatus ?: "COMPLETE"
@@ -664,8 +667,8 @@ object MusicLibrary {
 
         val result = mutableListOf<YosMediaItem>()
         val foldersToRefresh = remoteFolders.toList()
-        // 汇总所有文件夹的新增歌曲，统一启动一次后台扫描（避免多次 startBackgroundScan 互相取消）
-        val allNewSongsByServer = mutableMapOf<String, MutableList<YosMediaItem>>()
+        // 汇总所有文件夹的歌曲，统一启动一次后台标签扫描（避免多次 startBackgroundScan 互相取消）
+        val allSongsByServer = mutableMapOf<String, MutableList<YosMediaItem>>()
         val folderNameByPath = mutableMapOf<String, String>()
 
         for (folder in foldersToRefresh) {
@@ -682,6 +685,7 @@ object MusicLibrary {
                 // 保留仍然存在的歌曲
                 val retained = folder.songs.filter { it.uri?.toString() in remoteUris }
                 result.addAll(retained)
+                allSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(retained)
 
                 // 更新 remoteFolders 中的歌曲列表
                 val idx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizePath(path) }
@@ -711,7 +715,7 @@ object MusicLibrary {
                         else f
                     }
 
-                    allNewSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(newSongs)
+                    allSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(newSongs)
                 }
             }.getOrElse {
                 // 连接失败时保留原有歌曲
@@ -719,15 +723,15 @@ object MusicLibrary {
             }
         }
 
-        // 汇总所有新增歌曲，按 serverId 统一启动后台标签扫描
-        for ((serverId, newSongs) in allNewSongsByServer) {
-            if (newSongs.isNotEmpty()) {
+        // 汇总所有歌曲，按 serverId 统一启动后台标签扫描（强制重扫全部歌曲）
+        for ((serverId, songs) in allSongsByServer) {
+            if (songs.isNotEmpty()) {
                 yos.music.player.data.remote.RemoteMetadataScanner.startBackgroundScan(
-                    newSongs, serverId
+                    songs, serverId, true
                 ) { updated ->
                     updateSongInFullList(updated)
                     val path = updated.uri?.path?.substringBeforeLast('/') ?: return@startBackgroundScan
-                    val name = folderNameByPath[path] ?: path.substringAfterLast('/')
+                    val name = folderNameByPath[normalizePath(path)] ?: path.substringAfterLast('/')
                     updateFolderSongs(serverId, name, updated)
                 }
             }

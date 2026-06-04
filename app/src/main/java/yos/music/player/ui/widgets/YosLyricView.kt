@@ -155,7 +155,7 @@ fun YosLyricView(
             // 同步更新歌词行索引，消除与逐字高亮的速率差（之前 150ms vs 8ms 导致闪烁）
             val entries = lrcEntriesLambda()
             if (entries.isNotEmpty()) {
-                val nextIdx = entries.indexOfFirst { it.first().first > pos }
+                val nextIdx = entries.indexOfFirst { (it.firstOrNull()?.first ?: Float.MAX_VALUE) > pos }
                 MainViewModelObject.syncLyricIndex.intValue =
                     if (nextIdx != -1) (nextIdx - 1).coerceAtLeast(0)
                     else (entries.size - 1).coerceAtLeast(0)
@@ -459,13 +459,13 @@ fun YosLyricView(
                                 liveTime = framePosition.intValue,
                                 measurer = measurer,
                                 isLyricEmpty = lines.all { it.second.isBlank() },
-                                nextTime = if (index + 1 > lrcEntries.size - 1) 0f else lrcEntries[(index + 1)].first().first,
+                                nextTime = if (index + 1 > lrcEntries.size - 1) 0f else (lrcEntries[(index + 1)].firstOrNull()?.first ?: 0f),
                             ) {
                                 Vibrator.doubleClick(context)
                                 isUserScrolling.value = false
                                 enableLyricScroll.value = true
                                 currentLyricIndex.intValue = index
-                                mediaEvent.onSeek(lines.first().first.toInt())
+                                mediaEvent.onSeek((lines.firstOrNull()?.first ?: 0f).toInt())
                             }
                         }
                     }
@@ -540,7 +540,7 @@ fun YosLyricView(
                 while (true) {
                     val liveTime = liveTimeLambda()
                     val nextIndex = lrcEntries.indexOfFirst { line ->
-                        line.first().first > liveTime
+                        (line.firstOrNull()?.first ?: Float.MAX_VALUE) > liveTime
                     }
 
                     if (nextIndex != -1 && nextIndex - 1 != currentLyricIndex.intValue) {
@@ -566,7 +566,7 @@ fun YosLyricView(
                     delay(50) // 延迟一帧，避免在初始组合帧内触发布局
                     val liveTime = liveTimeLambda()
                     val nextIndex = lrcEntries.indexOfFirst { line ->
-                        line.first().first > liveTime
+                        (line.firstOrNull()?.first ?: Float.MAX_VALUE) > liveTime
                     }
                     val scrollTarget = if (nextIndex != -1) nextIndex.coerceAtLeast(0)
                                        else lrcEntries.size.coerceAtLeast(0)
@@ -752,12 +752,12 @@ fun LazyItemScope.LyricItem(
 
             if (isLyricEmpty) {
                 Column {
-                    val percent = ((liveTime - mainLyric.first().first).coerceAtLeast(0f) / (nextTime - mainLyric.first().first)).coerceAtMost(1f)
+                    val percent = ((liveTime - (mainLyric.firstOrNull()?.first ?: 0f)).coerceAtLeast(0f) / (nextTime - (mainLyric.firstOrNull()?.first ?: 0f))).coerceAtMost(1f)
                     val show = isLyricEmpty && isCurrent && percent != 0f
                     
                     AnimatedVisibility(
                         show,
-                        enter = fadeIn(animationSpec = TweenSpec(durationMillis = 550, easing = yosEasing, delay = 300)) + 
+                        enter = fadeIn(animationSpec = TweenSpec(durationMillis = 550, easing = yosEasing, delay = 300)) +
                                 scaleIn(initialScale = 0.85f, transformOrigin = otherSideAnimate, animationSpec = TweenSpec(durationMillis = 550, easing = yosEasing, delay = 300)),
                         exit = fadeOut() + scaleOut(targetScale = 0.85f, transformOrigin = otherSideAnimate, animationSpec = TweenSpec(durationMillis = 340, easing = yosEasing))
                     ) {
@@ -878,7 +878,7 @@ fun LazyItemScope.LyricItem(
 
                                         var averageTime = 0f
 
-                                        lastTime = mainLyric.first().first
+                                        lastTime = mainLyric.firstOrNull()?.first ?: 0f
 
                                         val measureStyle = lyricTextStyle.let { if (otherSide) it.copy(textAlign = TextAlign.End) else it }
                                         mainLyric.fastForEachIndexed { wordIndex, word ->
@@ -927,7 +927,7 @@ fun LazyItemScope.LyricItem(
                                             averageTime = (word.first - lastTime) / thisWord.length
 
                                             val thisWordGroupLastTime = if (wordIndex - 1 < 0) {
-                                                mainLyric.first().first
+                                                mainLyric.firstOrNull()?.first ?: 0f
                                             } else {
                                                 mainLyric[(wordIndex - 1)].first
                                             }
@@ -1036,7 +1036,7 @@ fun LazyItemScope.LyricItem(
                                         translation?.let {
                                             val translationAlpha = animateFloatAsState(
                                                 targetValue = if (isCurrent) 0.5f else 0.14f,
-                                                animationSpec = if (isCurrent) 
+                                                animationSpec = if (isCurrent)
                                                     TweenSpec(durationMillis = 350, easing = yosEasing, delay = 145)
                                                 else
                                                     TweenSpec(durationMillis = 350, easing = yosEasing, delay = 80)

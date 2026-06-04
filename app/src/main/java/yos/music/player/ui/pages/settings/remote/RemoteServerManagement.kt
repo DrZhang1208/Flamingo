@@ -209,11 +209,24 @@ fun RemoteServerManagement(navController: NavController) {
                         Text(formattedSize, fontSize = 16.sp, modifier = Modifier.alpha(0.5f))
                     }
                     AnimatedVisibility(showClear, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                        Row(Modifier.fillMaxWidth().clickable {
-                            cacheDir.deleteRecursively(); cacheDir.mkdirs()
-                            cacheSize.value = 0; showClear = false
-                        }.padding(horizontal = 28.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("清除缓存", fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                        Column {
+                            Row(Modifier.fillMaxWidth().clickable {
+                                cacheDir.deleteRecursively(); cacheDir.mkdirs()
+                                cacheSize.value = 0; showClear = false
+                            }.padding(horizontal = 28.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("清除歌曲缓存", fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                            }
+                            Row(Modifier.fillMaxWidth().clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    yos.music.player.data.remote.RemoteTagDatabase.clearAll()
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(ctx, "已清除标签缓存", Toast.LENGTH_SHORT).show()
+                                        showClear = false
+                                    }
+                                }
+                            }.padding(horizontal = 28.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("清除标签缓存", fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                            }
                         }
                     }
                     Box(Modifier.fillMaxWidth().padding(start = 12.dp).height(0.5.dp).background(Color.Black.copy(alpha = 0.1f)))

@@ -153,14 +153,14 @@ private fun DynamicBlurLayer(bitmap: ImageBitmap, showMiniPlayer: () -> Boolean)
 
         val jobX = launch {
             while (isActive) {
-                tx.animateTo(-0.10f, tween(8000, easing = LinearEasing))
-                tx.animateTo(0.10f, tween(8000, easing = LinearEasing))
+                tx.animateTo(-0.15f, tween(6000, easing = LinearEasing))
+                tx.animateTo(0.15f, tween(6000, easing = LinearEasing))
             }
         }
         val jobY = launch {
             while (isActive) {
-                ty.animateTo(-0.10f, tween(10000, easing = LinearEasing))
-                ty.animateTo(0.10f, tween(10000, easing = LinearEasing))
+                ty.animateTo(-0.15f, tween(7500, easing = LinearEasing))
+                ty.animateTo(0.15f, tween(7500, easing = LinearEasing))
             }
         }
     }
@@ -173,12 +173,12 @@ private fun DynamicBlurLayer(bitmap: ImageBitmap, showMiniPlayer: () -> Boolean)
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = 1.25f
-                    scaleY = 1.25f
+                    scaleX = 1.35f
+                    scaleY = 1.35f
                     translationX = tx.value * size.width
                     translationY = ty.value * size.height
                 }
-                .blur(60.dp)
+                .blur(80.dp)
         )
         Box(
             modifier = Modifier

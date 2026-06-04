@@ -23,7 +23,10 @@ object RemoteTagExtractor {
         val discNumber: Int? = null,
         val composer: String? = null,
         val lyrics: String? = null,
-        val coverUri: Uri? = null
+        val coverUri: Uri? = null,
+        val bitrate: Int? = null,     // kbps
+        val sampleRate: Int? = null,  // Hz
+        val channels: Int? = null     // 声道数
     )
 
     /** 阶梯式读取大小：从 256KB 开始递增，最大 8MB */
@@ -73,6 +76,9 @@ object RemoteTagExtractor {
             var composer: String? = null
             var lyrics: String? = null
             var coverUri: Uri? = null
+            var bitrate: Int? = null
+            var sampleRate: Int? = null
+            var channels: Int? = null
 
             try {
                 val meta = runCatching {
@@ -98,6 +104,9 @@ object RemoteTagExtractor {
                 trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull()
                 discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull()
                 composer = map["COMPOSER"]?.lastOrNull()
+                bitrate = props?.bitrate
+                sampleRate = props?.sampleRate
+                channels = props?.channels
                 val uslt = map.entries.firstOrNull { (k, _) ->
                     k.uppercase().let { it.contains("USLT") || it.contains("LYRICS") }
                 }
@@ -136,7 +145,8 @@ object RemoteTagExtractor {
 
             return ExtractedResult(
                 title, artist, album, albumArtist, genre, year, duration,
-                trackNumber, discNumber, composer, lyrics, coverUri
+                trackNumber, discNumber, composer, lyrics, coverUri,
+                bitrate, sampleRate, channels
             )
         } finally {
             tmpFile.delete()

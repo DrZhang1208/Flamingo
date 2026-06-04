@@ -14,6 +14,9 @@ data class CachedTags(
     val duration: Long? = null,
     val coverPath: String? = null,
     val lyrics: String? = null,
+    val bitrate: Int? = null,
+    val sampleRate: Int? = null,
+    val channels: Int? = null,
     val updatedAt: Long = System.currentTimeMillis() / 1000
 )
 
@@ -45,6 +48,13 @@ object RemoteTagDatabase {
                 val tags = gson.fromJson(json, CachedTags::class.java)
                 if (tags.updatedAt < cutoff) mmkv.removeValueForKey(key)
             } catch (_: Exception) { mmkv.removeValueForKey(key) }
+        }
+    }
+
+    fun clearAll() {
+        val allKeys = mmkv.allKeys() ?: return
+        for (key in allKeys) {
+            mmkv.removeValueForKey(key)
         }
     }
 }

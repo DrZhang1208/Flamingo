@@ -81,6 +81,7 @@ object RemoteMetadataScanner {
     fun startBackgroundScan(
         items: List<YosMediaItem>,
         serverId: String,
+        forceRescan: Boolean = false,
         onItemUpdated: (YosMediaItem) -> Unit
     ) {
         scanJob?.cancel()
@@ -92,7 +93,10 @@ object RemoteMetadataScanner {
             val failedRetry = items.filter {
                 it.tagScanStatus == "FAILED" && it.uri?.toString() in recoverableUris
             }
-            val toProcess = pending + failedRetry
+            val completeRetry = if (forceRescan) {
+                items.filter { it.tagScanStatus == "COMPLETE" || it.tagScanStatus == null }
+            } else emptyList()
+            val toProcess = (pending + failedRetry + completeRetry).distinctBy { it.uri?.toString() }
             if (toProcess.isEmpty()) return@launch
 
             _scanProgress.value = ScanProgress(serverId, toProcess.size, 0, "", true)
@@ -117,6 +121,9 @@ object RemoteMetadataScanner {
                         discNumber = result.discNumber ?: item.discNumber,
                         composer = result.composer ?: item.composer,
                         thumb = result.coverUri ?: item.thumb,
+                        bitrate = result.bitrate ?: item.bitrate,
+                        sampleRate = result.sampleRate ?: item.sampleRate,
+                        channels = result.channels ?: item.channels,
                         tagScanStatus = "COMPLETE"
                     )
                     RemoteTagDatabase.put(uri, CachedTags(
@@ -127,7 +134,10 @@ object RemoteMetadataScanner {
                         year = updated.releaseYear ?: updated.recordingYear,
                         duration = if (updated.duration > 0) updated.duration else null,
                         coverPath = result.coverUri?.toString(),
-                        lyrics = result.lyrics
+                        lyrics = result.lyrics,
+                        bitrate = result.bitrate,
+                        sampleRate = result.sampleRate,
+                        channels = result.channels
                     ))
                     RemoteRetryManager.onBackgroundScanSuccess(uri)
                     onItemUpdated(updated)
