@@ -55,6 +55,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +74,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -96,6 +96,7 @@ import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.util.fastForEachIndexed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import yos.music.player.code.utils.lrc.YosMediaEvent
 import yos.music.player.code.utils.lrc.YosUIConfig
@@ -103,6 +104,7 @@ import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.objects.MainViewModelObject
 import yos.music.player.data.objects.MediaViewModelObject
+import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.widgets.basic.YosWrapper
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -141,6 +143,28 @@ fun YosLyricView(
 
     val lrcEntries = lrcEntriesLambda()
 
+    // 每帧更新播放位置和歌词行索引，驱动逐字歌词动画
+    val framePosition = remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        delay(100) // 等待初始组合完成，避免冷启动卡顿
+        while (isActive) {
+            val pos =
+                yos.music.player.code.MediaController.mediaControl?.currentPosition?.toInt() ?: 0
+            framePosition.intValue = pos
+
+            // 同步更新歌词行索引，消除与逐字高亮的速率差（之前 150ms vs 8ms 导致闪烁）
+            val entries = lrcEntriesLambda()
+            if (entries.isNotEmpty()) {
+                val nextIdx = entries.indexOfFirst { it.first().first > pos }
+                MainViewModelObject.syncLyricIndex.intValue =
+                    if (nextIdx != -1) (nextIdx - 1).coerceAtLeast(0)
+                    else (entries.size - 1).coerceAtLeast(0)
+            }
+
+            delay(8) // ~120fps
+        }
+    }
+
     //val thisLyricLines = MediaViewModelObject.mainLyricLines
     if (lrcEntries.isEmpty() /*|| thisLyricLines.isEmpty()*/) {
         Box(
@@ -161,8 +185,11 @@ fun YosLyricView(
             )
         }
     } else {
-        key(lrcEntries) {
             val scrollState = rememberLazyListState()
+        // 歌词切换时定位到起始位置，替代 key(lrcEntries) 的全量重建（避免 deactivated node 崩溃）
+        LaunchedEffect(lrcEntries) {
+            scrollState.scrollToItem(0)
+        }
         val currentLyricIndex =
             remember("YosLyricView_currentLyricIndex") { MainViewModelObject.syncLyricIndex }
         /*val noAnimateItems by remember {
@@ -208,8 +235,6 @@ fun YosLyricView(
 
         val targetWeight = 0.0618f
         val targetOffset = rememberSaveable(height.intValue, key = "YosLyricView_targetOffset") {
-            //println("计算边距使用：${height.intValue}")
-            //println("计算边距为：${height.intValue * targetWeight}")
             height.intValue * targetWeight
         }
         // 顶部边距
@@ -290,14 +315,14 @@ fun YosLyricView(
                 visible = lyricVisible.value,
                 enter = slideInVertically(
                     tween(durationMillis = 350, easing = yosEasing),
-                    initialOffsetY = { it }
+                    initialOffsetY = { it / 3 }
                 ) + fadeIn(tween(200))
             ) {
                 YosWrapper {
                     LazyColumn(
                         state = scrollState,
                         userScrollEnabled = userScrollEnabled,
-                        contentPadding = PaddingValues(vertical = 16.dp),
+                        contentPadding = PaddingValues(vertical = rememberAdaptive(16)),
                         modifier = Modifier
                             .fillMaxSize()
                     /*.drawWithCache {
@@ -417,8 +442,6 @@ fun YosLyricView(
                             (abs(index - currentLyricIndex.intValue) * 2.5f).coerceAtMost(8f)
                         }
                         val otherSideVal = otherSideForLines.getOrElse(index) { false }
-                        // 直接从 MediaController 获取当前播放位置
-                        val currentTime = yos.music.player.code.MediaController.mediaControl?.currentPosition?.toInt() ?: 0
 
                         YosWrapper {
                             LyricItem(
@@ -433,7 +456,7 @@ fun YosLyricView(
                                 mainTextBasicColor = mainTextBasicColor,
                                 subTextBasicColor = subTextBasicColor,
                                 otherSide = otherSideVal,
-                                liveTime = currentTime,
+                                liveTime = framePosition.intValue,
                                 measurer = measurer,
                                 isLyricEmpty = lines.all { it.second.isBlank() },
                                 nextTime = if (index + 1 > lrcEntries.size - 1) 0f else lrcEntries[(index + 1)].first().first,
@@ -450,7 +473,7 @@ fun YosLyricView(
                 }
                 blankSpacer()
                 item("extra_blank") {
-                    Spacer(modifier = Modifier.height(500.dp))
+                    Spacer(modifier = Modifier.height(rememberAdaptive(500)))
                 }
             }
         }
@@ -538,33 +561,24 @@ fun YosLyricView(
                     return@LaunchedEffect
                 }*/
                 try {
-                    if (currentLyricIndex.intValue != -1) {
-                        return@LaunchedEffect
-                    }
+                    // 无论 syncLyricIndex 是否已被初始化，都用 scrollToItem 做瞬移定位
+                    // scrollToItem 是瞬间的（无动画），避免 animateScrollBy 产生夸张的上浮
+                    delay(50) // 延迟一帧，避免在初始组合帧内触发布局
                     val liveTime = liveTimeLambda()
                     val nextIndex = lrcEntries.indexOfFirst { line ->
                         line.first().first > liveTime
                     }
-
-                    if (nextIndex != -1 && nextIndex - 1 != currentLyricIndex.intValue) {
-                        scrollState.scrollToItem(
-                            index = (nextIndex).coerceAtLeast(0),
-                            scrollOffset = -targetOffset.toInt()
-                        )
-                        currentLyricIndex.intValue = nextIndex - 1
-                    } else if (nextIndex == -1 && currentLyricIndex.intValue != lrcEntries.size - 1) {
-                        scrollState.scrollToItem(
-                            index = (lrcEntries.size).coerceAtLeast(0),
-                            scrollOffset = -targetOffset.toInt()
-                        )
-                        currentLyricIndex.intValue = lrcEntries.size - 1
-                    }
+                    val scrollTarget = if (nextIndex != -1) nextIndex.coerceAtLeast(0)
+                                       else lrcEntries.size.coerceAtLeast(0)
+                    scrollState.scrollToItem(
+                        index = scrollTarget,
+                        scrollOffset = -targetOffset.toInt()
+                    )
                 } catch (_: Exception) {
                 }
 
             }
         }
-    } // key(lrcEntries)
     }
 }
 
@@ -590,18 +604,6 @@ private fun LazyItemScope.Line(
     draw: CacheDrawScope.(Constraints, TextLayoutResult) -> DrawResult
 ) =
     YosWrapper {
-        /*val styledString = remember(style, lines) {
-            buildAnnotatedString {
-                lines.forEachIndexed { _, char ->
-                    if (char.second.isNotEmpty()) {
-                        withStyle(style.toSpanStyle()) {
-                            append(char.second)
-                        }
-                    }
-                }
-            }
-        }*/
-
         val styledString = remember(style, lines) {
             buildString {
                 lines.forEach { char ->
@@ -612,6 +614,7 @@ private fun LazyItemScope.Line(
             }
         }
 
+        val density = LocalDensity.current
 
         Column(
             horizontalAlignment = viewAlign,
@@ -621,134 +624,66 @@ private fun LazyItemScope.Line(
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 }
         ) {
-            SubcomposeLayout(modifier = modifier) { constraints ->
+            // 两遍渲染：第一遍用 onSizeChanged 获取可用宽度，
+            // 第二遍用实际宽度做文本测量和绘制。
+            // 避免 BoxWithConstraints / SubcomposeLayout 导致的 "place on deactivated node" 崩溃。
+            val availableWidthPx = remember { mutableIntStateOf(0) }
 
-                val forceFullWidth = when (style.textAlign) {
-                    TextAlign.End, TextAlign.Center, TextAlign.Justify -> true
-                    else -> false
-                }
-
-                val measureResult = measurer.measure(
-                    text = styledString,
-                    style = style,
-                    constraints = Constraints(
-                        minWidth = if (forceFullWidth) constraints.maxWidth else 0,
-                        maxWidth = constraints.maxWidth,
-                    ),
-                    layoutDirection = LayoutDirection.Ltr
-                )
-
-                val height = (style.lineHeight * measureResult.lineCount)
-
-                val width = runCatching {
-                    (0 until measureResult.lineCount).maxOf {
-                        measureResult.getBoundingBox(
-                            measureResult.getLineEnd(it, visibleEnd = true) - 1
-                        ).right
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { size -> if (size.width > 0) availableWidthPx.intValue = size.width }
+            ) {
+                if (availableWidthPx.intValue > 0) {
+                    val maxWidthPx = availableWidthPx.intValue
+                    val forceFullWidth = when (style.textAlign) {
+                        TextAlign.End, TextAlign.Center, TextAlign.Justify -> true
+                        else -> false
                     }
-                }.getOrDefault(constraints.maxWidth.toFloat())
 
-                val finalWidth = if (forceFullWidth) constraints.maxWidth.toFloat() else width
-
-                val content = subcompose(styledString) {
-                    Spacer(
-                        Modifier
-                            .fillMaxSize()
-                            .drawWithCache { draw(constraints, measureResult) }
-                    )
-                }.first()
-
-
-                val placeable = content.measure(
-                    Constraints.fixed(finalWidth.roundToInt(), height.roundToPx())
-                )
-
-                layout(placeable.width, placeable.height) {
-                    placeable.place(0, 0)
-                }
-
-                /*layout(placeable.width, placeable.height) {
-                    placeable.placeRelative(0, 0)
-                }*/
-            }
-        }
-    }
-
-/*@Composable
-private fun LazyItemScope.Line(
-    lines: List<Pair<Float, String>>,
-    style: TextStyle,
-    measurer: TextMeasurer,
-    modifier: Modifier,
-    viewAlign: Alignment.Horizontal,
-    draw: CacheDrawScope.(Constraints, TextLayoutResult) -> DrawResult
-) =
-    YosWrapper {
-        val styledString = remember(style, lines) {
-            buildString {
-                lines.forEach { char ->
-                    if (char.second.isNotEmpty()) {
-                        append(char.second)
+                    val measureResult = remember(styledString, style, maxWidthPx) {
+                        measurer.measure(
+                            text = styledString,
+                            style = style,
+                            constraints = Constraints(
+                                minWidth = if (forceFullWidth) maxWidthPx else 0,
+                                maxWidth = maxWidthPx,
+                            ),
+                            layoutDirection = LayoutDirection.Ltr
+                        )
                     }
-                }
-            }
-        }
 
-        Column(
-            modifier = modifier,
-            horizontalAlignment = viewAlign
-        ) {
-            Layout(
-                content = {
+                    val heightPx = with(density) { (style.lineHeight * measureResult.lineCount).toPx() }
+                    val widthPx = runCatching {
+                        (0 until measureResult.lineCount).maxOf {
+                            measureResult.getBoundingBox(
+                                measureResult.getLineEnd(it, visibleEnd = true) - 1
+                            ).right
+                        }
+                    }.getOrDefault(maxWidthPx.toFloat())
+
+                    val finalWidthPx = if (forceFullWidth) maxWidthPx.toFloat() else widthPx
+
                     Spacer(
-                        Modifier
-                            .fillMaxSize()
+                        modifier = Modifier
+                            .size(
+                                width = with(density) { finalWidthPx.toDp() },
+                                height = with(density) { heightPx.toDp() }
+                            )
                             .drawWithCache {
-                                val constraints = Constraints(
-                                    minWidth = 0,
-                                    maxWidth = size.width.toInt()
+                                draw(
+                                    Constraints.fixed(
+                                        finalWidthPx.roundToInt(),
+                                        heightPx.roundToInt()
+                                    ),
+                                    measureResult
                                 )
-                                val measureResult = measurer.measure(
-                                    text = styledString,
-                                    style = style,
-                                    constraints = constraints
-                                )
-                                draw(constraints, measureResult)
                             }
                     )
                 }
-            ) { measurables, constraints ->
-
-                val measureResult = measurer.measure(
-                    text = styledString,
-                    style = style,
-                    constraints = Constraints(
-                        minWidth = 0,
-                        maxWidth = constraints.maxWidth
-                    )
-                )
-
-                // 确保高度计算正确，包含所有文本行
-                val height = measureResult.size.height
-
-                val width = runCatching {
-                    (0 until measureResult.lineCount).maxOf {
-                        measureResult.getBoundingBox(
-                            measureResult.getLineEnd(it, visibleEnd = true) - 1
-                        ).right
-                    }
-                }.getOrDefault(constraints.maxWidth.toFloat()).roundToInt()
-
-                val placeable = measurables.first().measure(
-                    Constraints.fixed(width, height)
-                )
-
-                layout(width, height) {
-                    placeable.placeRelative(0, 0)
-                }
             }
         }
-    }*/
+    }
 
 val easing: Easing = EaseInOutQuad
 
@@ -781,11 +716,13 @@ fun LazyItemScope.LyricItem(
     val isNotOneByOne = remember(mainLyric) {
         mainLyric.all { it.first == mainLyric.firstOrNull()?.first }
     }
+    // 保持 liveTime 最新引用，避免 drawWithCache 缓存导致逐字高亮使用过期的 liveTime
+    val liveTimeRef = rememberUpdatedState(liveTime)
 
     YosWrapper {
         Column(
             Modifier
-                .padding(horizontal = 9.dp),
+                .padding(horizontal = rememberAdaptive(9)),
             horizontalAlignment = viewAlign
         ) {
             val otherSideAnimate = if (otherSide) {
@@ -801,16 +738,16 @@ fun LazyItemScope.LyricItem(
             // Scale 动画使用 isCurrent 状态,避免 lambda 引用问题
             val scale = animateFloatAsState(
                 targetValue = if (isCurrent) 1.04f else 1f,
-                animationSpec = if (isCurrent) 
-                    TweenSpec(durationMillis = 270, easing = yosEasing, delay = 110)
+                animationSpec = if (isCurrent)
+                    TweenSpec(durationMillis = 270, easing = yosEasing, delay = 0)
                 else
                     TweenSpec(durationMillis = 300, easing = yosEasing, delay = 45)
             )
 
             val cardPadding = if (otherSide) {
-                Modifier.padding(start = 28.dp)
+                Modifier.padding(start = rememberAdaptive(28))
             } else {
-                Modifier.padding(end = 28.dp)
+                Modifier.padding(end = rememberAdaptive(28))
             }
 
             if (isLyricEmpty) {
@@ -862,10 +799,16 @@ fun LazyItemScope.LyricItem(
                             ) {
                                 val textAlign = if (otherSide) TextAlign.End else TextAlign.Start
 
-                                // Alpha 动画
+                                // 高亮状态 — 必须在 thisAlpha 之前计算
+                                val showHighLight = isNotOneByOne || run {
+                                    val idx = (mainLyric.size - (if (translation != null) 3 else 1)).coerceIn(0, mainLyric.size - 1)
+                                    liveTime >= mainLyric[idx].first
+                                }
+
+                                // Alpha 动画：当前行和未播放行完整显示(靠文字颜色区分)，已播完行低透明度
                                 val thisAlpha = animateFloatAsState(
-                                    targetValue = if (isCurrent) 1f else 0.14f,
-                                    animationSpec = if (isCurrent) 
+                                    targetValue = if (isCurrent || !showHighLight) 1f else 0.14f,
+                                    animationSpec = if (isCurrent)
                                         TweenSpec(durationMillis = 350, easing = yosEasing, delay = 145)
                                     else
                                         TweenSpec(durationMillis = 350, easing = yosEasing, delay = 80)
@@ -880,10 +823,6 @@ fun LazyItemScope.LyricItem(
                                 } else {
                                     Modifier.padding(start = 20.dp, end = 20.dp)
                                 }
-
-                                // 高亮状态
-                                val showHighLight = isNotOneByOne || 
-                                    liveTime >= mainLyric[mainLyric.size - (if (translation != null) 3 else 1)].first
 
                                 val lyricTextStyle = mainTextStyle()
                                 // 修复: charLayoutCache 使用 mainLyric 作为 key
@@ -1038,6 +977,8 @@ fun LazyItemScope.LyricItem(
                                                                 topLeftWeight
                                                             )
                                                             ),
+                                                    startTime = thisWordLastTime,
+                                                    duration = thisWordAverageTime,
                                                     brush = { px, percent ->
                                                         if (thisWord == " ") {
                                                             return@DrawWord unfocusedSolidBrush
@@ -1063,17 +1004,8 @@ fun LazyItemScope.LyricItem(
                                                             (percent + px).coerceIn(
                                                                 0f,
                                                                 1f
-                                                            ) to afterColor/*,
-                                                            1f to afterColor*/
+                                                            ) to afterColor
                                                         )
-                                                    },
-                                                    percent = {
-                                                        if (thisWord == " ") {
-                                                            return@DrawWord 0f
-                                                        }
-
-                                                        ((liveTime - thisWordLastTime) / thisWordAverageTime)
-
                                                     }
                                                 ).also {
                                                     sum += charWord.length
@@ -1083,14 +1015,14 @@ fun LazyItemScope.LyricItem(
                                         }
 
                                         onDrawBehind {
+                                            val t = liveTimeRef.value.toFloat()
                                             wordsToDraw.fastForEach { l ->
+                                                val percent = if (l.duration == 0f) Float.POSITIVE_INFINITY
+                                                              else (t - l.startTime) / l.duration
                                                 drawText(
                                                     textLayoutResult = l.layout,
                                                     topLeft = l.topLeft,
-                                                    brush = l.brush(
-                                                        0.3f,
-                                                        l.percent()
-                                                    )
+                                                    brush = l.brush(0.3f, percent)
                                                 )
                                             }
                                         }
@@ -1281,8 +1213,9 @@ private data class DrawWord(
     val word: String,
     val layout: TextLayoutResult,
     val topLeft: Offset,
-    val brush: (px: Float, percent: Float) -> Brush,
-    val percent: () -> Float
+    val startTime: Float,
+    val duration: Float,
+    val brush: (px: Float, percent: Float) -> Brush
 )
 
 /*

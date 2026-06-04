@@ -22,38 +22,44 @@ object RemoteRetryManager {
         val isPlayback: Boolean = false
     )
 
+    private val lock = Any()
     private val retryMap = mutableMapOf<String, RetryState>()
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val activeJobs = mutableMapOf<String, Job>()
 
     private fun key(uri: String): String = uri
 
     /** 播放中提取标签，失败时调度重试 */
     fun onTagExtractFailed(uri: String, serverId: String, remotePath: String) {
-        val k = key(uri)
-        val state = retryMap.getOrPut(k) {
-            RetryState(uri, serverId, remotePath, isPlayback = true)
+        synchronized(lock) {
+            val k = key(uri)
+            val state = retryMap.getOrPut(k) {
+                RetryState(uri, serverId, remotePath, isPlayback = true)
+            }
+            state.failCount++
+            val delay = if (state.failCount <= playbackIntervals.size) {
+                playbackIntervals[state.failCount - 1]
+            } else {
+                PLAYBACK_INTERVAL_DEFAULT
+            }
+            state.nextRetryTimeMs = System.currentTimeMillis() + delay
+            scheduleRetry(k, delay)
         }
-        state.failCount++
-        val delay = if (state.failCount <= playbackIntervals.size) {
-            playbackIntervals[state.failCount - 1]
-        } else {
-            PLAYBACK_INTERVAL_DEFAULT
-        }
-        state.nextRetryTimeMs = System.currentTimeMillis() + delay
-        scheduleRetry(k, delay)
     }
 
     /** 播放中提取成功，清除重试状态 */
     fun onTagExtractSuccess(uri: String) {
-        cancelRetry(uri)
-        retryMap.remove(key(uri))
+        synchronized(lock) {
+            cancelRetry(uri)
+            retryMap.remove(key(uri))
+        }
     }
 
     /** 切歌时取消旧歌的重试 */
     fun onTrackChanged(newUri: String?) {
-        activeJobs.forEach { (k, job) ->
-            if (k != newUri) {
+        synchronized(lock) {
+            val toCancel = activeJobs.entries.filter { it.key != newUri }.toList()
+            toCancel.forEach { (k, job) ->
                 job.cancel()
                 activeJobs.remove(k)
             }
@@ -62,42 +68,50 @@ object RemoteRetryManager {
 
     /** 清除所有播放中的重试（停止播放时） */
     fun clearPlaybackRetries() {
-        activeJobs.forEach { (k, job) ->
-            val state = retryMap[k]
-            if (state?.isPlayback == true) {
+        synchronized(lock) {
+            val toCancel = activeJobs.entries.filter {
+                retryMap[it.key]?.isPlayback == true
+            }.toList()
+            toCancel.forEach { (k, job) ->
                 job.cancel()
                 retryMap.remove(k)
+                activeJobs.remove(k)
             }
         }
-        activeJobs.keys.removeAll { retryMap[it]?.isPlayback == true }
     }
 
     /** 后台扫描失败，记录重试状态。返回当前失败次数 */
     fun onBackgroundScanFailed(uri: String, serverId: String, remotePath: String): Int {
-        val k = key(uri)
-        val state = retryMap.getOrPut(k) {
-            RetryState(uri, serverId, remotePath, isPlayback = false)
+        synchronized(lock) {
+            val k = key(uri)
+            val state = retryMap.getOrPut(k) {
+                RetryState(uri, serverId, remotePath, isPlayback = false)
+            }
+            state.failCount++
+            if (state.failCount < MAX_BACKGROUND_RETRIES) {
+                val delay = backgroundDelays[state.failCount.coerceAtMost(backgroundDelays.size) - 1]
+                state.nextRetryTimeMs = System.currentTimeMillis() + delay
+            }
+            return state.failCount
         }
-        state.failCount++
-        if (state.failCount < MAX_BACKGROUND_RETRIES) {
-            val delay = backgroundDelays[state.failCount.coerceAtMost(backgroundDelays.size) - 1]
-            state.nextRetryTimeMs = System.currentTimeMillis() + delay
-        }
-        return state.failCount
     }
 
     /** 后台扫描成功 */
     fun onBackgroundScanSuccess(uri: String) {
-        retryMap.remove(key(uri))
+        synchronized(lock) {
+            retryMap.remove(key(uri))
+        }
     }
 
     /** 获取某个服务器所有待重试的后台扫描项（未达上限且时间到了） */
     fun getPendingBackgroundRetries(serverId: String): List<RetryState> {
-        val now = System.currentTimeMillis()
-        return retryMap.values.filter {
-            !it.isPlayback && it.serverId == serverId &&
-            it.failCount < MAX_BACKGROUND_RETRIES &&
-            it.nextRetryTimeMs <= now
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            return retryMap.values.filter {
+                !it.isPlayback && it.serverId == serverId &&
+                it.failCount < MAX_BACKGROUND_RETRIES &&
+                it.nextRetryTimeMs <= now
+            }
         }
     }
 
@@ -114,12 +128,14 @@ object RemoteRetryManager {
         if (tagScanStatus == null || tagScanStatus == "COMPLETE" || tagScanStatus == "PENDING") return
         val count = parseFailCount(tagScanStatus)
         if (count <= 0) return
-        val k = key(uri)
-        retryMap[k] = RetryState(
-            uri = uri, serverId = serverId, remotePath = remotePath,
-            failCount = count, isPlayback = false,
-            nextRetryTimeMs = System.currentTimeMillis() // 立即可重试
-        )
+        synchronized(lock) {
+            val k = key(uri)
+            retryMap[k] = RetryState(
+                uri = uri, serverId = serverId, remotePath = remotePath,
+                failCount = count, isPlayback = false,
+                nextRetryTimeMs = System.currentTimeMillis()
+            )
+        }
     }
 
     /** 编码 failCount 到 tagScanStatus */
@@ -132,12 +148,12 @@ object RemoteRetryManager {
     }
 
     private fun scheduleRetry(k: String, delayMs: Long) {
+        // 必须在锁内调用，确保 activeJobs 的一致性
         activeJobs[k]?.cancel()
         activeJobs[k] = scope.launch {
             delay(delayMs)
-            val state = retryMap[k] ?: return@launch
+            val state = synchronized(lock) { retryMap[k] } ?: return@launch
             if (!state.isPlayback) return@launch
-            // 检查是否还在播放同一首歌
             if (MediaController.musicPlaying.value?.uri?.toString() != state.uri) return@launch
             try {
                 if (!RemoteServerManager.isConnected(state.serverId)) {
@@ -146,7 +162,6 @@ object RemoteRetryManager {
                 val result = RemoteTagExtractor.extract(state.serverId, state.remotePath, state.uri)
                 withContext(Dispatchers.Main) {
                     if (MediaController.musicPlaying.value?.uri?.toString() != state.uri) return@withContext
-                    // 通过 MediaController 的内部方法应用标签
                     MediaController.applyExtractedTags(
                         state.uri, state.serverId, state.remotePath, result
                     )
@@ -159,6 +174,7 @@ object RemoteRetryManager {
     }
 
     private fun cancelRetry(uri: String) {
+        // 必须在锁内调用
         activeJobs[key(uri)]?.cancel()
         activeJobs.remove(key(uri))
     }

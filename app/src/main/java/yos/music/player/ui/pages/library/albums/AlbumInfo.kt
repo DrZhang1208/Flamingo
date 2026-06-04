@@ -119,7 +119,13 @@ fun AlbumInfo(
                 }
             }
         } else {
-            val songs = MusicLibrary.Album[albumName.value].sortedWith(compareBy<YosMediaItem>{ it.trackNumber?:0 }.thenBy { it.title })
+            val songs = MusicLibrary.Album[albumName.value].sortedWith(
+                compareBy<YosMediaItem>({ it.discNumber ?: 1 }, { it.trackNumber ?: 0 }, { it.title })
+            )
+            val discGroups = remember(songs) {
+                songs.groupBy { it.discNumber ?: 1 }.toSortedMap()
+            }
+            val isMultiDisc = discGroups.size > 1
 
             val mainArtists = rememberSaveable(key = "AlbumInfo_mainArtists") {
                 mutableStateOf(songs.first().artistsList ?: defaultArtists)
@@ -227,36 +233,51 @@ fun AlbumInfo(
                     AlbumDivider()
                 }
 
-                itemsIndexed(
-                    songs,
-                    key = { index, music -> "${index}_${music.uri}" }/*,
-                    contentType = { _, _ -> "AlbumInfo_item" }*/
-                ) { index, music ->
-                    key(music) {
-                        AlbumSongsItem(
-                            music = music,
-                            mainArtists = mainArtists.value
-                        ) {
-                            scope.launch(Dispatchers.IO) {
-                                MediaController.prepare(
-                                    music,
-                                    songs
-                                )
-                            }
+                // 按碟号分组展示，多碟专辑显示碟片标题
+                discGroups.forEach { (disc, discSongs) ->
+                    if (isMultiDisc) {
+                        item("disc_header_$disc") {
+                            Text(
+                                text = "碟片 $disc",
+                                fontSize = 15.sp,
+                                modifier = Modifier
+                                    .padding(horizontal = 18.dp)
+                                    .padding(top = 12.dp, bottom = 6.dp)
+                                    .alpha(0.5f)
+                            )
                         }
                     }
+                    itemsIndexed(
+                        discSongs.sortedWith(compareBy({ it.trackNumber ?: 0 }, { it.title })),
+                        key = { idx, music -> "disc${disc}_${idx}_${music.uri}" }
+                    ) { index, music ->
+                        key(music) {
+                            AlbumSongsItem(
+                                music = music,
+                                mainArtists = mainArtists.value
+                            ) {
+                                scope.launch(Dispatchers.IO) {
+                                    MediaController.prepare(
+                                        music,
+                                        songs
+                                    )
+                                }
+                            }
+                        }
 
-                    key(index) {
-                        val needDivider = index < songs.size - 1
-                        if (needDivider) {
-                            Spacer(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 50.dp, end = 18.dp)
-                                    .alpha(0.25f)
-                                    .height(0.5.dp)
-                                    .background(Color.Black withNight Color.White)
-                            )
+                        key(index) {
+                            val isLastInDisc = index == discSongs.size - 1
+                            val isLastOverall = disc == discGroups.keys.last() && isLastInDisc
+                            if (!isLastOverall) {
+                                Spacer(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 50.dp, end = 18.dp)
+                                        .alpha(0.25f)
+                                        .height(0.5.dp)
+                                        .background(Color.Black withNight Color.White)
+                                )
+                            }
                         }
                     }
                 }

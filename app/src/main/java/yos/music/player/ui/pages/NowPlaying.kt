@@ -208,6 +208,7 @@ import yos.music.player.ui.pages.NowPlayingPage.Album
 import yos.music.player.ui.pages.NowPlayingPage.Lyric
 import yos.music.player.ui.pages.NowPlayingPage.PlayingList
 import yos.music.player.ui.theme.YosRoundedCornerShape
+import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.widgets.YosLyricView
 import yos.music.player.ui.widgets.effects.YosFloatingLight
 import yos.music.player.ui.widgets.audio.MusicQualityIndicator
@@ -399,6 +400,7 @@ fun NowPlaying(
                         weightLambda = { showControl.value },
                         controlsHeightPxLambda = { controlsHeightPx.intValue },
                         translationLambda = { true },
+                        showMiniPlayer = showMiniPlayer,
                         userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric,
                         onBackClick = {
                             showControl.value = true
@@ -473,7 +475,7 @@ fun NowPlaying(
                                                 targetState = thisMusicPlaying.value,
                                                 transitionSpec = {
                                                     fadeIn() togetherWith fadeOut()
-                                                }, modifier = Modifier.padding(horizontal = 32.dp)
+                                                }, modifier = Modifier.padding(horizontal = rememberAdaptive(32))
                                             ) {
                                                 Row(
                                                     Modifier
@@ -484,7 +486,7 @@ fun NowPlaying(
                                                         Modifier
                                                             .fillMaxWidth()
                                                             .weight(1f)
-                                                            .padding(end = 15.dp)
+                                                            .padding(end = rememberAdaptive(15))
                                                     ) {
                                                         Box(
                                                             modifier = Modifier
@@ -708,7 +710,7 @@ fun NowPlaying(
                                                     CompositingStrategy.Offscreen
                                                 //this.alpha = controlAlpha.value
                                             }*/
-                                            .padding(top = 52.dp)
+                                            .padding(top = rememberAdaptive(52))
                                             .onSizeChanged { controlsHeightPx.intValue = it.height },
                                         onWhile = {
                                             shuffleModeEnabled.value =
@@ -752,7 +754,7 @@ fun NowPlaying(
                                     closeSheet()
                                     navController.toUI(UI.ArtistInfo)
                                     dismiss()
-                                }.padding(horizontal = 8.dp),
+                                }.padding(horizontal = rememberAdaptive(8)),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -872,7 +874,7 @@ private fun PlayingList(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 30.dp)
+                    .padding(horizontal = rememberAdaptive(30))
                     .padding(top = 10.dp)
                     .height(65.dp), verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1136,7 +1138,7 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, itemClick: () 
             .clickable {
                 itemClick()
             }
-            .padding(horizontal = 30.dp),
+            .padding(horizontal = rememberAdaptive(30)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ShadowImageWithCache(
@@ -1186,6 +1188,7 @@ private fun Lyric(
     translationLambda: () -> Boolean,
     mainViewModel: MainViewModel,
     mediaViewModel: MediaViewModel,
+    showMiniPlayer: () -> Boolean,
     userScrollEnabled: Boolean = true,
     onBackClick: () -> Unit
 ) = YosWrapper {
@@ -1205,7 +1208,11 @@ private fun Lyric(
 
             Spacer(modifier = Modifier.statusBarsHeight(110.dp))
 
+            // 冷启动时不渲染歌词控件，等用户展开播放页面后再渲染，避免主线程卡死
+            val hasEverExpanded = remember { mutableStateOf(!showMiniPlayer()) }
+            if (!showMiniPlayer()) hasEverExpanded.value = true
 
+            if (hasEverExpanded.value) {
             YosLyricView(
                 //mediaViewModel = mediaViewModel,
                 lrcEntriesLambda = lrcEntries,
@@ -1280,6 +1287,7 @@ private fun Lyric(
                 },
                 onBackClick = onBackClick
             )
+            }
         }
     }
 }
@@ -1524,7 +1532,7 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
                                     yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
                                     navController.toUI(UI.ArtistInfo)
                                     dismiss()
-                                }.padding(horizontal = 8.dp),
+                                }.padding(horizontal = rememberAdaptive(8)),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
@@ -1552,7 +1560,7 @@ private fun PlayingBar(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 28.5.dp)
+            .padding(horizontal = rememberAdaptive(28))
             .padding(top = 22.dp)
             .height(70.dp), verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1785,7 +1793,7 @@ private fun PlayerControl(
         Column(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 25.dp)
+                .padding(horizontal = rememberAdaptive(25))
                 .padding(bottom = 15.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1943,7 +1951,7 @@ private fun PlayerControl(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(61.dp)
+                                    .size(rememberAdaptive(61))
                                     .clickable(
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }
@@ -1962,11 +1970,11 @@ private fun PlayerControl(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(43.dp))
+                            Spacer(modifier = Modifier.width(rememberAdaptive(43)))
 
                             Box(
                                 modifier = Modifier
-                                    .size(58.5.dp)
+                                    .size(rememberAdaptive(58))
                                     .clickable(
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }
@@ -2005,10 +2013,10 @@ private fun PlayerControl(
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.width(43.dp))
+                            Spacer(modifier = Modifier.width(rememberAdaptive(43)))
                             Box(
                                 modifier = Modifier
-                                    .size(61.dp)
+                                    .size(rememberAdaptive(61))
                                     .clickable(
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }

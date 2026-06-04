@@ -65,6 +65,7 @@ import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.models.ImageViewModel
 import yos.music.player.ui.UI
 import yos.music.player.ui.theme.YosRoundedCornerShape
+import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.effects.imageResolve
 import yos.music.player.ui.widgets.basic.Title
@@ -125,8 +126,8 @@ fun RecommendCard(imageViewModel: ImageViewModel) {
 
             HorizontalPager(
                 state = pagerState,
-                pageSize = PageSize.Fixed(278.dp),
-                contentPadding = PaddingValues(start = 20.dp, end = 136.dp),
+                pageSize = PageSize.Fixed(rememberAdaptive(278)),
+                contentPadding = PaddingValues(start = rememberAdaptive(20), end = rememberAdaptive(136)),
                 key = { randomMusicList.value[it] },
                 beyondViewportPageCount = 5
             ) { page ->
@@ -148,7 +149,7 @@ fun RecommendCard(imageViewModel: ImageViewModel) {
 
 @Composable
 fun RecommendCardItem(subTitle: String, music: YosMediaItem, onClick: () -> Unit) =
-    Column(Modifier.width(268.dp)) {
+    Column(Modifier.width(rememberAdaptive(268))) {
 
         val drawable = remember(music.thumb) {
             mutableStateOf<Drawable?>(null)
@@ -191,7 +192,7 @@ fun RecommendCardItem(subTitle: String, music: YosMediaItem, onClick: () -> Unit
                 Modifier
                     .fillMaxWidth()
                     .padding(top = 14.dp)
-                    .height(354.dp)
+                    .height(rememberAdaptive(354))
                     .graphicsLayer {
                         compositingStrategy = CompositingStrategy.Offscreen
                         clip = true
@@ -228,7 +229,7 @@ fun RecommendCardItem(subTitle: String, music: YosMediaItem, onClick: () -> Unit
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(268.dp)
+                        .height(rememberAdaptive(268))
                 )
 
                 Surface(

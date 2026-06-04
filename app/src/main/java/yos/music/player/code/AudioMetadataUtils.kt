@@ -288,4 +288,33 @@ object AudioMetadataUtils {
         }
     }
 
+    fun getTrackNumber(filePath: String): Int? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull()
+        } catch (_: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
+    }
+
+    // METADATA_KEY_DISC_NUMBER = 26, available since API 35
+    private const val METADATA_KEY_DISC_NUMBER = 26
+
+    fun getDiscNumber(filePath: String): Int? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            if (android.os.Build.VERSION.SDK_INT >= 35) {
+                retriever.extractMetadata(METADATA_KEY_DISC_NUMBER)?.toIntOrNull()
+            } else null
+        } catch (_: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
+    }
+
 }

@@ -7,6 +7,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Handler
+import android.os.Looper
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -145,6 +150,7 @@ import yos.music.player.ui.pages.settings.performance.userinterface.UserInterfac
 import yos.music.player.ui.theme.YosMusicTheme
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.isFlamingoInDarkMode
+import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.BottomNavigator
 import yos.music.player.ui.widgets.basic.ImageQuality
@@ -203,7 +209,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         color = Color.Transparent,
                         contentColor = Color.Black withNight Color.White
                     ) {*/
-                        val miniPlayerHeight = 62.dp
+                        val miniPlayerHeight = rememberAdaptive(62)
                         val height = remember("MainActivity_height") { mutableIntStateOf(0) }
 
                         val navHeight = remember("MainActivity_navHeight") {
@@ -873,7 +879,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                             dataLambda = { MediaViewModelObject.bitmap.value },
                                                                             contentDescription = null,
                                                                             modifier = Modifier
-                                                                                .size(47.dp),
+                                                                                .size(rememberAdaptive(47)),
                                                                             cornerRadius = 6.dp,
                                                                             shadowAlpha = 0f,
                                                                             imageQuality = ImageQuality.LOW
@@ -918,7 +924,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 ) {
                                                                     Box(
                                                                         modifier = Modifier
-                                                                            .size(34.dp)
+                                                                            .size(rememberAdaptive(34))
                                                                             .clickable(
                                                                                 interactionSource = remember { MutableInteractionSource() },
                                                                                 indication = ripple(
@@ -979,7 +985,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                     )
                                                                     Box(
                                                                         modifier = Modifier
-                                                                            .size(36.dp)
+                                                                            .size(rememberAdaptive(36))
                                                                             .clickable(
                                                                                 interactionSource = remember { MutableInteractionSource() },
                                                                                 indication = ripple(
@@ -1017,6 +1023,16 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     /*}*/
                 }
             }
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 小窗/分屏切回全屏时，系统可能重置 edge-to-edge 标志。
+        // post 到下一帧执行，等系统完成窗口过渡后再重新应用，避免时序冲突。
+        Handler(Looper.getMainLooper()).post {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            ViewCompat.requestApplyInsets(window.decorView)
         }
     }
 

@@ -71,6 +71,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
     var loading by remember { mutableStateOf(true) }
     var pathStack by remember { mutableStateOf(listOf("")) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
+    var mounting by remember { mutableStateOf(false) }
 
     fun loadFolder(path: String) {
         loadJob?.cancel()
@@ -122,9 +123,15 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                 RoundColumn {
                     Row(
                         Modifier.fillMaxWidth().clickable {
+                            if (mounting) return@clickable
                             scope.launch(Dispatchers.IO) {
-                                // 防重复：用 getFolders() 确保读取最新数据
-                                val already = MusicLibrary.folders.any { it.serverId == serverId && (it.path == currentPath || it.path == currentPath.trimStart('/')) }
+                                if (mounting) return@launch
+                                mounting = true
+                                try {
+                                // 防重复：用 allFolders（包含 serverId）确保检测到已挂载的远程文件夹
+                                val already = MusicLibrary.allFolders.any {
+                                    it.serverId == serverId && (it.path == currentPath || it.path == currentPath.trimStart('/'))
+                                }
                                 if (already) {
                                     withContext(Dispatchers.Main) { Toast.makeText(context, "已挂载", Toast.LENGTH_SHORT).show() }
                                     return@launch
@@ -173,6 +180,9 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                 }
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(context, "已挂载「${folderName}」到资料库 (${songs.size} 首)", Toast.LENGTH_SHORT).show()
+                                }
+                                } finally {
+                                    mounting = false
                                 }
                             }
                         }.padding(horizontal = 16.dp, vertical = 14.dp),

@@ -384,6 +384,8 @@ object MediaController {
             thumb = result.coverUri ?: cur.thumb,
             releaseYear = result.year ?: cur.releaseYear,
             recordingYear = result.year ?: cur.recordingYear,
+            trackNumber = result.trackNumber ?: cur.trackNumber,
+            discNumber = result.discNumber ?: cur.discNumber,
             tagScanStatus = "COMPLETE",
             duration = if (newDuration != null && newDuration > 0 && newDuration != cur.duration) newDuration else cur.duration
         )
@@ -406,11 +408,13 @@ object MediaController {
             val e = lrcF.formatLrcEntries(lyrics)
             if (e.isNotEmpty()) {
                 MediaViewModelObject.lrcEntries.value = e
+                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                 yos.music.player.data.objects.MediaViewModelObject.cacheLrc(uri, e)
             } else {
                 val l = lyrics.lines().filter { it.isNotBlank() }
                 if (l.isNotEmpty()) {
                     MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it })
+                    yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                 }
             }
         }
@@ -736,6 +740,7 @@ class YosPlaybackService : MediaSessionService() {
                                             // 仅当曲目未变时才更新 UI，避免在已 deactivated 节点上触发重组
                                             if (player.currentMediaItem?.uri?.toString() == capturedUri) {
                                                 MediaViewModelObject.lrcEntries.value = parsedEntries
+                                                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                                                 yos.music.player.data.objects.MediaViewModelObject.cacheLrc(capturedUri, parsedEntries)
                                             }
                                         }
@@ -749,13 +754,29 @@ class YosPlaybackService : MediaSessionService() {
                                         if (bitrate == 0) MediaViewModelObject.bitrate.intValue = audioInfo.first
                                     }
                                 }
+                                // 从文件中提取音轨号和碟号，补充未扫描歌曲的缺失字段
+                                val cur = musicPlaying.value
+                                if (cur != null && (cur.trackNumber == null || cur.discNumber == null)) {
+                                    val trackNo = AudioMetadataUtils.getTrackNumber(thisPath)
+                                    val discNo = AudioMetadataUtils.getDiscNumber(thisPath)
+                                    if (trackNo != null || discNo != null) {
+                                        handler.post {
+                                            if (player.currentMediaItem?.uri?.toString() == capturedUri) {
+                                                applyTags(cur, "TAGLIB",
+                                                    title = null, artist = null, album = null,
+                                                    thumb = null, year = null, lyrics = null,
+                                                    trackNumber = trackNo, discNumber = discNo)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
                 /** TAGLIB 来源可覆盖所有字段；其他来源永不覆盖已有数据 */
-                private fun applyTags(item: yos.music.player.data.libraries.YosMediaItem, source: String, title: String?, artist: String?, album: String?, thumb: android.net.Uri?, year: Int?, lyrics: String?, duration: Long? = null) {
+                private fun applyTags(item: yos.music.player.data.libraries.YosMediaItem, source: String, title: String?, artist: String?, album: String?, thumb: android.net.Uri?, year: Int?, lyrics: String?, duration: Long? = null, trackNumber: Int? = null, discNumber: Int? = null) {
                     val cur = musicPlaying.value ?: return
                     val overwrite = source != "EXOPLAYER"
                     val u = cur.copy(
@@ -764,6 +785,8 @@ class YosPlaybackService : MediaSessionService() {
                         album = if (overwrite && album != null) album else cur.album,
                         thumb = if (overwrite && thumb != null) thumb else cur.thumb,
                         releaseYear = year ?: cur.releaseYear, recordingYear = year ?: cur.recordingYear,
+                        trackNumber = if (overwrite && trackNumber != null) trackNumber else cur.trackNumber,
+                        discNumber = if (overwrite && discNumber != null) discNumber else cur.discNumber,
                         tagScanStatus = if (overwrite) "COMPLETE" else cur.tagScanStatus,
                         duration = if (overwrite && duration != null && duration > 0 && duration != cur.duration) duration else cur.duration
                     )
@@ -788,10 +811,12 @@ class YosPlaybackService : MediaSessionService() {
                         val e = lrcF.formatLrcEntries(lyrics)
                         if (e.isNotEmpty()) {
                             MediaViewModelObject.lrcEntries.value = e
+                            yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                             yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
                         }
                         else { val l = lyrics.lines().filter { it.isNotBlank() }; if (l.isNotEmpty()) {
                             MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it })
+                            yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                             yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
                         } }
                     }
@@ -911,14 +936,26 @@ class YosPlaybackService : MediaSessionService() {
                     val newArtist = metadata.artist?.toString()
                     val newAlbum = metadata.albumTitle?.toString()
                     val newArtwork = metadata.artworkUri
+                    val newTrackNumber = metadata.trackNumber?.toString()?.toIntOrNull()
+                    val newDiscNumber = metadata.discNumber?.toString()?.toIntOrNull()
                     val changed = (newTitle != null && newTitle != current.title) ||
                                   (newArtist != null && newArtist != current.artists) ||
                                   (newAlbum != null && newAlbum != current.album) ||
                                   (newArtwork != null && newArtwork != current.thumb)
+                    val needTrackDisc = (newTrackNumber != null && current.trackNumber == null) ||
+                                        (newDiscNumber != null && current.discNumber == null)
                     if (changed) {
                         // EXOPLAYER 源只填充空字段，不覆盖已有标签
                         applyTags(current, "EXOPLAYER", newTitle, newArtist, newAlbum, newArtwork,
                             metadata.releaseYear ?: metadata.recordingYear, null)
+                    }
+                    if (needTrackDisc) {
+                        // 音轨号/碟号为 null 时从 ExoPlayer 元数据补充
+                        applyTags(current, "TAGLIB",
+                            title = null, artist = null, album = null, thumb = null,
+                            year = null, lyrics = null,
+                            trackNumber = if (current.trackNumber == null) newTrackNumber else null,
+                            discNumber = if (current.discNumber == null) newDiscNumber else null)
                     }
                 }
 

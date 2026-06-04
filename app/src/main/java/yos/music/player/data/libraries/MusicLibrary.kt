@@ -120,6 +120,7 @@ object MusicLibrary {
     private const val playStatusKey = "yos_player_play_status"
     private const val playCountKey = "yos_play_count"
     private const val remoteServersKey = "yos_remote_servers"
+    private const val remoteFoldersMetaKey = "yos_remote_folders_meta"
 
     var hideSongs by mutableDataSaverListStateOf(
         dataSaverInterface = SongListSaver,
@@ -378,39 +379,104 @@ object MusicLibrary {
     // 远程文件夹独立追踪（绕开 mutableDataSaverListStateOf 的 Gson 序列化问题）
     private val remoteFolders = mutableListOf<Folder>()
     val allFolders: List<Folder> get() {
-        val remotePaths = remoteFolders.map { it.path }.toSet()
-        return remoteFolders + folders.filter { it.path !in remotePaths }
+        val remotePaths = remoteFolders.map { normalizePath(it.path) }.toSet()
+        // 去重安全网：确保任何来源的重复都不会出现在最终结果中
+        return (remoteFolders + folders.filter { normalizePath(it.path) !in remotePaths })
+            .distinctBy { it.serverId to normalizePath(it.path) }
+    }
+
+    // 远程文件夹元数据持久化结构（独立于 songSaver，防止竞态导致丢失）
+    data class RemoteFolderMeta(val serverId: String, val name: String, val path: String)
+
+    /** 统一路径格式，去除前后斜杠 */
+    private fun normalizePath(path: String) = path.trim('/')
+
+    private fun saveRemoteFoldersMeta() {
+        // 按 (serverId, normalizedPath) 去重，防止重复保存
+        val metas = remoteFolders
+            .distinctBy { it.serverId to normalizePath(it.path) }
+            .map { RemoteFolderMeta(it.serverId ?: "", it.name, normalizePath(it.path)) }
+        updateData(remoteFoldersMetaKey, metas)
+    }
+
+    private fun loadRemoteFoldersMeta(): List<RemoteFolderMeta> {
+        return loadData<List<RemoteFolderMeta>>(remoteFoldersMetaKey) ?: emptyList()
     }
 
     fun mountRemoteFolder(folder: Folder) {
-        remoteFolders.add(folder)
-        folders = folders + folder.copy(serverId = null)  // folders 存储时去掉 serverId 避免序列化问题
-        songSaver = songSaver + folder.songs
-        folderListVersion++
-        bumpSongsVersion()
+        synchronized(this) {
+            val serverId = folder.serverId ?: return
+            val normalizedPath = normalizePath(folder.path)
+            // 同一路径的远程文件夹只挂载一次：已存在则更新歌曲列表，不存在则新增
+            val existingIdx = remoteFolders.indexOfFirst {
+                it.serverId == serverId && normalizePath(it.path) == normalizedPath
+            }
+            if (existingIdx >= 0) {
+                // 更新：合并新增歌曲到已有文件夹
+                val existing = remoteFolders[existingIdx]
+                val existingUris = existing.songs.mapNotNull { it.uri?.toString() }.toSet()
+                val newSongs = folder.songs.filter { it.uri?.toString() !in existingUris }
+                val updated = existing.copy(songs = existing.songs + newSongs)
+                remoteFolders[existingIdx] = updated
+                songSaver = songSaver + newSongs
+                // 同步更新 folders 中的副本
+                val fp = normalizePath(folder.path)
+                folders = folders.map { f ->
+                    if (normalizePath(f.path) == fp) f.copy(songs = f.songs + newSongs) else f
+                }
+            } else {
+                remoteFolders.add(folder.copy(path = normalizedPath))
+                folders = folders + folder.copy(serverId = null, path = normalizedPath)
+                songSaver = songSaver + folder.songs
+            }
+            saveRemoteFoldersMeta()
+            folderListVersion++
+            bumpSongsVersion()
+        }
     }
 
     fun rebuildRemoteFolders() {
-        // 从 songSaver 中 serverId != null 的歌曲重建远程文件夹
-        remoteFolders.clear()
-        val remoteSongs = songSaver.filter { it.serverId != null }
-        val grouped = remoteSongs.groupBy { it.serverId to it.uri?.path?.substringBeforeLast('/') }
-        for ((key, songs) in grouped) {
-            val (sid, path) = key
-            if (sid != null && path != null) {
-                val name = path.substringAfterLast('/').ifEmpty { path }
-                remoteFolders.add(Folder(name, path, songs, serverId = sid))
+        synchronized(this) {
+            remoteFolders.clear()
+            val remoteSongs = songSaver.filter { it.serverId != null }
+
+            val metaByPath = loadRemoteFoldersMeta().associateBy { normalizePath(it.path) }
+            val grouped = remoteSongs.groupBy { song ->
+                val path = normalizePath(song.uri?.path?.substringBeforeLast('/') ?: "")
+                song.serverId to path
             }
+            val pathsFromSongs = grouped.keys.map { it.second }.toSet()
+
+            for ((key, songs) in grouped) {
+                val (sid, path) = key
+                if (sid != null && path.isNotEmpty()) {
+                    val name = path.substringAfterLast('/').ifEmpty { path }
+                    if (remoteFolders.none { it.serverId == sid && normalizePath(it.path) == path }) {
+                        remoteFolders.add(Folder(name, path, songs, serverId = sid))
+                    }
+                }
+            }
+
+            for ((path, meta) in metaByPath) {
+                if (path !in pathsFromSongs && remoteFolders.none {
+                    it.serverId == meta.serverId && normalizePath(it.path) == path
+                }) {
+                    remoteFolders.add(Folder(meta.name, path, emptyList(), serverId = meta.serverId))
+                }
+            }
+            saveRemoteFoldersMeta()
         }
     }
 
     fun unmountRemoteFolder(folderName: String, serverId: String) {
-        // 从 remoteFolders 查找实际的歌曲 URI（folders 中 serverId 为 null，无法匹配）
-        val rf = remoteFolders.find { it.name == folderName && it.serverId == serverId }
-        val urisToRemove = rf?.songs?.mapNotNull { it.uri?.toString() } ?: emptyList()
+        val rf = remoteFolders.find { it.name == folderName && it.serverId == serverId } ?: return
+        val targetPath = rf.path
+        val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
         remoteFolders.removeAll { it.name == folderName && it.serverId == serverId }
-        folders = folders.filter { it.name != folderName }
+        // 按路径精确删除，避免误删同名文件夹
+        folders = folders.filter { normalizePath(it.path) != normalizePath(targetPath) }
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
+        saveRemoteFoldersMeta()
         folderListVersion++
         bumpSongsVersion()
     }
@@ -546,14 +612,12 @@ object MusicLibrary {
                 readerConfiguration
             )
 
-            // 有层级结构的result.folderStructure.folderList[""].folderList
-            // val folderList = result.folderStructure.folderList
+            // 刷新远程文件夹：逐目录重新列出文件，检测新增和删除
+            val updatedRemoteSongs = refreshRemoteFolders()
 
-            // 保留远程挂载的歌曲（不受本地 MediaStore 扫描影响）
-            val remoteSongs = songSaver.filter { it.serverId != null }
             songSaver = result.songList.fastMap {
                 it.toYosMediaItem()
-            } + remoteSongs
+            } + updatedRemoteSongs
 
             result.shallowFolder.folderList.map {
                 val name = it.key
@@ -563,22 +627,10 @@ object MusicLibrary {
                 }
                 Folder(name, path, songs)
             }.let { localFolders ->
-                // 保留已挂载的远程文件夹副本，避免被本地扫描覆盖
-                val remotePaths = remoteFolders.map { it.path }.toSet()
-                val preservedRemote = folders.filter { it.path in remotePaths }
+                val normalizedRemotePaths = remoteFolders.map { normalizePath(it.path) }.toSet()
+                val preservedRemote = folders.filter { normalizePath(it.path) in normalizedRemotePaths }
                 folders = localFolders + preservedRemote
             }
-
-            /*folders = folderList.map { (path, fileNode) ->
-                Folder(
-                    path,
-                    fileNode.songList.toList()
-                )
-            }.filter { folder ->
-                folder !in hideFolders
-            }*/
-
-
 
             val playing = MediaController.playingMusicList.value
             if (playing != null) {
@@ -591,9 +643,103 @@ object MusicLibrary {
                 )
             }
 
+            // 去重：清除 folders 中可能累积的重复条目
+            folders = folders.distinctBy { normalizePath(it.path) }
+
             bumpSongsVersion()
             result
         }
+    }
+
+    /**
+     * 刷新所有已挂载的远程文件夹：重新 PROPFIND 列出文件，合并新增/删除。
+     * 返回更新后的远程歌曲列表。新文件统一汇总后启动一次后台标签扫描。
+     */
+    private suspend fun refreshRemoteFolders(): List<YosMediaItem> {
+        // 每次刷新前从持久化数据重建，确保状态干净、去重
+        rebuildRemoteFolders()
+        val savedConfigs = loadRemoteServers()
+        if (savedConfigs.isNullOrBlank()) return songSaver.filter { it.serverId != null }
+        yos.music.player.data.remote.RemoteServerManager.loadConfigs(savedConfigs)
+
+        val result = mutableListOf<YosMediaItem>()
+        val foldersToRefresh = remoteFolders.toList()
+        // 汇总所有文件夹的新增歌曲，统一启动一次后台扫描（避免多次 startBackgroundScan 互相取消）
+        val allNewSongsByServer = mutableMapOf<String, MutableList<YosMediaItem>>()
+        val folderNameByPath = mutableMapOf<String, String>()
+
+        for (folder in foldersToRefresh) {
+            val serverId = folder.serverId ?: continue
+            val path = folder.path
+            folderNameByPath[path] = folder.name
+
+            runCatching {
+                yos.music.player.data.remote.RemoteServerManager.connect(serverId)
+                val remoteFiles = yos.music.player.data.remote.RemoteServerManager.listAudioFiles(serverId, path)
+                val currentUris = folder.songs.mapNotNull { it.uri?.toString() }.toSet()
+                val remoteUris = remoteFiles.map { it.toWebDavUri(serverId) }.toSet()
+
+                // 保留仍然存在的歌曲
+                val retained = folder.songs.filter { it.uri?.toString() in remoteUris }
+                result.addAll(retained)
+
+                // 更新 remoteFolders 中的歌曲列表
+                val idx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizePath(path) }
+                if (idx >= 0) {
+                    remoteFolders[idx] = remoteFolders[idx].copy(songs = retained)
+                }
+
+                // 更新持久化的 folders 列表
+                folders = folders.map { f ->
+                    if (normalizePath(f.path) == normalizePath(path)) f.copy(songs = f.songs.filter { it.uri?.toString() in remoteUris })
+                    else f
+                }
+
+                // 新文件：远程有但本地没有
+                val newFiles = remoteFiles.filter { it.toWebDavUri(serverId) !in currentUris }
+                if (newFiles.isNotEmpty()) {
+                    val config = yos.music.player.data.remote.RemoteServerManager.getServer(serverId) ?: return@runCatching
+                    val newSongs = yos.music.player.data.remote.RemoteMetadataScanner.quickListAudioFiles(
+                        serverId, path, config
+                    ).filter { it.uri?.toString() !in currentUris }
+                    result.addAll(newSongs)
+
+                    // 更新 folders 中的歌曲
+                    remoteFolders[idx] = remoteFolders[idx].copy(songs = retained + newSongs)
+                    folders = folders.map { f ->
+                        if (normalizePath(f.path) == normalizePath(path)) f.copy(songs = f.songs + newSongs)
+                        else f
+                    }
+
+                    allNewSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(newSongs)
+                }
+            }.getOrElse {
+                // 连接失败时保留原有歌曲
+                result.addAll(folder.songs)
+            }
+        }
+
+        // 汇总所有新增歌曲，按 serverId 统一启动后台标签扫描
+        for ((serverId, newSongs) in allNewSongsByServer) {
+            if (newSongs.isNotEmpty()) {
+                yos.music.player.data.remote.RemoteMetadataScanner.startBackgroundScan(
+                    newSongs, serverId
+                ) { updated ->
+                    updateSongInFullList(updated)
+                    val path = updated.uri?.path?.substringBeforeLast('/') ?: return@startBackgroundScan
+                    val name = folderNameByPath[path] ?: path.substringAfterLast('/')
+                    updateFolderSongs(serverId, name, updated)
+                }
+            }
+        }
+
+        saveRemoteFoldersMeta()
+        return result
+    }
+
+    /** 将 RemoteFile 转为 webdav URI 字符串 */
+    private fun yos.music.player.data.remote.RemoteFile.toWebDavUri(serverId: String): String {
+        return "webdav://$serverId/${path.trimStart('/')}"
     }
 }
 

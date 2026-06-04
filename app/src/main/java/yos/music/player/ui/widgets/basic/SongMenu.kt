@@ -314,8 +314,10 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                 music.album?.let { DetailRow("专辑", it) }
                 DetailRow("时长", formatDuration(music.duration))
                 DetailRow("播放次数", "${playCount}")
-                val year = yearFromFile
-                if (year != null) DetailRow("年份", "$year")
+                val itemYear = music.releaseYear ?: music.recordingYear ?: yearFromFile
+                if (itemYear != null) DetailRow("年份", "$itemYear")
+                music.trackNumber?.let { DetailRow("音轨号", "$it") }
+                music.discNumber?.let { DetailRow("碟号", "$it") }
                 val fileInfo = info
                 if (fileInfo != null) {
                     if (fileInfo.bitrate != null && fileInfo.bitrate > 0) DetailRow("比特率", "${fileInfo.bitrate} kbps")
