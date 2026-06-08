@@ -1,6 +1,5 @@
 package yos.music.player.ui.pages.settings.others
 
-import android.util.Base64
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -37,7 +36,6 @@ fun About(navController: NavController) =
                         val appVersion = remember("About_appVersion") {
                             mutableStateOf(AppUtils.getAppVersionName())
                         }
-                        val telegramLink = "aHR0cHM6Ly90Lm1lL0ZsYW1pbmdvVXBkYXRlQW5kTmV3cw=="
 
                         RoundColumn {
                             DefaultItem(
@@ -52,31 +50,15 @@ fun About(navController: NavController) =
                         ListHeader(content = stringResource(id = R.string.settings_others_about_developers))
                         RoundColumn {
                             LabelItem(
-                                title = "Yos-X (MULTIPLY STUDIO)",
+                                title = "DrZhang1208",
                                 desc = stringResource(id = R.string.settings_others_about_developers_yos_x)
                             ) {
                                 startWeb(
-                                    url = "https://github.com/Yos-X",
+                                    url = "https://github.com/DrZhang1208",
                                     context
                                 )
                             }
                         }
-
-                        GroupSpacer()
-
-                        RoundColumn {
-                            LabelItem(
-                                title = stringResource(id = R.string.settings_others_about_contact_us),
-                                superLink = true
-                            ) {
-                                val linkResult = Base64.decode(telegramLink, Base64.URL_SAFE).decodeToString()
-                                startWeb(
-                                    url = linkResult,
-                                    context
-                                )
-                            }
-                        }
-                        ListHeader(content = stringResource(id = R.string.settings_others_about_contact_us_desc))
                     }
                 }
             }

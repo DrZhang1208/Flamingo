@@ -56,7 +56,7 @@
     <string name="tip_intent_resolve_failed">未找到可以执行该操作的应用。</string>
     <string name="settings_others_about_info">软件信息</string>
     <string name="settings_others_about_developers">开发者</string>
-    <string name="settings_others_about_developers_yos_x">主要开发者。</string>
+    <string name="settings_others_about_developers_yos_x">GitHub：DrZhang1208</string>
     <string name="settings_audio_exoplayer_support_mediacodec">设备媒体解码支持</string>
     <string name="settings_audio_exoplayer_sub">部分设置需要彻底重启应用生效</string>
     <string name="tip_copied">已复制</string>
@@ -118,8 +118,6 @@
     <string name="settings_performance_ui_screen_corner_desc">再次调起调整屏幕圆角的对话框。</string>
     <string name="settings_performance_lyric_line_balance">平衡行模式</string>
     <string name="settings_performance_lyric_line_balance_desc">将歌词的每行字数进行平衡，使版式更整齐。对于某些语言的歌词，可能存在副作用。</string>
-    <string name="settings_others_about_contact_us">联系我们</string>
-    <string name="settings_others_about_contact_us_desc">前往我们的 Telegram 频道。</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar">显示音量条</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">在播放界面的下部显示音量调节条。</string>
     <string name="settings_performance_ui_theme">主题</string>

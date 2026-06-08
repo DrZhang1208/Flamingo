@@ -58,7 +58,7 @@
     <string name="tip_intent_resolve_failed">No application found to perform this operation.</string>
     <string name="settings_others_about_info">Software Information</string>
     <string name="settings_others_about_developers">Developers</string>
-    <string name="settings_others_about_developers_yos_x">Main Developer.</string>
+    <string name="settings_others_about_developers_yos_x">GitHub: DrZhang1208</string>
     <string name="settings_audio_exoplayer_support_mediacodec">Device Media Decode Support</string>
     <string name="settings_audio_exoplayer_sub">Some settings require a complete restart of the application to take effect</string>
     <string name="tip_copied">Copied</string>
@@ -122,8 +122,6 @@
     <string name="settings_performance_ui_screen_corner_desc">Reopen the dialog to adjust the screen corners.</string>
     <string name="settings_performance_lyric_line_balance">Line Balance Mode</string>
     <string name="settings_performance_lyric_line_balance_desc">Balance the number of characters per line in the lyrics to make the layout more neat. There may be side effects for lyrics in certain languages.</string>
-    <string name="settings_others_about_contact_us">Contact Us</string>
-    <string name="settings_others_about_contact_us_desc">Visit our Telegram channel.</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar">Show Volume Bar</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">Display the volume adjustment bar at the bottom of the playback page.</string>
     <string name="settings_performance_ui_theme">Theme</string>

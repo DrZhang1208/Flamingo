@@ -56,7 +56,7 @@
     <string name="tip_intent_resolve_failed">該当する操作を実行できるアプリが見つかりませんでした。</string>
     <string name="settings_others_about_info">ソフトウェア情報</string>
     <string name="settings_others_about_developers">開発者</string>
-    <string name="settings_others_about_developers_yos_x">主要な開発者。</string>
+    <string name="settings_others_about_developers_yos_x">GitHub: DrZhang1208</string>
     <string name="settings_audio_exoplayer_support_mediacodec">デバイスのメディアデコードサポート</string>
     <string name="settings_audio_exoplayer_sub">一部の設定は、アプリを完全に再起動する必要があります</string>
     <string name="tip_copied">コピー済み</string>
@@ -118,8 +118,6 @@
     <string name="settings_performance_ui_screen_corner_desc">画面の角の丸みを調整するダイアログを再度表示します。</string>
     <string name="settings_performance_lyric_line_balance">行バランスモード</string>
     <string name="settings_performance_lyric_line_balance_desc">歌詞の各行の文字数をバランスさせ、レイアウトを整えます。特定の言語の歌詞には副作用がある可能性があります。</string>
-    <string name="settings_others_about_contact_us">お問い合わせ</string>
-    <string name="settings_others_about_contact_us_desc">Telegram チャンネルにアクセスしてください。</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar">音量バーを表示</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">再生画面の下部に音量調節バーを表示します。</string>
     <string name="settings_performance_ui_theme">テーマ</string>
