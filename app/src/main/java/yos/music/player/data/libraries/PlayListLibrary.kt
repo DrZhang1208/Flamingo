@@ -31,8 +31,11 @@ object PlayListLibrary {
         val id = this.listID
         val index = playList.indexOfFirst { it.listID == id }
         if (index < 0) return
+        val uri = music.uri ?: return
+        val currentList = playList[index].songDataList
+        if (currentList.contains(uri)) return  // 已存在，不重复添加
         val new = playList.toMutableList().also {
-            it[index] = it[index].copy(songDataList = it[index].songDataList.toMutableList().apply { music.uri?.let { add(it) } })
+            it[index] = it[index].copy(songDataList = currentList.toMutableList().apply { add(uri) })
         }
         playList = new
     }

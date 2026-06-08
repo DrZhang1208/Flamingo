@@ -3,7 +3,12 @@
   # 配置已移到 gradle.properties，这里只需一句
   echo "🚀 开始编译 Release 包..."
 
-  export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
+  JAVA_HOME=$(/usr/libexec/java_home -v 21 2>/dev/null)
+  if [ -z "$JAVA_HOME" ]; then
+      echo "❌ 未找到 JDK 21，请先安装 Temurin/OpenJDK 21"
+      exit 1
+  fi
+  export JAVA_HOME
   ./gradlew assembleRelease
 
   if [ $? -ne 0 ]; then

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -77,7 +78,7 @@ import yos.music.player.ui.toUI
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, showArtistMenuItem: Boolean = true, showAlbumMenuItem: Boolean = true) {
+fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, showArtistMenuItem: Boolean = true, showAlbumMenuItem: Boolean = true, showRemoveFromPlaylist: Boolean = false) {
     var showMenu by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showDetail by remember { mutableStateOf(false) }
@@ -113,6 +114,22 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                 ) {
                     val items = buildList {
                         add(Triple("添加到歌单", Icons.Filled.Add, { dismiss(); showPlaylistPicker = true }))
+                        if (showRemoveFromPlaylist) {
+                            val (playlistTitle, _) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
+                            val targetPlaylist = PlayListLibrary.playList.find { it.name == playlistTitle }
+                            if (targetPlaylist != null) {
+                                add(Triple("从歌单删除", Icons.Outlined.Delete, {
+                                    PlayListLibrary.run { targetPlaylist.removeMusic(music) }
+                                    // 同步更新当前列表，使 UI 立即刷新
+                                    val (title, list) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
+                                    yos.music.player.data.objects.LibraryObject.setTargetListWithTitle(
+                                        title, list.filter { it.uri != music.uri }
+                                    )
+                                    Toast.makeText(context, "已从「${targetPlaylist.name}」删除", Toast.LENGTH_SHORT).show()
+                                    dismiss()
+                                }))
+                            }
+                        }
                         add(Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
                             val currentMusic = MediaController.musicPlaying.value ?: return@Triple
                             val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple

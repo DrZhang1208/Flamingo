@@ -32,7 +32,7 @@ import yos.music.player.ui.theme.withNight
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MusicList(music: YosMediaItem, navController: NavController? = null, itemClick: () -> Unit) {
+fun MusicList(music: YosMediaItem, navController: NavController? = null, showRemoveFromPlaylist: Boolean = false, itemClick: () -> Unit) {
     val isPlaying = MediaController.musicPlaying.value?.uri == music.uri
     val highlightColor = MaterialTheme.colorScheme.primary
     val normalColor = Color.Black withNight Color.White
@@ -74,6 +74,6 @@ fun MusicList(music: YosMediaItem, navController: NavController? = null, itemCli
                 color = if (isPlaying) highlightColor.copy(alpha = 0.7f) else normalColor
             )
         }
-        SongMenuIcon(music, navController)
+        SongMenuIcon(music, navController, showRemoveFromPlaylist = showRemoveFromPlaylist)
     }
 }

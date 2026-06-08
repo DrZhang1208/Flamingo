@@ -291,7 +291,8 @@ fun NormalMusic(navController: NavController) {
                     ) { index, music ->
                         MusicList(
                             music,
-                            navController
+                            navController,
+                            showRemoveFromPlaylist = true
                         ) {
                             scope.launch(Dispatchers.IO) {
                                 MediaController.prepare(

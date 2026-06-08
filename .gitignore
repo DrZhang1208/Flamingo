@@ -22,9 +22,20 @@ local.properties
 *.aab
 *.jks
 *.keystore
+*.pem
+*.p12
+keystore.properties
+google-services.json
 
 # Kotlin
 .kotlin/
+
+# Secrets & local config
+.env
+.env.*
+secrets.properties
+credentials.json
+service-account*.json
 
 # OS
 .DS_Store
