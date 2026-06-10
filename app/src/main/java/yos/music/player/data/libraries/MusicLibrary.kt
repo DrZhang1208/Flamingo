@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Parcelable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.util.fastMap
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -104,7 +107,8 @@ data class YosMediaItem(
     val tagScanStatus: String? = null,  // "PENDING"/"SCANNING"/"COMPLETE"/"FAILED"，null 等同于 COMPLETE
     val bitrate: Int? = null,   // kbps，远程扫描填充
     val sampleRate: Int? = null, // Hz，远程扫描填充
-    val channels: Int? = null   // 声道数，远程扫描填充
+    val channels: Int? = null,   // 声道数，远程扫描填充
+    val fileSize: Long? = null   // bytes，远程文件列表填充
 ) : Parcelable {
 
     val effectiveTagScanStatus: String get() = tagScanStatus ?: "COMPLETE"
@@ -274,7 +278,8 @@ object MusicLibrary {
             duration = this.duration,
             modifiedDate = this.modifiedDate,
             cdTrackNumber = this.cdTrackNumber,
-            serverId = serverId
+            serverId = serverId,
+            fileSize = this.mediaMetadata.extras?.getLong("FileSize")?.takeIf { it > 0L }
         )
     }
 
@@ -287,6 +292,11 @@ object MusicLibrary {
         val displayTitle = cachedTags?.title ?: this.title
         val displayArtist = cachedTags?.artist ?: this.artists
         val displayAlbum = cachedTags?.album ?: this.album
+        val displayAlbumArtist = cachedTags?.albumArtist ?: this.albumArtists
+        val displayComposer = cachedTags?.composer ?: this.composer
+        val displayGenre = cachedTags?.genre ?: this.genre
+        val displayTrackNumber = cachedTags?.trackNumber ?: this.trackNumber
+        val displayDiscNumber = cachedTags?.discNumber ?: this.discNumber
         val displayYear = cachedTags?.year ?: this.releaseYear ?: this.recordingYear
 
         return MediaItem.Builder()
@@ -298,14 +308,14 @@ object MusicLibrary {
                     .setTitle(displayTitle)
                     .setWriter(this.writer)
                     .setCompilation(this.compilation)
-                    .setComposer(this.composer)
+                    .setComposer(displayComposer)
                     .setArtist(displayArtist)
                     .setAlbumTitle(displayAlbum)
-                    .setAlbumArtist(this.albumArtists)
+                    .setAlbumArtist(displayAlbumArtist)
                     .setArtworkUri(this.thumb)
-                    .setTrackNumber(this.trackNumber)
-                    .setDiscNumber(this.discNumber)
-                    .setGenre(this.genre)
+                    .setTrackNumber(displayTrackNumber)
+                    .setDiscNumber(displayDiscNumber)
+                    .setGenre(displayGenre)
                     .setRecordingDay(this.recordingDay)
                     .setRecordingMonth(this.recordingMonth)
                     .setRecordingYear(displayYear ?: this.recordingYear)
@@ -319,6 +329,7 @@ object MusicLibrary {
                         putLong("Duration", this@toMediaItem.duration)
                         this@toMediaItem.modifiedDate?.let { putLong("ModifiedDate", it) }
                         this@toMediaItem.cdTrackNumber?.let { putInt("CdTrackNumber", it) }
+                        this@toMediaItem.fileSize?.let { putLong("FileSize", it) }
                         //this@toMediaItem.samplingRate?.let { putInt("SamplingRate", it) }
                         //this@toMediaItem.bitrate?.let { putInt("Bitrate", it) }
                     })
@@ -368,16 +379,22 @@ object MusicLibrary {
         if (i >= 0) { all[i] = updated; songSaver = all; bumpSongsVersion() }
     }
 
-    fun updateFolderSongs(serverId: String, folderName: String, updatedSong: YosMediaItem) {
-        val rIdx = remoteFolders.indexOfFirst { it.serverId == serverId && it.name == folderName }
+    fun updateFolderSongs(serverId: String, folderPath: String, updatedSong: YosMediaItem) {
+        val normalizedPath = normalizePath(folderPath)
+        val rIdx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
         if (rIdx >= 0) {
             val songs = remoteFolders[rIdx].songs.toMutableList()
             val sIdx = songs.indexOfFirst { it.uri == updatedSong.uri }
-            if (sIdx >= 0) { songs[sIdx] = updatedSong; remoteFolders[rIdx] = remoteFolders[rIdx].copy(songs = songs) }
+            if (sIdx >= 0) {
+                songs[sIdx] = updatedSong
+                remoteFolders[rIdx] = remoteFolders[rIdx].copy(songs = songs)
+                folderListVersion++
+            }
         }
     }
 
-    @Volatile var folderListVersion = 0
+    var folderListVersion by mutableIntStateOf(0)
+        private set
 
     // 远程文件夹独立追踪（绕开 mutableDataSaverListStateOf 的 Gson 序列化问题）
     private val remoteFolders = mutableListOf<Folder>()
@@ -422,15 +439,11 @@ object MusicLibrary {
                 val updated = existing.copy(songs = existing.songs + newSongs)
                 remoteFolders[existingIdx] = updated
                 songSaver = songSaver + newSongs
-                // 同步更新 folders 中的副本
-                val fp = normalizePath(folder.path)
-                folders = folders.map { f ->
-                    if (normalizePath(f.path) == fp) f.copy(songs = f.songs + newSongs) else f
-                }
+                removeLegacyRemoteFolderMirror(serverId, normalizedPath)
             } else {
                 remoteFolders.add(folder.copy(path = normalizedPath))
-                folders = folders + folder.copy(serverId = null, path = normalizedPath)
                 songSaver = songSaver + folder.songs
+                removeLegacyRemoteFolderMirror(serverId, normalizedPath)
             }
             saveRemoteFoldersMeta()
             folderListVersion++
@@ -443,12 +456,12 @@ object MusicLibrary {
             remoteFolders.clear()
             val remoteSongs = songSaver.filter { it.serverId != null }
 
-            val metaByPath = loadRemoteFoldersMeta().associateBy { normalizePath(it.path) }
+            val metaByKey = loadRemoteFoldersMeta().associateBy { it.serverId to normalizePath(it.path) }
             val grouped = remoteSongs.groupBy { song ->
                 val path = normalizePath(song.uri?.path?.substringBeforeLast('/') ?: "")
                 song.serverId to path
             }
-            val pathsFromSongs = grouped.keys.map { it.second }.toSet()
+            val keysFromSongs = grouped.keys.toSet()
 
             for ((key, songs) in grouped) {
                 val (sid, path) = key
@@ -460,28 +473,65 @@ object MusicLibrary {
                 }
             }
 
-            for ((path, meta) in metaByPath) {
-                if (path !in pathsFromSongs && remoteFolders.none {
+            for ((key, meta) in metaByKey) {
+                val (_, path) = key
+                if (key !in keysFromSongs && remoteFolders.none {
                     it.serverId == meta.serverId && normalizePath(it.path) == path
                 }) {
                     remoteFolders.add(Folder(meta.name, path, emptyList(), serverId = meta.serverId))
                 }
             }
             saveRemoteFoldersMeta()
+            folderListVersion++
         }
     }
 
-    fun unmountRemoteFolder(folderName: String, serverId: String) {
-        val rf = remoteFolders.find { it.name == folderName && it.serverId == serverId } ?: return
-        val targetPath = rf.path
+    fun unmountRemoteFolder(serverId: String, folderPath: String): Boolean {
+        val normalizedPath = normalizePath(folderPath)
+        val rf = remoteFolders.find { it.serverId == serverId && normalizePath(it.path) == normalizedPath } ?: return false
         val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
-        remoteFolders.removeAll { it.name == folderName && it.serverId == serverId }
-        // 按路径精确删除，避免误删同名文件夹
-        folders = folders.filter { normalizePath(it.path) != normalizePath(targetPath) }
+        remoteFolders.removeAll { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
+        removeLegacyRemoteFolderMirror(serverId, normalizedPath)
+        removeHiddenFolderPath(normalizedPath)
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
         saveRemoteFoldersMeta()
         folderListVersion++
         bumpSongsVersion()
+        return true
+    }
+
+    fun unmountRemoteServer(serverId: String): Int {
+        val foldersToRemove = remoteFolders.filter { it.serverId == serverId }
+        val urisToRemove = songSaver
+            .filter { it.serverId == serverId }
+            .mapNotNull { it.uri?.toString() }
+            .toSet()
+        if (foldersToRemove.isEmpty() && urisToRemove.isEmpty()) return 0
+
+        remoteFolders.removeAll { it.serverId == serverId }
+        foldersToRemove.forEach { removeHiddenFolderPath(normalizePath(it.path)) }
+        folders = folders.filterNot { folder ->
+            folder.songs.any { it.serverId == serverId || it.uri?.toString() in urisToRemove }
+        }
+        songSaver = songSaver.filter { it.serverId != serverId && it.uri?.toString() !in urisToRemove }
+        urisToRemove.forEach { uri ->
+            runCatching { yos.music.player.data.remote.RemoteTagDatabase.delete(uri) }
+        }
+        saveRemoteFoldersMeta()
+        folderListVersion++
+        bumpSongsVersion()
+        return foldersToRemove.size
+    }
+
+    private fun removeLegacyRemoteFolderMirror(serverId: String, normalizedPath: String) {
+        folders = folders.filterNot { folder ->
+            normalizePath(folder.path) == normalizedPath &&
+                folder.songs.any { it.serverId == serverId }
+        }
+    }
+
+    private fun removeHiddenFolderPath(normalizedPath: String) {
+        hideFoldersSaver = hideFoldersSaver.filterNot { normalizePath(it.value) == normalizedPath }
     }
 
     private val cachedGson by lazy {
@@ -637,9 +687,7 @@ object MusicLibrary {
                 }
                 Folder(name, path, songs)
             }.let { localFolders ->
-                val normalizedRemotePaths = remoteFolders.map { normalizePath(it.path) }.toSet()
-                val preservedRemote = folders.filter { normalizePath(it.path) in normalizedRemotePaths }
-                folders = localFolders + preservedRemote
+                folders = localFolders
             }
 
             val playing = MediaController.playingMusicList.value
@@ -676,12 +724,11 @@ object MusicLibrary {
         val foldersToRefresh = remoteFolders.toList()
         // 汇总所有文件夹的歌曲，统一启动一次后台标签扫描（避免多次 startBackgroundScan 互相取消）
         val allSongsByServer = mutableMapOf<String, MutableList<YosMediaItem>>()
-        val folderNameByPath = mutableMapOf<String, String>()
+        val folderPathByUri = mutableMapOf<String, Pair<String, String>>()
 
         for (folder in foldersToRefresh) {
             val serverId = folder.serverId ?: continue
             val path = folder.path
-            folderNameByPath[path] = folder.name
 
             runCatching {
                 yos.music.player.data.remote.RemoteServerManager.connect(serverId)
@@ -691,6 +738,9 @@ object MusicLibrary {
 
                 // 保留仍然存在的歌曲
                 val retained = folder.songs.filter { it.uri?.toString() in remoteUris }
+                retained.forEach { song ->
+                    song.uri?.toString()?.let { folderPathByUri[it] = serverId to path }
+                }
                 result.addAll(retained)
                 allSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(retained)
 
@@ -700,12 +750,6 @@ object MusicLibrary {
                     remoteFolders[idx] = remoteFolders[idx].copy(songs = retained)
                 }
 
-                // 更新持久化的 folders 列表
-                folders = folders.map { f ->
-                    if (normalizePath(f.path) == normalizePath(path)) f.copy(songs = f.songs.filter { it.uri?.toString() in remoteUris })
-                    else f
-                }
-
                 // 新文件：远程有但本地没有
                 val newFiles = remoteFiles.filter { it.toWebDavUri(serverId) !in currentUris }
                 if (newFiles.isNotEmpty()) {
@@ -713,13 +757,13 @@ object MusicLibrary {
                     val newSongs = yos.music.player.data.remote.RemoteMetadataScanner.quickListAudioFiles(
                         serverId, path, config
                     ).filter { it.uri?.toString() !in currentUris }
+                    newSongs.forEach { song ->
+                        song.uri?.toString()?.let { folderPathByUri[it] = serverId to path }
+                    }
                     result.addAll(newSongs)
 
-                    // 更新 folders 中的歌曲
-                    remoteFolders[idx] = remoteFolders[idx].copy(songs = retained + newSongs)
-                    folders = folders.map { f ->
-                        if (normalizePath(f.path) == normalizePath(path)) f.copy(songs = f.songs + newSongs)
-                        else f
+                    if (idx >= 0) {
+                        remoteFolders[idx] = remoteFolders[idx].copy(songs = retained + newSongs)
                     }
 
                     allSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(newSongs)
@@ -737,14 +781,15 @@ object MusicLibrary {
                     songs, serverId
                 ) { updated ->
                     updateSongInFullList(updated)
-                    val path = updated.uri?.path?.substringBeforeLast('/') ?: return@startBackgroundScan
-                    val name = folderNameByPath[normalizePath(path)] ?: path.substringAfterLast('/')
-                    updateFolderSongs(serverId, name, updated)
+                    val uri = updated.uri?.toString() ?: return@startBackgroundScan
+                    val (_, path) = folderPathByUri[uri] ?: return@startBackgroundScan
+                    updateFolderSongs(serverId, path, updated)
                 }
             }
         }
 
         saveRemoteFoldersMeta()
+        folderListVersion++
         return result
     }
 

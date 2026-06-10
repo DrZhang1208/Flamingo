@@ -162,8 +162,17 @@ class YosBasicApplication : Application() {
                                                     uri = updated.uri?.toString() ?: "",
                                                     title = updated.title, artist = updated.artists,
                                                     album = updated.album,
+                                                    albumArtist = updated.albumArtists,
+                                                    genre = updated.genre,
                                                     year = updated.releaseYear ?: updated.recordingYear,
                                                     duration = if (updated.duration > 0) updated.duration else null,
+                                                    trackNumber = updated.trackNumber,
+                                                    discNumber = updated.discNumber,
+                                                    composer = updated.composer,
+                                                    bitrate = updated.bitrate,
+                                                    sampleRate = updated.sampleRate,
+                                                    channels = updated.channels,
+                                                    fileSize = updated.fileSize,
                                                     coverPath = updated.thumb?.toString()
                                                 )
                                             )

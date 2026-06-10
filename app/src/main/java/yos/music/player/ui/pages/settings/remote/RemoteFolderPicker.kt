@@ -124,9 +124,8 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             if (mounting) return@clickable
+                            mounting = true
                             scope.launch(Dispatchers.IO) {
-                                if (mounting) return@launch
-                                mounting = true
                                 try {
                                 // 防重复：用 allFolders（包含 serverId）确保检测到已挂载的远程文件夹
                                 val already = MusicLibrary.allFolders.any {
@@ -155,8 +154,8 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                 } else songs
                                 RemoteMetadataScanner.startBackgroundScan(scanQueue, serverId) { updated ->
                                     MusicLibrary.updateSongInFullList(updated)
-                                    MusicLibrary.updateFolderSongs(serverId, folderName, updated)
-                                    val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.name == folderName }
+                                    MusicLibrary.updateFolderSongs(serverId, currentPath, updated)
+                                    val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.path.trim('/') == currentPath.trim('/') }
                                     val isPlaying = MediaController.musicPlaying.value?.uri == updated.uri
                                     // 所有 UI 更新必须在主线程
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -168,12 +167,13 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                             val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
                                             if (!cached?.lyrics.isNullOrBlank()) {
                                                 val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
-                                            val lrc = lrcF.formatLrcEntries(cached!!.lyrics)
-                                            if (lrc.isNotEmpty()) MediaViewModelObject.lrcEntries.value = lrc
-                                            else {
-                                                val lines = cached.lyrics.lines().filter { it.isNotBlank() }
-                                                if (lines.isNotEmpty()) MediaViewModelObject.lrcEntries.value = listOf(lines.map { 0f to it })
-                                            }
+                                                val lrc = lrcF.formatLrcEntries(cached!!.lyrics)
+                                                if (lrc.isNotEmpty()) {
+                                                    MediaViewModelObject.lrcEntries.value = lrc
+                                                } else {
+                                                    val plain = lrcF.formatPlainLyricEntries(cached.lyrics)
+                                                    if (plain.isNotEmpty()) MediaViewModelObject.lrcEntries.value = plain
+                                                }
                                             }
                                         }
                                     }
@@ -182,7 +182,9 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     Toast.makeText(context, "已挂载「${folderName}」到资料库 (${songs.size} 首)", Toast.LENGTH_SHORT).show()
                                 }
                                 } finally {
-                                    mounting = false
+                                    withContext(Dispatchers.Main) {
+                                        mounting = false
+                                    }
                                 }
                             }
                         }.padding(horizontal = 16.dp, vertical = 14.dp),

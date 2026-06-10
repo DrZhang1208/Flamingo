@@ -371,25 +371,35 @@ object MediaController {
             title = result.title ?: cur.title,
             artist = result.artist ?: cur.artists,
             album = result.album ?: cur.album,
+            albumArtist = result.albumArtist ?: cur.albumArtists,
+            genre = result.genre ?: cur.genre,
             year = result.year ?: cur.releaseYear ?: cur.recordingYear,
             duration = if ((result.duration ?: 0) > 0) result.duration else null,
+            trackNumber = result.trackNumber ?: cur.trackNumber,
+            discNumber = result.discNumber ?: cur.discNumber,
+            composer = result.composer ?: cur.composer,
             coverPath = result.coverUri?.toString(),
             lyrics = result.lyrics,
-            bitrate = result.bitrate ?: cur.bitrate,
+            bitrate = AudioMetadataUtils.reliableBitrateKbps(result.bitrate ?: cur.bitrate, cur.fileSize, result.duration ?: cur.duration),
             sampleRate = result.sampleRate ?: cur.sampleRate,
-            channels = result.channels ?: cur.channels
+            channels = result.channels ?: cur.channels,
+            fileSize = cur.fileSize
         ))
+        val reliableBitrate = AudioMetadataUtils.reliableBitrateKbps(result.bitrate ?: cur.bitrate, cur.fileSize, result.duration ?: cur.duration)
         val newDuration = result.duration
         val u = cur.copy(
             title = result.title ?: cur.title,
             artists = result.artist ?: cur.artists,
             album = result.album ?: cur.album,
+            albumArtists = result.albumArtist ?: cur.albumArtists,
+            genre = result.genre ?: cur.genre,
+            composer = result.composer ?: cur.composer,
             thumb = result.coverUri ?: cur.thumb,
             releaseYear = result.year ?: cur.releaseYear,
             recordingYear = result.year ?: cur.recordingYear,
             trackNumber = result.trackNumber ?: cur.trackNumber,
             discNumber = result.discNumber ?: cur.discNumber,
-            bitrate = result.bitrate ?: cur.bitrate,
+            bitrate = reliableBitrate ?: result.bitrate ?: cur.bitrate,
             sampleRate = result.sampleRate ?: cur.sampleRate,
             channels = result.channels ?: cur.channels,
             tagScanStatus = "COMPLETE",
@@ -417,10 +427,11 @@ object MediaController {
                 yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                 yos.music.player.data.objects.MediaViewModelObject.cacheLrc(uri, e)
             } else {
-                val l = lyrics.lines().filter { it.isNotBlank() }
-                if (l.isNotEmpty()) {
-                    MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it })
+                val plain = lrcF.formatPlainLyricEntries(lyrics)
+                if (plain.isNotEmpty()) {
+                    MediaViewModelObject.lrcEntries.value = plain
                     yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
+                    yos.music.player.data.objects.MediaViewModelObject.cacheLrc(uri, plain)
                 }
             }
         }
@@ -702,7 +713,7 @@ class YosPlaybackService : MediaSessionService() {
                             if (!i.isTrackSelected(j)) continue
                             val trackFormat = i.getTrackFormat(j)
                             samplingRate = trackFormat.sampleRate
-                            bitrate = trackFormat.bitrate / 1000
+                            bitrate = AudioMetadataUtils.normalizeBitrateKbps(trackFormat.bitrate)
                             haveJOC =
                                 trackFormat.sampleMimeType?.contains("-joc", ignoreCase = true)
                                     ?: false
@@ -786,7 +797,8 @@ class YosPlaybackService : MediaSessionService() {
                             handler.post {
                                 if (player.currentMediaItem?.uri?.toString() != capturedUri) return@post
                                 if (samplingRate == 0) MediaViewModelObject.samplingRate.intValue = cur.sampleRate ?: 0
-                                if (bitrate == 0) MediaViewModelObject.bitrate.intValue = cur.bitrate ?: 0
+                                if (bitrate == 0) MediaViewModelObject.bitrate.intValue =
+                                    AudioMetadataUtils.reliableBitrateKbps(cur.bitrate, cur.fileSize, cur.duration) ?: 0
                             }
                         } else {
                             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
@@ -794,7 +806,8 @@ class YosPlaybackService : MediaSessionService() {
                                 handler.post {
                                     if (player.currentMediaItem?.uri?.toString() != capturedUri) return@post
                                     if (samplingRate == 0) MediaViewModelObject.samplingRate.intValue = cached?.sampleRate ?: 0
-                                    if (bitrate == 0) MediaViewModelObject.bitrate.intValue = cached?.bitrate ?: 0
+                                    if (bitrate == 0) MediaViewModelObject.bitrate.intValue =
+                                        AudioMetadataUtils.reliableBitrateKbps(cached?.bitrate, cached?.fileSize ?: cur?.fileSize, cached?.duration ?: cur?.duration) ?: 0
                                 }
                             }
                         }
@@ -802,17 +815,41 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 /** TAGLIB 来源可覆盖所有字段；其他来源永不覆盖已有数据 */
-                private fun applyTags(item: yos.music.player.data.libraries.YosMediaItem, source: String, title: String?, artist: String?, album: String?, thumb: android.net.Uri?, year: Int?, lyrics: String?, duration: Long? = null, trackNumber: Int? = null, discNumber: Int? = null) {
+                private fun applyTags(
+                    item: yos.music.player.data.libraries.YosMediaItem,
+                    source: String,
+                    title: String?,
+                    artist: String?,
+                    album: String?,
+                    thumb: android.net.Uri?,
+                    year: Int?,
+                    lyrics: String?,
+                    duration: Long? = null,
+                    trackNumber: Int? = null,
+                    discNumber: Int? = null,
+                    albumArtist: String? = null,
+                    genre: String? = null,
+                    composer: String? = null,
+                    bitrate: Int? = null,
+                    sampleRate: Int? = null,
+                    channels: Int? = null
+                ) {
                     val cur = musicPlaying.value ?: return
                     val overwrite = source != "EXOPLAYER"
                     val u = cur.copy(
                         title = if (overwrite && title != null) title else cur.title,
                         artists = if (overwrite && artist != null) artist else cur.artists,
                         album = if (overwrite && album != null) album else cur.album,
+                        albumArtists = if (overwrite && albumArtist != null) albumArtist else cur.albumArtists,
+                        genre = if (overwrite && genre != null) genre else cur.genre,
+                        composer = if (overwrite && composer != null) composer else cur.composer,
                         thumb = if (overwrite && thumb != null) thumb else cur.thumb,
                         releaseYear = year ?: cur.releaseYear, recordingYear = year ?: cur.recordingYear,
                         trackNumber = if (overwrite && trackNumber != null) trackNumber else cur.trackNumber,
                         discNumber = if (overwrite && discNumber != null) discNumber else cur.discNumber,
+                            bitrate = AudioMetadataUtils.reliableBitrateKbps(bitrate ?: cur.bitrate, cur.fileSize, duration ?: cur.duration) ?: bitrate ?: cur.bitrate,
+                        sampleRate = sampleRate ?: cur.sampleRate,
+                        channels = channels ?: cur.channels,
                         tagScanStatus = if (overwrite) "COMPLETE" else cur.tagScanStatus,
                         duration = if (overwrite && duration != null && duration > 0 && duration != cur.duration) duration else cur.duration
                     )
@@ -839,15 +876,38 @@ class YosPlaybackService : MediaSessionService() {
                             MediaViewModelObject.lrcEntries.value = e
                             yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                             yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
+                        } else {
+                            val plain = lrcF.formatPlainLyricEntries(lyrics)
+                            if (plain.isNotEmpty()) {
+                                MediaViewModelObject.lrcEntries.value = plain
+                                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
+                                yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), plain)
+                            }
                         }
-                        else { val l = lyrics.lines().filter { it.isNotBlank() }; if (l.isNotEmpty()) {
-                            MediaViewModelObject.lrcEntries.value = listOf(l.map { 0f to it })
-                            yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
-                            yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
-                        } }
                     }
-                    if (item.serverId != null) yos.music.player.data.remote.RemoteTagDatabase.put(item.uri?.toString() ?: "", yos.music.player.data.remote.CachedTags(
-                        uri = item.uri?.toString() ?: "", title = u.title, artist = u.artists, album = u.album, coverPath = u.thumb?.toString(), lyrics = lyrics))
+                    if (item.serverId != null) {
+                        val tagUri = item.uri?.toString() ?: ""
+                        val cachedForMerge = yos.music.player.data.remote.RemoteTagDatabase.get(tagUri)
+                        yos.music.player.data.remote.RemoteTagDatabase.put(tagUri, yos.music.player.data.remote.CachedTags(
+                            uri = tagUri,
+                            title = u.title,
+                            artist = u.artists,
+                            album = u.album,
+                            albumArtist = u.albumArtists,
+                            genre = u.genre,
+                            year = u.releaseYear ?: u.recordingYear,
+                            duration = if (u.duration > 0) u.duration else null,
+                            trackNumber = u.trackNumber,
+                            discNumber = u.discNumber,
+                            composer = u.composer,
+                            coverPath = u.thumb?.toString() ?: cachedForMerge?.coverPath,
+                            lyrics = lyrics ?: cachedForMerge?.lyrics,
+                            bitrate = u.bitrate,
+                            sampleRate = u.sampleRate,
+                            channels = u.channels,
+                            fileSize = u.fileSize
+                        ))
+                    }
                     yos.music.player.data.objects.LibraryObject.updateSongInTargetList(u)
                 }
 
@@ -884,20 +944,39 @@ class YosPlaybackService : MediaSessionService() {
                                 yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
                                 musicPlaying.value = yosItem
                                 if (hasTags) {
-                                    applyTags(yosItem, "DB_CACHE", cached!!.title, cached.artist, cached.album, coverUri, cached.year, cached.lyrics, cached.duration)
+                                    applyTags(
+                                        yosItem,
+                                        "DB_CACHE",
+                                        cached!!.title,
+                                        cached.artist,
+                                        cached.album,
+                                        coverUri,
+                                        cached.year,
+                                        cached.lyrics,
+                                        cached.duration,
+                                        cached.trackNumber,
+                                        cached.discNumber,
+                                        cached.albumArtist,
+                                        cached.genre,
+                                        cached.composer,
+                                        cached.bitrate,
+                                        cached.sampleRate,
+                                        cached.channels
+                                    )
                                 }
                                 // 从缓存恢复质量信息，避免后台扫描结果丢失
                                 val q = cached
                                 if (q != null && ((q.bitrate ?: 0) > 0 || (q.sampleRate ?: 0) > 0)) {
                                     val updated = (musicPlaying.value ?: yosItem).copy(
-                                        bitrate = q.bitrate ?: yosItem.bitrate,
+                                        bitrate = AudioMetadataUtils.reliableBitrateKbps(q.bitrate ?: yosItem.bitrate, q.fileSize ?: yosItem.fileSize, q.duration ?: yosItem.duration) ?: q.bitrate ?: yosItem.bitrate,
                                         sampleRate = q.sampleRate ?: yosItem.sampleRate,
                                         channels = q.channels ?: yosItem.channels
                                     )
                                     musicPlaying.value = updated
                                     MusicLibrary.updateSongInFullList(updated)
                                     MediaViewModelObject.samplingRate.intValue = q.sampleRate ?: 0
-                                    MediaViewModelObject.bitrate.intValue = q.bitrate ?: 0
+                                    MediaViewModelObject.bitrate.intValue =
+                                        AudioMetadataUtils.reliableBitrateKbps(q.bitrate, q.fileSize ?: yosItem.fileSize, q.duration ?: yosItem.duration) ?: 0
                                 }
                             }
                             // 始终后台提取最新标签（远程文件标签可能已更新），缓存先展示
@@ -923,13 +1002,19 @@ class YosPlaybackService : MediaSessionService() {
                             title = result.title ?: item.title,
                             artist = result.artist ?: item.artists,
                             album = result.album ?: item.album,
+                            albumArtist = result.albumArtist ?: item.albumArtists,
+                            genre = result.genre ?: item.genre,
                             year = result.year ?: item.releaseYear ?: item.recordingYear,
                             duration = if ((result.duration ?: 0) > 0) result.duration else null,
+                            trackNumber = result.trackNumber ?: item.trackNumber,
+                            discNumber = result.discNumber ?: item.discNumber,
+                            composer = result.composer ?: item.composer,
                             coverPath = result.coverUri?.toString(),
                             lyrics = result.lyrics,
-                            bitrate = result.bitrate,
+                            bitrate = AudioMetadataUtils.reliableBitrateKbps(result.bitrate, item.fileSize, result.duration ?: item.duration),
                             sampleRate = result.sampleRate,
-                            channels = result.channels
+                            channels = result.channels,
+                            fileSize = item.fileSize
                         ))
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (musicPlaying.value?.uri != item.uri) return@withContext
@@ -940,12 +1025,20 @@ class YosPlaybackService : MediaSessionService() {
                                 result.artist ?: item.artists,
                                 result.album ?: item.album,
                                 result.coverUri, result.year, result.lyrics,
-                                result.duration)
+                                result.duration,
+                                result.trackNumber,
+                                result.discNumber,
+                                result.albumArtist,
+                                result.genre,
+                                result.composer,
+                                result.bitrate,
+                                result.sampleRate,
+                                result.channels)
                             // 同步更新质量信息到 musicPlaying
                             val q = musicPlaying.value
                             if (q != null && ((result.bitrate ?: 0) > 0 || (result.sampleRate ?: 0) > 0 || (result.channels ?: 0) > 0)) {
                                 musicPlaying.value = q.copy(
-                                    bitrate = result.bitrate ?: q.bitrate,
+                                    bitrate = AudioMetadataUtils.reliableBitrateKbps(result.bitrate ?: q.bitrate, q.fileSize, result.duration ?: q.duration) ?: result.bitrate ?: q.bitrate,
                                     sampleRate = result.sampleRate ?: q.sampleRate,
                                     channels = result.channels ?: q.channels
                                 )

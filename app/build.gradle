@@ -10,7 +10,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "yos.music.player"
+        applicationId "com.flamingo.player"
         minSdk 23
         targetSdk 34
         versionCode 6

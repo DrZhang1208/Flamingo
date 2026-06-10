@@ -76,7 +76,7 @@ fun LibraryOverview(navController: NavController) =
             yosRoundColumn {
                 itemsIndexed(
                     folders,
-                    key = { index, folder -> "${index}_${folder.path}_${folder.serverId}" }
+                    key = { _, folder -> "${folder.serverId ?: "local"}_${folder.path}" }
                 ) { index, folder ->
                     FolderItem(folder = folder) {
                         val targetTitle = folder.name
@@ -113,7 +113,6 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
 
     Row(
         modifier = Modifier
-            .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .height(80.dp)
             .fillMaxWidth()
             .padding(start = 22.dp, end = 10.dp),
@@ -192,9 +191,9 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
                     content = null,
                     positiveContent = "卸载",
                     onPositive = {
-                        scope.launch(Dispatchers.IO) {
-                            MusicLibrary.unmountRemoteFolder(folder.name, folder.serverId ?: "")
-                            withContext(Dispatchers.Main) { showUnmount = false }
+                        scope.launch {
+                            MusicLibrary.unmountRemoteFolder(folder.serverId ?: "", folder.path)
+                            showUnmount = false
                         }
                     },
                     negativeContent = "取消",

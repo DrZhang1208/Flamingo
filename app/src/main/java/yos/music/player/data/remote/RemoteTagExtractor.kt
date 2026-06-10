@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
+import yos.music.player.code.AudioMetadataUtils
 
 /**
  * 远程文件标签统一提取器——播放和扫描共用此入口。
@@ -104,7 +105,7 @@ object RemoteTagExtractor {
                 trackNumber = map["TRACKNUMBER"]?.lastOrNull()?.toIntOrNull()
                 discNumber = map["DISCNUMBER"]?.lastOrNull()?.toIntOrNull()
                 composer = map["COMPOSER"]?.lastOrNull()
-                bitrate = props?.bitrate
+                bitrate = AudioMetadataUtils.normalizeBitrateKbps(props?.bitrate)
                 sampleRate = props?.sampleRate
                 channels = props?.channels
                 val uslt = map.entries.firstOrNull { (k, _) ->

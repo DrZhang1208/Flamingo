@@ -249,7 +249,7 @@ fun AlbumInfo(
                     }
                     itemsIndexed(
                         discSongs.sortedWith(compareBy({ it.trackNumber ?: 0 }, { it.title })),
-                        key = { idx, music -> "disc${disc}_${idx}_${music.uri}" }
+                        key = { idx, music -> "disc${disc}_${music.uri?.toString() ?: music.mediaId ?: "album_song_$idx"}" }
                     ) { index, music ->
                         key(music) {
                             AlbumSongsItem(

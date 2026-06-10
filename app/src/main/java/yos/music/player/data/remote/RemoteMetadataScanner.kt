@@ -8,6 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import yos.music.player.data.libraries.YosMediaItem
 
 /**
@@ -69,7 +70,8 @@ object RemoteMetadataScanner {
                 albumArtists = null,
                 cdTrackNumber = null,
                 serverId = serverConfig.id,
-                tagScanStatus = "PENDING"
+                tagScanStatus = "PENDING",
+                fileSize = rf.size
             )
         }
     }
@@ -86,17 +88,13 @@ object RemoteMetadataScanner {
     ) {
         scanJob?.cancel()
         scanJob = scope.launch {
-            val pending = items.filter { it.tagScanStatus == "PENDING" }
-            // 包含未达重试上限的 FAILED 项
-            val recoverableUris = RemoteRetryManager.getPendingBackgroundRetries(serverId)
-                .map { it.uri }.toSet()
-            val failedRetry = items.filter {
-                it.tagScanStatus == "FAILED" && it.uri?.toString() in recoverableUris
+            val pending = items.filter {
+                it.tagScanStatus == "PENDING" || RemoteRetryManager.isRecoverable(it.tagScanStatus)
             }
             val completeRetry = if (forceRescan) {
                 items.filter { it.tagScanStatus == "COMPLETE" || it.tagScanStatus == null }
             } else emptyList()
-            val toProcess = (pending + failedRetry + completeRetry).distinctBy { it.uri?.toString() }
+            val toProcess = (pending + completeRetry).distinctBy { it.uri?.toString() }
             if (toProcess.isEmpty()) return@launch
 
             _scanProgress.value = ScanProgress(serverId, toProcess.size, 0, "", true)
@@ -108,6 +106,12 @@ object RemoteMetadataScanner {
 
                 try {
                     val result = RemoteTagExtractor.extract(serverId, path, uri)
+                    val duration = result.duration ?: item.duration
+                    val bitrate = yos.music.player.code.AudioMetadataUtils.reliableBitrateKbps(
+                        result.bitrate ?: item.bitrate,
+                        item.fileSize,
+                        duration.takeIf { it > 0L }
+                    )
                     val updated = item.copy(
                         duration = result.duration ?: item.duration,
                         title = result.title ?: item.title,
@@ -121,7 +125,7 @@ object RemoteMetadataScanner {
                         discNumber = result.discNumber ?: item.discNumber,
                         composer = result.composer ?: item.composer,
                         thumb = result.coverUri ?: item.thumb,
-                        bitrate = result.bitrate ?: item.bitrate,
+                        bitrate = bitrate ?: result.bitrate ?: item.bitrate,
                         sampleRate = result.sampleRate ?: item.sampleRate,
                         channels = result.channels ?: item.channels,
                         tagScanStatus = "COMPLETE"
@@ -131,22 +135,32 @@ object RemoteMetadataScanner {
                         title = updated.title,
                         artist = updated.artists,
                         album = updated.album,
+                        albumArtist = updated.albumArtists,
+                        genre = updated.genre,
                         year = updated.releaseYear ?: updated.recordingYear,
                         duration = if (updated.duration > 0) updated.duration else null,
+                        trackNumber = updated.trackNumber,
+                        discNumber = updated.discNumber,
+                        composer = updated.composer,
                         coverPath = result.coverUri?.toString(),
                         lyrics = result.lyrics,
-                        bitrate = result.bitrate,
+                        bitrate = updated.bitrate,
                         sampleRate = result.sampleRate,
-                        channels = result.channels
+                        channels = result.channels,
+                        fileSize = updated.fileSize
                     ))
                     RemoteRetryManager.onBackgroundScanSuccess(uri)
-                    onItemUpdated(updated)
+                    withContext(Dispatchers.Main) {
+                        onItemUpdated(updated)
+                    }
                 } catch (_: Exception) {
                     val failCount = RemoteRetryManager.onBackgroundScanFailed(uri, serverId, path)
                     val newStatus = if (failCount >= RemoteRetryManager.MAX_BACKGROUND_RETRIES) "FAILED"
                         else RemoteRetryManager.encodeFailStatus(failCount)
                     val failed = item.copy(tagScanStatus = newStatus)
-                    onItemUpdated(failed)
+                    withContext(Dispatchers.Main) {
+                        onItemUpdated(failed)
+                    }
                 }
             }
 

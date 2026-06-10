@@ -1109,7 +1109,7 @@ private fun PlayingList(
                             }
                             itemsIndexed(
                                 musicList.value ?: emptyList(),
-                                key = { index, music -> "${index}_${music.uri}" }
+                                key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "queue_$index" }
                             ) { _, music ->
                                 SmallMusicListItem(
                                     music, navController

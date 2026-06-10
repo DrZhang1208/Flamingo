@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
 import yos.music.player.data.remote.ServerConfig
 import yos.music.player.data.remote.ServerType
@@ -295,7 +296,9 @@ fun RemoteServerManagement(navController: NavController) {
             positiveContent = "删除",
             onPositive = {
                 deleteTarget?.let { s ->
+                    RemoteMetadataScanner.cancelScan()
                     RemoteServerManager.disconnect(s.id)
+                    MusicLibrary.unmountRemoteServer(s.id)
                     RemoteServerManager.removeServer(s.id)
                     MusicLibrary.saveRemoteServers(RemoteServerManager.saveConfigs())
                     refreshKey++

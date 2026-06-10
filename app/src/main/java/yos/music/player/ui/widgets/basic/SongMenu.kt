@@ -315,31 +315,41 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
     val filePath = music.uri?.path
     var info by remember(filePath) { mutableStateOf<yos.music.player.code.AudioMetadataUtils.AudioFileInfo?>(null) }
     var yearFromFile by remember(filePath) { mutableStateOf<Int?>(null) }
+    var cachedTags by remember(music.uri) { mutableStateOf<yos.music.player.data.remote.CachedTags?>(null) }
     val playCount = remember(music.uri) {
         yos.music.player.data.libraries.MusicLibrary.getPlayCount(music.uri)
     }
 
     LaunchedEffect(filePath) {
         if (filePath != null) {
-            val (fileInfo, year) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val (remoteCached, fileInfo, year) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 if (music.serverId != null) {
+                    val cached = yos.music.player.data.remote.RemoteTagDatabase.get(music.uri?.toString() ?: "")
                     // 远程歌曲：从 YosMediaItem 字段构建 AudioFileInfo，不读本地文件
                     val format = music.mimeType?.substringAfterLast("/")?.uppercase()
                         ?: music.uri?.path?.substringAfterLast(".")?.uppercase() ?: ""
-                    yos.music.player.code.AudioMetadataUtils.AudioFileInfo(
-                        bitrate = music.bitrate,
-                        sampleRate = music.sampleRate,
-                        channels = music.channels,
+                    Triple(cached, yos.music.player.code.AudioMetadataUtils.AudioFileInfo(
+                        bitrate = yos.music.player.code.AudioMetadataUtils.reliableBitrateKbps(
+                            cached?.bitrate ?: music.bitrate,
+                            cached?.fileSize ?: music.fileSize,
+                            cached?.duration ?: music.duration
+                        ),
+                        sampleRate = cached?.sampleRate ?: music.sampleRate,
+                        channels = cached?.channels ?: music.channels,
                         bitsPerSample = null,
                         fileSize = 0L,
                         format = format,
                         source = "WebDAV"
-                    ) to (music.releaseYear ?: music.recordingYear)
+                    ), cached?.year ?: music.releaseYear ?: music.recordingYear)
                 } else {
-                    yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath) to
-                            yos.music.player.code.AudioMetadataUtils.getYear(filePath)
+                    Triple(
+                        null,
+                        yos.music.player.code.AudioMetadataUtils.getAudioFileInfo(filePath),
+                        yos.music.player.code.AudioMetadataUtils.getYear(filePath)
+                    )
                 }
             }
+            cachedTags = remoteCached
             info = fileInfo
             yearFromFile = year
         }
@@ -350,15 +360,19 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
         title = "歌曲信息",
         content = {
             Column(Modifier.padding(horizontal = 16.dp)) {
-                DetailRow("标题", music.title ?: defaultTitle)
-                DetailRow("艺术家", music.artistsName ?: "未知艺术家")
-                music.album?.let { DetailRow("专辑", it) }
+                val cached = cachedTags
+                DetailRow("标题", cached?.title ?: music.title ?: defaultTitle)
+                DetailRow("艺术家", cached?.artist ?: music.artistsName ?: "未知艺术家")
+                (cached?.album ?: music.album)?.let { DetailRow("专辑", it) }
+                (cached?.albumArtist ?: music.albumArtists)?.let { DetailRow("专辑艺人", it) }
+                (cached?.genre ?: music.genre)?.let { DetailRow("流派", it) }
+                (cached?.composer ?: music.composer)?.let { DetailRow("作曲", it) }
                 DetailRow("时长", formatDuration(music.duration))
                 DetailRow("播放次数", "${playCount}")
-                val itemYear = music.releaseYear ?: music.recordingYear ?: yearFromFile
+                val itemYear = cached?.year ?: music.releaseYear ?: music.recordingYear ?: yearFromFile
                 if (itemYear != null) DetailRow("年份", "$itemYear")
-                music.trackNumber?.let { DetailRow("音轨号", "$it") }
-                music.discNumber?.let { DetailRow("碟号", "$it") }
+                (cached?.trackNumber ?: music.trackNumber)?.let { DetailRow("音轨号", "$it") }
+                (cached?.discNumber ?: music.discNumber)?.let { DetailRow("碟号", "$it") }
                 val fileInfo = info
                 if (fileInfo != null) {
                     if (fileInfo.bitrate != null && fileInfo.bitrate > 0) DetailRow("比特率", "${fileInfo.bitrate} kbps")

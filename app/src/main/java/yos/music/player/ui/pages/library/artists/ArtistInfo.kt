@@ -148,7 +148,7 @@ fun ArtistInfo(navController: NavController) {
 
         item { ArtistDivider() }
 
-        itemsIndexed(songs.value, key = { index, music -> "${index}_${music.uri}" }) { index, music ->
+        itemsIndexed(songs.value, key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "artist_song_$index" }) { index, music ->
             key(music) {
                 ArtistSongsItem(music, artistName.value) {
                     scope.launch(Dispatchers.IO) { MediaController.prepare(music, songs.value) }

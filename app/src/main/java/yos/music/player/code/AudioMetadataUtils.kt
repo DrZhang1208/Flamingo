@@ -10,8 +10,40 @@ import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
 import java.io.File
 import java.nio.charset.Charset
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 object AudioMetadataUtils {
+    fun normalizeBitrateKbps(rawBitrate: Int?): Int? {
+        val bitrate = rawBitrate ?: return null
+        if (bitrate <= 0) return null
+        return when {
+            bitrate >= 100_000 -> bitrate / 1000
+            else -> bitrate
+        }
+    }
+
+    fun normalizeBitrateKbps(rawBitrate: Int): Int =
+        normalizeBitrateKbps(rawBitrate as Int?) ?: -1
+
+    fun estimateBitrateKbps(fileSizeBytes: Long?, durationMs: Long?): Int? {
+        val size = fileSizeBytes ?: return null
+        val duration = durationMs ?: return null
+        if (size <= 0L || duration <= 0L) return null
+        return ((size * 8.0) / duration).roundToInt().takeIf { it > 0 }
+    }
+
+    fun reliableBitrateKbps(rawBitrate: Int?, fileSizeBytes: Long?, durationMs: Long?): Int? {
+        val normalized = normalizeBitrateKbps(rawBitrate)
+        val estimated = estimateBitrateKbps(fileSizeBytes, durationMs)
+        return when {
+            normalized != null && normalized in 1..20 && estimated != null -> estimated
+            normalized != null && estimated != null && normalized >= 1000 && normalized % 1000 == 0 &&
+                    abs(normalized - estimated) > 50 -> estimated
+            else -> normalized ?: estimated
+        }
+    }
+
     private inline fun <T> runWithDetachedFd(file: File, block: (Int) -> T): T? {
         return runCatching {
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
@@ -176,12 +208,15 @@ object AudioMetadataUtils {
         val songFile = File(filePath)
         var bitrate: Int
         var sampleRate: Int
+        var durationMs: Long? = null
 
         val tagLibResult = runCatching {
             if (!songFile.exists()) return@runCatching (-1 to -1)
             runWithDetachedFd(songFile) { fd ->
                 val audioProperties = TagLib.getAudioProperties(fd, AudioPropertiesReadStyle.Fast)
-                (audioProperties?.bitrate ?: -1) to (audioProperties?.sampleRate ?: -1)
+                val rawLength = audioProperties?.length?.toLong() ?: 0L
+                durationMs = if (rawLength in 1..10000) rawLength * 1000L else rawLength.takeIf { it > 0L }
+                (reliableBitrateKbps(audioProperties?.bitrate, songFile.length(), durationMs) ?: -1) to (audioProperties?.sampleRate ?: -1)
             } ?: (-1 to -1)
         }.getOrElse { (-1 to -1) }
 
@@ -195,7 +230,7 @@ object AudioMetadataUtils {
                 if (extractor.trackCount > 0) {
                     val format = extractor.getTrackFormat(0)
                     if (bitrate == -1 && format.containsKey(MediaFormat.KEY_BIT_RATE)) {
-                        bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE)
+                        bitrate = reliableBitrateKbps(format.getInteger(MediaFormat.KEY_BIT_RATE), songFile.length(), durationMs) ?: -1
                     }
                     if (sampleRate == -1 && format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
                         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -226,6 +261,7 @@ object AudioMetadataUtils {
         var sampleRate: Int? = null
         var channels: Int? = null
         var bitsPerSample: Int? = null
+        var durationMs: Long? = null
 
         // Try TagLib for audio properties
         runCatching {
@@ -233,7 +269,9 @@ object AudioMetadataUtils {
                 val props = runWithDetachedFd(file) { fd ->
                     TagLib.getAudioProperties(fd, AudioPropertiesReadStyle.Fast)
                 }
-                bitrate = props?.bitrate
+                val rawLength = props?.length?.toLong() ?: 0L
+                durationMs = if (rawLength in 1..10000) rawLength * 1000L else rawLength.takeIf { it > 0L }
+                bitrate = reliableBitrateKbps(props?.bitrate, file.length(), durationMs)
                 sampleRate = props?.sampleRate
                 channels = props?.channels
             }
@@ -244,7 +282,9 @@ object AudioMetadataUtils {
             val extractor = MediaExtractor()
             extractor.setDataSource(filePath)
             val format = extractor.getTrackFormat(0)
-            if (bitrate == null) bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE)
+            if (bitrate == null && format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                bitrate = reliableBitrateKbps(format.getInteger(MediaFormat.KEY_BIT_RATE), file.length(), durationMs)
+            }
             if (sampleRate == null) sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             if (channels == null) channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             // Try to get PCM encoding for bit depth

@@ -4,19 +4,26 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
+import yos.music.player.code.AudioMetadataUtils
 
 data class CachedTags(
     val uri: String,
     val title: String? = null,
     val artist: String? = null,
     val album: String? = null,
+    val albumArtist: String? = null,
+    val genre: String? = null,
     val year: Int? = null,
     val duration: Long? = null,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
+    val composer: String? = null,
     val coverPath: String? = null,
     val lyrics: String? = null,
     val bitrate: Int? = null,
     val sampleRate: Int? = null,
     val channels: Int? = null,
+    val fileSize: Long? = null,
     val updatedAt: Long = System.currentTimeMillis() / 1000
 )
 
@@ -29,7 +36,10 @@ object RemoteTagDatabase {
 
     fun get(uri: String): CachedTags? {
         val json = mmkv.decodeString(uri) ?: return null
-        return try { gson.fromJson(json, CachedTags::class.java) } catch (_: Exception) { null }
+        return try {
+            gson.fromJson(json, CachedTags::class.java)
+                ?.let { it.copy(bitrate = AudioMetadataUtils.reliableBitrateKbps(it.bitrate, it.fileSize, it.duration)) }
+        } catch (_: Exception) { null }
     }
 
     fun put(uri: String, tags: CachedTags) {

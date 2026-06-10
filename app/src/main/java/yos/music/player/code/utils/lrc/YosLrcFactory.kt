@@ -3,8 +3,11 @@ package yos.music.player.code.utils.lrc
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.compose.ui.util.fastJoinToString
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.objects.MediaViewModelObject
+import java.io.StringReader
 import kotlin.math.abs
 
 /**
@@ -32,161 +35,16 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         }
     }*/
     fun formatLrcEntries(lrcText: String): List<List<Pair<Float, String>>> {
-        // Strip content before first timestamp and after last timestamp
-        val timestampRegex = Regex("""\[\d{2}:\d{2}\.\d{2,3}]""")
-        val cleanText = run {
-            val firstTs = timestampRegex.find(lrcText)?.range?.first ?: 0
-            var result = lrcText.substring(firstTs)
-            // Find last valid timestamp line
-            val lines = result.lines()
-            val lastTsIndex = lines.indexOfLast { timestampRegex.containsMatchIn(it) }
-            if (lastTsIndex >= 0) {
-                result = lines.take(lastTsIndex + 1).joinToString("\n")
-            }
-            result
+        val parsedPairs = when {
+            lrcText.contains("<tt", ignoreCase = true) -> parseTtml(lrcText)
+            krcFormattedLineRegex.containsMatchIn(lrcText) -> parseKrc(lrcText)
+            yrcFormattedLineRegex.containsMatchIn(lrcText) -> parseYrc(lrcText)
+            qrcFormattedLineRegex.containsMatchIn(lrcText) -> parseQrc(lrcText)
+            lyricifySyllableLineRegex.containsMatchIn(lrcText) -> parseLyricifySyllable(lrcText)
+            lyricifyLineRegex.containsMatchIn(lrcText) -> parseLyricifyLines(lrcText)
+            else -> parseLrcLike(lrcText)
         }
-        // Filter out metadata lines but keep timestamp lines
-        val lrcLines = cleanText.lines().filter { line ->
-            val trimmed = line.trim()
-            if (trimmed.isEmpty()) return@filter true
-            // Keep all lines that have timestamps
-            if (timestampRegex.containsMatchIn(trimmed)) return@filter true
-            // Skip LRC metadata tags: [ti:...], [ar:...], etc.
-            if (trimmed.matches(Regex("""^\[(ti|ar|al|by|length|offset|re|ve|la|_)\s*:.*""", RegexOption.IGNORE_CASE))) return@filter false
-            // Skip KEY=VALUE or KEY:VALUE lines without timestamps
-            if (trimmed.matches(Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE))) return@filter false
-            // Skip other non-timestamp lines
-            false
-        }
-        val timeLyricPairs = mutableListOf<MutableList<Pair<Float, String>>>()
-        lrcLines.fastForEachIndexed { index, line ->
-            //将文本中完全相同而且重复的两个时间轴修改为一个
-            //比如[12:34.56][12:34.56]改为[12:34.56]
-            var remainingLine =
-                line.replace(Regex("([\\[\\]]){2,}"), "$1").replace(Regex("<([^>]+)>"), "[$1]")
-                    .replace(Regex("(\\[\\d{2}:\\d{2}\\.\\d{2,3}]){2,}"), "$1")
-            // println("歌词处理：$remainingLine")
-            val currentLinePairs = mutableListOf<Pair<Float, String>>()
-            while (remainingLine.isNotEmpty()) {
-                /*val timeIndex = remainingLine.indexOf("]")
-                if (timeIndex == -1) break
-                val timeText = remainingLine.substring(1, timeIndex)
-                val timeParts = timeText.split(":")
-                if (timeParts.size != 2) break
-                val minutes = timeParts[0].toIntOrNull() ?: break
-                val seconds = timeParts[1].toFloatOrNull() ?: break
-                val time = (minutes * 60 + seconds) * 1000
-                remainingLine = remainingLine.substring(timeIndex + 1)
-                val nextTimeIndex = remainingLine.indexOf("[")
-                val lyric = if (nextTimeIndex != -1) {
-                    remainingLine.substring(0, nextTimeIndex)
-                } else {
-                    remainingLine
-                }*/
-
-                val timeIndex = remainingLine.indexOf("[")
-                if (timeIndex == -1) break
-                val timeAfter = remainingLine.indexOf("]")
-                if (timeAfter == -1) break
-                val timeText = remainingLine.substring(timeIndex + 1, timeAfter)
-                val timeParts = timeText.split(":")
-                if (timeParts.size != 2) break
-                val minutes = timeParts[0].toIntOrNull() ?: break
-                val seconds = timeParts[1].toFloatOrNull() ?: break
-                val time = (minutes * 60 + seconds) * 1000
-
-                if (remainingLine.substring(timeAfter + 1, remainingLine.length)
-                        .isBlank() && remainingLine.substring(0, timeIndex).isBlank()
-                ) {
-                    // 检查下一行的时间差
-                    if (index + 1 < lrcLines.size) {
-                        val nextLine = lrcLines[index + 1]
-                        val nextTimeIndex = nextLine.indexOf("[")
-                        val nextTimeAfter = nextLine.indexOf("]")
-                        if (nextTimeIndex != -1 && nextTimeAfter != -1) {
-                            val nextTimeText = nextLine.substring(nextTimeIndex + 1, nextTimeAfter)
-                            val nextTimeParts = nextTimeText.split(":")
-                            if (nextTimeParts.size == 2) {
-                                val nextMinutes = nextTimeParts[0].toIntOrNull()
-                                val nextSeconds = nextTimeParts[1].toFloatOrNull()
-                                if (nextMinutes != null && nextSeconds != null) {
-                                    val nextTime = (nextMinutes * 60 + nextSeconds) * 1000
-                                    if (nextTime - time <= 4200) {
-                                        // 忽略当前行的处理，进行下一行的处理
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // 这是最后一行，且为空行
-                        break
-                    }
-                }
-
-                val nextTimeIndex = remainingLine.substring(timeAfter + 1).indexOf("[")
-
-                // 逐行起始或逐字末尾
-                var lyric = remainingLine.substring(0, timeIndex)
-
-                if (lyric.isEmpty()) {
-                    // 句子起始
-                    lyric = ""
-                    currentLinePairs.add(time to lyric.replace(Regex("(?!\\n)\\s+"), " "))
-                } else {
-                    // 正常句子成分
-                    if (/*lyric.isNotBlank() && */lyric.trim() != "//") {
-                        currentLinePairs.add(
-                            time to lyric.replace(Regex("(?!\\n)\\s+"), " ")
-                        )
-                    }
-                }
-
-                remainingLine = remainingLine.substring(timeAfter + 1)
-                if (nextTimeIndex == -1) {
-                    if (lyric == "") {
-                        currentLinePairs.add(
-                            time to remainingLine.replace("//", "").replace(
-                                Regex("(?!\\n)\\s+"),
-                                " "
-                            )/*.trim()*/
-                        )
-                    }
-                    remainingLine = ""
-                }
-            }
-            if (currentLinePairs.isNotEmpty()) {
-                val existingList =
-                    timeLyricPairs.find { it.first().first == currentLinePairs.first().first }
-                if (existingList != null) {
-                    // 相同时间戳的行视为翻译，将翻译文本填入 sentinel 槽位
-                    // currentLinePairs 结构: [(time, ""), (time, "text"), ...] 或 [(time, "text"), ...]
-                    // 需要取非空的文本内容
-                    val translationText = currentLinePairs
-                        .firstOrNull { it.second.isNotEmpty() }
-                        ?.second.orEmpty()
-                    if (translationText.isNotEmpty()) {
-                        existingList[existingList.size - 1] =
-                            existingList.last().first to translationText
-                    }
-                } else {
-                    currentLinePairs.add(currentLinePairs[0].first to "")
-                    timeLyricPairs.add(currentLinePairs)
-                }
-            }
-        }
-        val filteredPairs = timeLyricPairs.filter { entry ->
-            if (entry.isEmpty()) return@filter false
-            val hasTimestamp = entry.any { it.first > 0f && it.second.isNotEmpty() }
-            if (!hasTimestamp) return@filter false
-            val text = entry.fastJoinToString(separator = "") { it.second }.trim().uppercase()
-            !text.startsWith("TITLE=") && !text.startsWith("ARTIST=") &&
-                !text.startsWith("ALBUM=") && !text.startsWith("GENRE=") &&
-                !text.startsWith("DATE=") && !text.startsWith("YEAR=") &&
-                !text.startsWith("TRACK=") && !text.startsWith("COMPOSER=") &&
-                !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
-                !text.startsWith("LENGTH=")
-        }
+        val filteredPairs = normalizeParsedLines(applyOffset(parsedPairs, extractOffsetMs(lrcText)))
         // 关闭逐字歌词时，将逐字时间戳折叠为逐行
         val result = if (!SettingsLibrary.EnableWordByWordLyric) {
             filteredPairs.map { line ->
@@ -200,6 +58,447 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         } else filteredPairs
         return processOtherSide(result)
     }
+
+    fun formatPlainLyricEntries(lyricText: String): List<List<Pair<Float, String>>> {
+        val text = lyricText.lines()
+            .map { cleanLyricText(it) }
+            .filter { it.isNotBlank() && it != "//" }
+            .joinToString("\n")
+            .takeIf { it.isNotBlank() }
+            ?: return emptyList()
+        return processOtherSide(listOf(mutableListOf(0f to "", 0f to text, 0f to "")))
+    }
+
+    private data class LyricSegment(val startMs: Float, val endMs: Float, val text: String)
+    private data class MutableTtmlSpan(val startMs: Float, val endMs: Float, val text: StringBuilder = StringBuilder())
+
+    private val timeTextRegex = Regex("""\d{1,3}:\d{2}(?:\.\d{1,3})?""")
+    private val lrcTimeTagRegex = Regex("""\[(\d{1,3}:\d{2}(?:\.\d{1,3})?)]""")
+    private val inlineTimeTagRegex = Regex("""[<\[](\d{1,3}:\d{2}(?:\.\d{1,3})?)[>\]]""")
+    private val offsetRegex = Regex("""(?m)^\s*\[offset\s*:\s*([+-]?\d+)]\s*$""", RegexOption.IGNORE_CASE)
+    private val metadataRegex = Regex("""^\[(ti|ar|al|by|length|offset|re|ve|la|_|tool|offset)\s*:.*]$""", RegexOption.IGNORE_CASE)
+    private val keyValueRegex = Regex("""^[A-Za-z_]+\s*[=＝:：].*""", RegexOption.IGNORE_CASE)
+    private val yrcLineRegex = Regex("""\[(\d+),(\d+)]""")
+    private val yrcWordRegex = Regex("""\((\d+),(\d+)(?:,\d+)?\)([^()]*)""")
+    private val yrcFormattedLineRegex = Regex("""(?m)^\s*\[\d+,\d+]\s*\(\d+,\d+(?:,\d+)?\)""")
+    private val qrcLineRegex = Regex("""\[(\d+),(\d+)]""")
+    private val qrcWordRegex = Regex("""([^()\[\]]+?)\((\d+),(\d+)\)""")
+    private val qrcFormattedLineRegex = Regex("""(?m)^\s*\[\d+,\d+]\s*[^()\[\]\r\n]+?\(\d+,\d+\)""")
+    private val krcLineRegex = Regex("""\[(\d+),(\d+)]""")
+    private val krcWordRegex = Regex("""<(\d+),(\d+)(?:,\d+)?>([^<]*)""")
+    private val krcFormattedLineRegex = Regex("""(?m)^\s*\[\d+,\d+]\s*<\d+,\d+(?:,\d+)?>""")
+    private val lyricifyLineRegex = Regex("""(?m)^\s*\[(\d+),(\d+)]([^\r\n]*)$""")
+    private val lyricifySyllableLineRegex = Regex("""(?m)^\s*\[\d]\s*.+?\(\d+,\d+\)""")
+    private val lyricifySyllableLineHeadRegex = Regex("""^\s*\[(\d)]""")
+    private val ttmlAttrRegex = Regex("""([\w:.-]+)\s*=\s*["']([^"']*)["']""")
+    private val ttmlPRegex = Regex("""<p\b([^>]*)>(.*?)</p\s*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    private val ttmlSpanRegex = Regex(
+        """<span\b(?=[^>]*(?:\bbegin\b|\bend\b|\bdur\b)\s*=)([^>]*)>(.*?)</span\s*>""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+    )
+
+    private fun parseLrcLike(text: String): List<MutableList<Pair<Float, String>>> {
+        val rawLines = text.lines().filter { raw ->
+            val line = raw.trim()
+            line.isNotEmpty() && !metadataRegex.matches(line) &&
+                !(lrcTimeTagRegex.find(line) == null && keyValueRegex.matches(line))
+        }
+        val parsed = mutableListOf<MutableList<Pair<Float, String>>>()
+        rawLines.forEach { rawLine ->
+            val line = rawLine.trim().replace(Regex("([\\[\\]]){2,}"), "$1")
+            val leadingTags = mutableListOf<MatchResult>()
+            var nextStart = 0
+            while (nextStart < line.length) {
+                val match = lrcTimeTagRegex.find(line, nextStart) ?: break
+                if (match.range.first != nextStart) break
+                leadingTags += match
+                nextStart = match.range.last + 1
+            }
+            if (leadingTags.isEmpty()) return@forEach
+            val contentStart = leadingTags.last().range.last + 1
+            val content = line.substring(contentStart)
+            val lineTimes = leadingTags.mapNotNull { parseLrcTimeMs(it.groupValues[1]) }
+            if (lineTimes.isEmpty()) return@forEach
+            lineTimes.forEach { lineStart ->
+                val pairs = if (inlineTimeTagRegex.containsMatchIn(content)) {
+                    parseInlineTimedLine(lineStart, content)
+                } else {
+                    lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart, cleanLyricText(content))), "")
+                }
+                addOrMergeLine(parsed, pairs)
+            }
+        }
+        return parsed
+    }
+
+    private fun parseInlineTimedLine(lineStart: Float, content: String): MutableList<Pair<Float, String>> {
+        val markers = inlineTimeTagRegex.findAll(content).toList()
+        val segments = mutableListOf<LyricSegment>()
+        if (markers.isEmpty()) return lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart, cleanLyricText(content))), "")
+
+        val prefix = content.substring(0, markers.first().range.first)
+        if (prefix.isNotBlank()) {
+            val firstTime = parseLrcTimeMs(markers.first().groupValues[1]) ?: lineStart
+            segments += LyricSegment(lineStart, firstTime, cleanLyricText(prefix))
+        }
+
+        markers.forEachIndexed { index, marker ->
+            val start = parseLrcTimeMs(marker.groupValues[1]) ?: return@forEachIndexed
+            val textStart = marker.range.last + 1
+            val textEnd = markers.getOrNull(index + 1)?.range?.first ?: content.length
+            val lyric = cleanLyricText(content.substring(textStart, textEnd))
+            if (lyric.isNotBlank()) {
+                val end = parseLrcTimeMs(markers.getOrNull(index + 1)?.groupValues?.get(1) ?: "")
+                    ?: (start + estimateSegmentDuration(lyric))
+                segments += LyricSegment(start, end.coerceAtLeast(start), lyric)
+            }
+        }
+        return lineOf(lineStart, segments, "")
+    }
+
+    private fun parseKrc(text: String): List<MutableList<Pair<Float, String>>> =
+        text.lines().mapNotNull { rawLine ->
+            val line = rawLine.trim()
+            val lineMatch = krcLineRegex.find(line) ?: return@mapNotNull null
+            if (lineMatch.range.first != 0) return@mapNotNull null
+            val lineStart = lineMatch.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+            val lineDuration = lineMatch.groupValues[2].toFloatOrNull() ?: 0f
+            val body = line.substring(lineMatch.range.last + 1)
+            val segments = krcWordRegex.findAll(body).mapNotNull { word ->
+                val rawStart = word.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+                val duration = word.groupValues[2].toFloatOrNull() ?: 0f
+                val start = normalizeRelativeTime(lineStart, rawStart)
+                val lyric = cleanLyricText(word.groupValues[3])
+                if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
+            }.toList()
+            val fallbackText = cleanLyricText(body.replace(krcWordRegex, ""))
+            when {
+                segments.isNotEmpty() -> lineOf(lineStart, segments, "")
+                fallbackText.isNotBlank() -> lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart + lineDuration, fallbackText)), "")
+                else -> null
+            }
+        }
+
+    private fun parseLyricifyLines(text: String): List<MutableList<Pair<Float, String>>> =
+        text.lines().mapNotNull { rawLine ->
+            val line = rawLine.trim()
+            val match = lyricifyLineRegex.matchEntire(line) ?: return@mapNotNull null
+            val lineStart = match.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+            val lineEnd = match.groupValues[2].toFloatOrNull() ?: return@mapNotNull null
+            val lyric = cleanLyricText(match.groupValues[3])
+            if (lyric.isBlank()) null else lineOf(lineStart, listOf(LyricSegment(lineStart, lineEnd.coerceAtLeast(lineStart), lyric)), "")
+        }
+
+    private fun parseLyricifySyllable(text: String): List<MutableList<Pair<Float, String>>> =
+        text.lines().mapNotNull { rawLine ->
+            val line = rawLine.trim()
+            val head = lyricifySyllableLineHeadRegex.find(line) ?: return@mapNotNull null
+            if (head.range.first != 0) return@mapNotNull null
+            val body = line.substring(head.range.last + 1)
+            val segments = qrcWordRegex.findAll(body).mapNotNull { word ->
+                val lyric = cleanLyricText(word.groupValues[1])
+                val start = word.groupValues[2].toFloatOrNull() ?: return@mapNotNull null
+                val duration = word.groupValues[3].toFloatOrNull() ?: 0f
+                if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
+            }.toList()
+            val lineStart = segments.firstOrNull()?.startMs ?: return@mapNotNull null
+            if (segments.isEmpty()) null else lineOf(lineStart, segments, "")
+        }
+
+    private fun parseYrc(text: String): List<MutableList<Pair<Float, String>>> =
+        text.lines().mapNotNull { line ->
+            val lineMatch = yrcLineRegex.find(line) ?: return@mapNotNull null
+            val lineStart = lineMatch.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+            val lineDuration = lineMatch.groupValues[2].toFloatOrNull() ?: 0f
+            val body = line.substring(lineMatch.range.last + 1)
+            val segments = yrcWordRegex.findAll(body).mapNotNull { word ->
+                val rawStart = word.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+                val duration = word.groupValues[2].toFloatOrNull() ?: 0f
+                val lyric = cleanLyricText(word.groupValues[3])
+                if (lyric.isBlank()) null else LyricSegment(rawStart, rawStart + duration, lyric)
+            }.toList()
+            val fallbackText = cleanLyricText(body.replace(yrcWordRegex, ""))
+            when {
+                segments.isNotEmpty() -> lineOf(lineStart, segments, "")
+                fallbackText.isNotBlank() -> lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart + lineDuration, fallbackText)), "")
+                else -> null
+            }
+        }
+
+    private fun parseQrc(text: String): List<MutableList<Pair<Float, String>>> =
+        text.lines().mapNotNull { line ->
+            val lineMatch = qrcLineRegex.find(line) ?: return@mapNotNull null
+            val lineStart = lineMatch.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+            val lineDuration = lineMatch.groupValues[2].toFloatOrNull() ?: 0f
+            val body = line.substring(lineMatch.range.last + 1)
+            val suffixSegments = qrcWordRegex.findAll(body).mapNotNull { word ->
+                val lyric = cleanLyricText(word.groupValues[1])
+                val start = word.groupValues[2].toFloatOrNull() ?: return@mapNotNull null
+                val duration = word.groupValues[3].toFloatOrNull() ?: 0f
+                if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
+            }.toList()
+            val prefixSegments = yrcWordRegex.findAll(body).mapNotNull { word ->
+                val start = word.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+                val duration = word.groupValues[2].toFloatOrNull() ?: 0f
+                val lyric = cleanLyricText(word.groupValues[3])
+                if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
+            }.toList()
+            val segments = if (suffixSegments.isNotEmpty()) suffixSegments else prefixSegments
+            val fallbackText = cleanLyricText(body.replace(qrcWordRegex, "").replace(yrcWordRegex, ""))
+            when {
+                segments.isNotEmpty() -> lineOf(lineStart, segments, "")
+                fallbackText.isNotBlank() -> lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart + lineDuration, fallbackText)), "")
+                else -> null
+            }
+        }
+
+    private fun parseTtml(text: String): List<MutableList<Pair<Float, String>>> =
+        parseTtmlXml(text).ifEmpty { parseTtmlRegex(text) }
+
+    private fun parseTtmlXml(text: String): List<MutableList<Pair<Float, String>>> = runCatching {
+        val parser = XmlPullParserFactory.newInstance().apply {
+            isNamespaceAware = true
+        }.newPullParser()
+        parser.setInput(StringReader(text))
+
+        val lines = mutableListOf<MutableList<Pair<Float, String>>>()
+        val divStartStack = mutableListOf(0f)
+        var inParagraph = false
+        var lineStart = 0f
+        var lineEnd = 0f
+        var plainText = StringBuilder()
+        var segments = mutableListOf<LyricSegment>()
+        val spanStack = mutableListOf<MutableTtmlSpan?>()
+
+        fun currentDivStart(): Float = divStartStack.lastOrNull() ?: 0f
+        fun resolveTime(raw: String?, base: Float): Float? =
+            parseTtmlTimeMs(raw)?.let { normalizeRelativeTime(base, it) }
+
+        while (parser.next() != XmlPullParser.END_DOCUMENT) {
+            when (parser.eventType) {
+                XmlPullParser.START_TAG -> {
+                    when (parser.name.lowercase()) {
+                        "div" -> {
+                            val base = currentDivStart()
+                            divStartStack += resolveTime(parser.attrValue("begin"), base) ?: base
+                        }
+                        "p" -> {
+                            val base = currentDivStart()
+                            lineStart = resolveTime(parser.attrValue("begin"), base) ?: base
+                            lineEnd = resolveTime(parser.attrValue("end"), lineStart)
+                                ?: (lineStart + (parseTtmlTimeMs(parser.attrValue("dur")) ?: 0f))
+                            inParagraph = true
+                            plainText = StringBuilder()
+                            segments = mutableListOf()
+                            spanStack.clear()
+                        }
+                        "span" -> {
+                            if (inParagraph) {
+                                val start = resolveTime(parser.attrValue("begin"), lineStart)
+                                val end = resolveTime(parser.attrValue("end"), lineStart)
+                                    ?: (start?.let { it + (parseTtmlTimeMs(parser.attrValue("dur")) ?: 0f) })
+                                spanStack += if (start != null && end != null) {
+                                    MutableTtmlSpan(start, end.coerceAtLeast(start))
+                                } else {
+                                    null
+                                }
+                            }
+                        }
+                        "br" -> {
+                            if (inParagraph) {
+                                plainText.append('\n')
+                                spanStack.lastOrNull { it != null }?.text?.append('\n')
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.TEXT -> {
+                    if (inParagraph) {
+                        val value = parser.text.orEmpty()
+                        plainText.append(value)
+                        spanStack.lastOrNull { it != null }?.text?.append(value)
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name.lowercase()) {
+                        "span" -> {
+                            if (inParagraph && spanStack.isNotEmpty()) {
+                                val span = spanStack.removeAt(spanStack.lastIndex)
+                                if (span != null) {
+                                    val lyric = cleanLyricText(span.text.toString())
+                                    if (lyric.isNotBlank()) segments += LyricSegment(span.startMs, span.endMs, lyric)
+                                }
+                            }
+                        }
+                        "p" -> {
+                            if (inParagraph) {
+                                val plain = cleanLyricText(plainText.toString())
+                                when {
+                                    segments.isNotEmpty() -> lines += lineOf(lineStart, segments, "")
+                                    plain.isNotBlank() -> lines += lineOf(
+                                        lineStart,
+                                        listOf(LyricSegment(lineStart, lineEnd.coerceAtLeast(lineStart), plain)),
+                                        ""
+                                    )
+                                }
+                                inParagraph = false
+                                spanStack.clear()
+                            }
+                        }
+                        "div" -> {
+                            if (divStartStack.size > 1) divStartStack.removeAt(divStartStack.lastIndex)
+                        }
+                    }
+                }
+            }
+        }
+
+        lines
+    }.getOrElse { emptyList() }
+
+    private fun parseTtmlRegex(text: String): List<MutableList<Pair<Float, String>>> =
+        ttmlPRegex.findAll(text).mapNotNull { p ->
+            val pAttrs = parseXmlAttrs(p.groupValues[1])
+            val body = p.groupValues[2]
+            val lineStart = parseTtmlTimeMs(pAttrs["begin"]) ?: 0f
+            val lineEnd = parseTtmlTimeMs(pAttrs["end"]) ?: (lineStart + (parseTtmlTimeMs(pAttrs["dur"]) ?: 0f))
+            val spans = ttmlSpanRegex.findAll(body).mapNotNull { span ->
+                val attrs = parseXmlAttrs(span.groupValues[1])
+                val lyric = cleanLyricText(stripXml(span.groupValues[2]))
+                if (lyric.isBlank()) return@mapNotNull null
+                val start = parseTtmlTimeMs(attrs["begin"])?.let { normalizeRelativeTime(lineStart, it) } ?: lineStart
+                val end = parseTtmlTimeMs(attrs["end"])
+                    ?: (start + (parseTtmlTimeMs(attrs["dur"]) ?: estimateSegmentDuration(lyric)))
+                LyricSegment(start, end.coerceAtLeast(start), lyric)
+            }.toList()
+            val plain = cleanLyricText(stripXml(body))
+            when {
+                spans.isNotEmpty() -> lineOf(lineStart, spans, "")
+                plain.isNotBlank() -> lineOf(lineStart, listOf(LyricSegment(lineStart, lineEnd.coerceAtLeast(lineStart), plain)), "")
+                else -> null
+            }
+        }.toList()
+
+    private fun XmlPullParser.attrValue(name: String): String? {
+        for (index in 0 until attributeCount) {
+            if (getAttributeName(index).substringAfter(":") == name) return getAttributeValue(index)
+        }
+        return null
+    }
+
+    private fun lineOf(
+        lineStart: Float,
+        segments: List<LyricSegment>,
+        translation: String
+    ): MutableList<Pair<Float, String>> {
+        val result = mutableListOf<Pair<Float, String>>(lineStart to "")
+        segments.sortedBy { it.startMs }.forEach { segment ->
+            if (segment.text.isNotBlank()) result += segment.endMs.coerceAtLeast(lineStart) to segment.text
+        }
+        result += lineStart to translation
+        return result
+    }
+
+    private fun extractOffsetMs(text: String): Float =
+        offsetRegex.find(text)?.groupValues?.getOrNull(1)?.toFloatOrNull() ?: 0f
+
+    private fun applyOffset(
+        lines: List<MutableList<Pair<Float, String>>>,
+        offsetMs: Float
+    ): List<MutableList<Pair<Float, String>>> {
+        if (offsetMs == 0f) return lines
+        return lines.map { line ->
+            line.map { (time, lyric) -> (time - offsetMs).coerceAtLeast(0f) to lyric }.toMutableList()
+        }
+    }
+
+    private fun addOrMergeLine(lines: MutableList<MutableList<Pair<Float, String>>>, line: MutableList<Pair<Float, String>>) {
+        val lineStart = line.firstOrNull()?.first ?: return
+        val existing = lines.find { abs((it.firstOrNull()?.first ?: -1f) - lineStart) < 1f }
+        if (existing != null) {
+            val translationText = line.dropLast(1).firstOrNull { it.second.isNotBlank() }?.second.orEmpty()
+            if (translationText.isNotBlank()) existing[existing.lastIndex] = existing.last().first to translationText
+        } else {
+            lines += line
+        }
+    }
+
+    private fun normalizeParsedLines(lines: List<MutableList<Pair<Float, String>>>): List<MutableList<Pair<Float, String>>> =
+        lines.asSequence()
+            .filter { it.size >= 2 }
+            .map { line ->
+                val normalized = line.map { it.first to cleanLyricText(it.second) }.toMutableList()
+                if (normalized.lastIndex < 0 || normalized.last().second.isNotBlank()) {
+                    normalized += (normalized.firstOrNull()?.first ?: 0f) to ""
+                }
+                normalized
+            }
+            .filter { line ->
+                val text = line.dropLast(1).fastJoinToString(separator = "") { it.second }.trim().uppercase()
+                text.isNotBlank() && !text.startsWith("TITLE=") && !text.startsWith("ARTIST=") &&
+                    !text.startsWith("ALBUM=") && !text.startsWith("GENRE=") &&
+                    !text.startsWith("DATE=") && !text.startsWith("YEAR=") &&
+                    !text.startsWith("TRACK=") && !text.startsWith("COMPOSER=") &&
+                    !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
+                    !text.startsWith("LENGTH=")
+            }
+            .sortedBy { it.first().first }
+            .toList()
+
+    private fun parseLrcTimeMs(raw: String): Float? {
+        if (!timeTextRegex.matches(raw)) return null
+        val parts = raw.split(":")
+        val minutes = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val secPart = parts.getOrNull(1) ?: return null
+        val seconds = secPart.substringBefore(".").toIntOrNull() ?: return null
+        val fraction = secPart.substringAfter(".", "").take(3).padEnd(3, '0').toIntOrNull() ?: 0
+        return (minutes * 60_000 + seconds * 1000 + fraction).toFloat()
+    }
+
+    private fun parseTtmlTimeMs(raw: String?): Float? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (value.endsWith("ms")) return value.removeSuffix("ms").toFloatOrNull()
+        if (value.endsWith("s")) return value.removeSuffix("s").toFloatOrNull()?.times(1000f)
+        if (value.matches(Regex("""\d+(?:\.\d+)?"""))) return value.toFloatOrNull()?.times(1000f)
+        val parts = value.split(":")
+        return when (parts.size) {
+            3 -> {
+                val hours = parts[0].toFloatOrNull() ?: return null
+                val minutes = parts[1].toFloatOrNull() ?: return null
+                val seconds = parts[2].toFloatOrNull() ?: return null
+                ((hours * 3600 + minutes * 60 + seconds) * 1000f)
+            }
+            2 -> parseLrcTimeMs(value)
+            else -> null
+        }
+    }
+
+    private fun normalizeRelativeTime(lineStart: Float, rawStart: Float): Float =
+        if (rawStart < lineStart && rawStart < 60_000f) lineStart + rawStart else rawStart
+
+    private fun estimateSegmentDuration(text: String): Float =
+        (text.length.coerceAtLeast(1) * 220f).coerceIn(180f, 1600f)
+
+    private fun cleanLyricText(raw: String): String {
+        val text = decodeXmlEntities(raw)
+            .replace("//", "")
+            .replace(Regex("(?!\\n)\\s+"), " ")
+        return if (formatText) text.trim() else text
+    }
+
+    private fun parseXmlAttrs(raw: String): Map<String, String> =
+        ttmlAttrRegex.findAll(raw).associate { it.groupValues[1].substringAfter(":") to it.groupValues[2] }
+
+    private fun stripXml(raw: String): String =
+        raw.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+
+    private fun decodeXmlEntities(raw: String): String =
+        raw.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
 
     /**
      * 将翻译文本合并到已解析的歌词数据中。

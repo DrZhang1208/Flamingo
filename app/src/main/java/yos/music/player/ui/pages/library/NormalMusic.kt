@@ -14,11 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.QueueMusic
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -149,10 +150,9 @@ fun NormalMusic(navController: NavController) {
                         SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal to "播放次数"
                     )
                     val sortIcons = mapOf(
-                        SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal to Icons.AutoMirrored.Outlined.QueueMusic,
-                        SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal to Icons.AutoMirrored.Outlined.QueueMusic,
-                        SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal to Icons.Outlined.Person,
-                        SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal to Icons.Outlined.AccessTime,
+                        SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal to Icons.Filled.MusicNote,
+                        SettingsLibrary.SongSortEnum.MUSIC_ALBUM.ordinal to Icons.Filled.Album,
+                        SettingsLibrary.SongSortEnum.MODIFIED_DATE.ordinal to Icons.Outlined.Edit,
                         SettingsLibrary.SongSortEnum.MUSIC_ADD_DATE.ordinal to Icons.Outlined.AccessTime,
                         SettingsLibrary.SongSortEnum.PLAY_COUNT.ordinal to Icons.Filled.Star
                     )
@@ -177,8 +177,17 @@ fun NormalMusic(navController: NavController) {
                                         ) {
                                             Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
                                                 color = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else Color.Unspecified)
-                                            Icon(sortIcons[ordinal] ?: Icons.Filled.Check, null, Modifier.size(22.dp),
-                                                tint = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground)
+                                            val iconTint = if (SongSort == ordinal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
+                                            if (ordinal == SettingsLibrary.SongSortEnum.ARTIST_NAME.ordinal) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_material_symbol_artist),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(22.dp),
+                                                    tint = iconTint
+                                                )
+                                            } else {
+                                                Icon(sortIcons[ordinal] ?: Icons.Filled.Check, null, Modifier.size(22.dp), tint = iconTint)
+                                            }
                                         }
                                     }
                                 }
@@ -287,7 +296,7 @@ fun NormalMusic(navController: NavController) {
 
                     itemsIndexed(
                         list.value,
-                        key = { index, music -> "${index}_${music.uri}" }
+                        key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "music_$index" }
                     ) { index, music ->
                         MusicList(
                             music,
@@ -303,7 +312,7 @@ fun NormalMusic(navController: NavController) {
                         }
 
                         key(index) {
-                            val needDivider = index < currentList.size - 1
+                            val needDivider = index < list.value.size - 1
                             if (needDivider) {
                                 Spacer(
                                     modifier = Modifier
@@ -351,4 +360,3 @@ private fun List<YosMediaItem>.sortX() =
             it
         }
     }
-
