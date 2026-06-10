@@ -14,6 +14,72 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 object AudioMetadataUtils {
+    private data class YearCandidate(
+        val year: Int,
+        val precision: Int,
+        val keyPriority: Int,
+        val order: Int
+    )
+
+    fun parseYear(raw: String?): Int? {
+        return parseYearCandidate(raw, keyPriority = 0, order = 0)?.year
+    }
+
+    fun extractYearFromTags(propertyMap: Map<String, Array<String>>, fallbackYear: String? = null): Int? {
+        fun normalized(raw: String): String = raw.uppercase().filter { it.isLetterOrDigit() }
+
+        val releaseKeys = setOf("RELEASEDATE", "RELEASETIME", "RELEASEYEAR", "TDRL")
+        val dateKeys = setOf("DATE", "YEAR", "TDRC")
+        val originalKeys = setOf("ORIGINALDATE", "ORIGINALYEAR", "ORIGINALRELEASEDATE", "ORIGINALRELEASEYEAR", "TDOR")
+
+        val candidates = buildList {
+            var order = 0
+            propertyMap.entries.forEach { (key, values) ->
+                val priority = when (normalized(key)) {
+                    in releaseKeys -> 0
+                    in dateKeys -> 1
+                    in originalKeys -> 2
+                    else -> return@forEach
+                }
+                values.forEach { value ->
+                    parseYearCandidate(value, priority, order++)?.let { add(it) }
+                }
+            }
+            parseYearCandidate(fallbackYear, keyPriority = 1, order = order)?.let { add(it) }
+        }
+
+        return candidates
+            .sortedWith(
+                compareByDescending<YearCandidate> { it.precision }
+                    .thenBy { it.keyPriority }
+                    .thenBy { it.order }
+            )
+            .firstOrNull()
+            ?.year
+    }
+
+    private fun parseYearCandidate(raw: String?, keyPriority: Int, order: Int): YearCandidate? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val fullDate = Regex("""(?<!\d)(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?!\d)""").find(value)
+        if (fullDate != null) {
+            val year = fullDate.groupValues[1].toIntOrNull()?.takeIf { it in 1000..2999 } ?: return null
+            return YearCandidate(year, precision = 3, keyPriority = keyPriority, order = order)
+        }
+        val yearMonth = Regex("""(?<!\d)(\d{4})[-./](\d{1,2})(?!\d)""").find(value)
+        if (yearMonth != null) {
+            val year = yearMonth.groupValues[1].toIntOrNull()?.takeIf { it in 1000..2999 } ?: return null
+            return YearCandidate(year, precision = 2, keyPriority = keyPriority, order = order)
+        }
+        val year = Regex("""(?<!\d)(\d{4})(?!\d)""")
+            .find(value)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.takeIf { it in 1000..2999 }
+            ?: return null
+        return YearCandidate(year, precision = 1, keyPriority = keyPriority, order = order)
+    }
+
     fun normalizeBitrateKbps(rawBitrate: Int?): Int? {
         val bitrate = rawBitrate ?: return null
         if (bitrate <= 0) return null
@@ -319,8 +385,7 @@ object AudioMetadataUtils {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(filePath)
-            val yearStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
-            yearStr?.toIntOrNull()
+            parseYear(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR))
         } catch (_: Exception) {
             null
         } finally {

@@ -68,8 +68,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -93,12 +94,13 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
-import androidx.compose.ui.util.fastForEachIndexed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import yos.music.player.code.utils.lrc.YosMediaEvent
+import yos.music.player.code.utils.lrc.YosLyricLine
+import yos.music.player.code.utils.lrc.YosLyricToken
 import yos.music.player.code.utils.lrc.YosUIConfig
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.SettingsLibrary
@@ -110,6 +112,10 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 val yosEasing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
+private const val LYRIC_HIGHLIGHT_FADE_WIDTH = 0.30f
+private const val LYRIC_LAST_LINE_DURATION_MS = 4000f
+private const val LYRIC_POSITION_BACKWARD_JITTER_MS = 500
+private const val LYRIC_MAX_BOUNDARY_EXTRA_MS = 600f
 
 /**
  * YosLyricView 主控件
@@ -123,7 +129,7 @@ val yosEasing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
 @Composable
 fun YosLyricView(
     //mediaViewModel: MediaViewModel,
-    lrcEntriesLambda: () -> List<List<Pair<Float, String>>>,
+    lrcEntriesLambda: () -> List<YosLyricLine>,
     liveTimeLambda: () -> Int,
     mediaEvent: YosMediaEvent,
     translationLambda: () -> Boolean = { true },
@@ -154,8 +160,14 @@ fun YosLyricView(
         manualSeekCooldown.value = 0L
         delay(80)
         while (isActive) {
-            val pos =
+            val rawPos =
                 yos.music.player.code.MediaController.mediaControl?.currentPosition?.toInt() ?: 0
+            val previousPos = framePosition.intValue
+            val pos = if (rawPos < previousPos && previousPos - rawPos < LYRIC_POSITION_BACKWARD_JITTER_MS) {
+                previousPos
+            } else {
+                rawPos
+            }
             framePosition.intValue = pos
 
             // 手动 seek 冷却期内不覆盖 syncLyricIndex，避免色闪
@@ -164,7 +176,7 @@ fun YosLyricView(
             if (!inCooldown) {
                 val entries = lrcEntriesLambda()
                 if (entries.isNotEmpty()) {
-                    val nextIdx = entries.indexOfFirst { (it.firstOrNull()?.first ?: Float.MAX_VALUE) > pos }
+                    val nextIdx = entries.indexOfFirst { it.startMs > pos }
                     MainViewModelObject.syncLyricIndex.intValue = when {
                         nextIdx == 0 -> -1  // 尚未到达第一句歌词的时间
                         nextIdx != -1 -> (nextIdx - 1).coerceAtLeast(0)
@@ -440,26 +452,31 @@ fun YosLyricView(
                         }
                     }
 
-                    val isLyricEmpty = rememberSaveable(lines) {
-                        mutableStateOf(
-                            lines.all { it.second.isBlank() }
-                        )
-                    }
-
                     key(SettingsLibrary.LyricFontSize, SettingsLibrary.TranslationFontSize, SettingsLibrary.LyricFontWeight, SettingsLibrary.LyricLineBalance) {
-                        val translation = lines.last().second.ifBlank { null }
-                        val blurVal = if (!showStateAnimation.value || index == currentLyricIndex.intValue || !blurLambda() || !supportBlur) {
+                        val translation = lines.translation.ifBlank { null }
+                        val nextLineStart = lrcEntries.getOrNull(index + 1)?.startMs
+                        val boundaryExtraMs = lyricBoundaryExtraMs(lines.tokens)
+                        val lineDisplayEnd = maxOf(
+                            lines.endMs + boundaryExtraMs,
+                            nextLineStart ?: (lines.startMs + LYRIC_LAST_LINE_DURATION_MS),
+                            lines.startMs + 1f
+                        )
+                        val isActiveLine = framePosition.intValue.toFloat() >= lines.startMs &&
+                            framePosition.intValue.toFloat() < lineDisplayEnd
+                        val blurVal = if (!showStateAnimation.value || isActiveLine || !blurLambda() || !supportBlur) {
                             0f
                         } else {
                             (abs(index - currentLyricIndex.intValue) * 2.5f).coerceAtMost(8f)
                         }
-                        val otherSideVal = otherSideForLines.getOrElse(index) { false }
+                        val otherSideVal = lines.otherSide || otherSideForLines.getOrElse(index) { false }
 
                         YosWrapper {
                             LyricItem(
-                                isCurrent = index == currentLyricIndex.intValue,
+                                isCurrent = isActiveLine,
                                 isTop = index == (currentLyricIndex.intValue - 1),
-                                mainLyric = lines.dropLast(1),
+                                mainLyric = lines.tokens,
+                                lineStartMs = lines.startMs,
+                                lineEndMs = lineDisplayEnd,
                                 translation = translation,
                                 showTranslation = translationLambda(),
                                 mainTextSize = SettingsLibrary.LyricFontSize,
@@ -470,15 +487,15 @@ fun YosLyricView(
                                 otherSide = otherSideVal,
                                 liveTime = framePosition.intValue,
                                 measurer = measurer,
-                                isLyricEmpty = lines.all { it.second.isBlank() },
-                                nextTime = if (index + 1 > lrcEntries.size - 1) 0f else (lrcEntries[(index + 1)].firstOrNull()?.first ?: 0f),
+                                isLyricEmpty = lines.text.isBlank(),
+                                nextTime = nextLineStart ?: lineDisplayEnd,
                             ) {
                                 Vibrator.doubleClick(context)
                                 isUserScrolling.value = false
                                 enableLyricScroll.value = true
                                 currentLyricIndex.intValue = index
                                 manualSeekCooldown.value = System.currentTimeMillis()
-                                mediaEvent.onSeek((lines.firstOrNull()?.first ?: 0f).toInt())
+                                mediaEvent.onSeek(lines.startMs.toInt())
                             }
                         }
                     }
@@ -507,12 +524,7 @@ fun YosLyricView(
                         if (
                             try {
                                 if (currentLyricIndex.intValue - 1 < 0) false
-                                else (
-                                        (lrcEntries[(currentLyricIndex.intValue - 1)][1].second.isBlank())
-                                        /*&&
-                                        (lrcEntries[(currentLyricIndex.intValue).coerceAtLeast(
-                                            0
-                                        )].first().first - lrcEntries[(currentLyricIndex.intValue - 1)].first().first > 900f)*/)
+                                else lrcEntries[currentLyricIndex.intValue - 1].text.isBlank()
                                 // 这里有一个特殊的更改，因为AppleMusic歌词转过来会有两个连续一样的时间轴，在LrcFactory有更改，下面的那个900不用管
                                 // 已经作了规范处理
 
@@ -554,7 +566,7 @@ fun YosLyricView(
                 while (true) {
                     val liveTime = liveTimeLambda()
                     val nextIndex = lrcEntries.indexOfFirst { line ->
-                        (line.firstOrNull()?.first ?: Float.MAX_VALUE) > liveTime
+                        line.startMs > liveTime
                     }
 
                     if (nextIndex != -1 && nextIndex - 1 != currentLyricIndex.intValue) {
@@ -580,7 +592,7 @@ fun YosLyricView(
                     delay(50) // 延迟一帧，避免在初始组合帧内触发布局
                     val liveTime = liveTimeLambda()
                     val nextIndex = lrcEntries.indexOfFirst { line ->
-                        (line.firstOrNull()?.first ?: Float.MAX_VALUE) > liveTime
+                        line.startMs > liveTime
                     }
                     val scrollTarget = if (nextIndex != -1) nextIndex.coerceAtLeast(0)
                                        else lrcEntries.size.coerceAtLeast(0)
@@ -610,7 +622,7 @@ fun Float.toDp(): Dp {
 
 @Composable
 private fun LazyItemScope.Line(
-    lines: List<Pair<Float, String>>,
+    lines: List<YosLyricToken>,
     style: TextStyle,
     measurer: TextMeasurer,
     modifier: Modifier,
@@ -621,8 +633,8 @@ private fun LazyItemScope.Line(
         val styledString = remember(style, lines) {
             buildString {
                 lines.forEach { char ->
-                    if (char.second.isNotEmpty()) {
-                        append(char.second)
+                    if (char.text.isNotEmpty()) {
+                        append(char.text)
                     }
                 }
             }
@@ -706,7 +718,9 @@ val easing: Easing = EaseInOutQuad
 fun LazyItemScope.LyricItem(
     isCurrent: Boolean,  // 改为直接传值,而非 lambda
     isTop: Boolean,      // 改为直接传值
-    mainLyric: List<Pair<Float, String>>,
+    mainLyric: List<YosLyricToken>,
+    lineStartMs: Float,
+    lineEndMs: Float,
     translation: String?,
     showTranslation: Boolean,
     mainTextSize: Int,
@@ -724,11 +738,10 @@ fun LazyItemScope.LyricItem(
     val viewAlign = Alignment.Start
     val focusedColor = Color(0xFFFFFFFF)
     val unfocusedColor = Color(0x2EFFFFFF)
-    val unfocusedSolidBrush = SolidColor(unfocusedColor)
 
     // 使用 remember 保存状态,确保 LazyColumn 复用时状态正确
     val isNotOneByOne = remember(mainLyric) {
-        mainLyric.all { it.first == mainLyric.firstOrNull()?.first }
+        mainLyric.isEmpty() || mainLyric.all { it.startMs == it.endMs }
     }
     // 保持 liveTime 最新引用，避免 drawWithCache 缓存导致逐字高亮使用过期的 liveTime
     val liveTimeRef = rememberUpdatedState(liveTime)
@@ -766,7 +779,8 @@ fun LazyItemScope.LyricItem(
 
             if (isLyricEmpty) {
                 Column {
-                    val percent = ((liveTime - (mainLyric.firstOrNull()?.first ?: 0f)).coerceAtLeast(0f) / (nextTime - (mainLyric.firstOrNull()?.first ?: 0f))).coerceAtMost(1f)
+                    val lineDuration = (nextTime.takeIf { it > lineStartMs } ?: lineEndMs).coerceAtLeast(lineStartMs + 1f) - lineStartMs
+                    val percent = ((liveTime - lineStartMs).coerceAtLeast(0f) / lineDuration).coerceAtMost(1f)
                     val show = isLyricEmpty && isCurrent && percent != 0f
                     
                     AnimatedVisibility(
@@ -816,7 +830,7 @@ fun LazyItemScope.LyricItem(
                                 // 高亮状态 — 必须在 thisAlpha 之前计算
                                 val showHighLight = isNotOneByOne || run {
                                     val idx = (mainLyric.size - (if (translation != null) 3 else 1)).coerceIn(0, mainLyric.size - 1)
-                                    liveTime >= mainLyric[idx].first
+                                    liveTime >= mainLyric[idx].startMs
                                 }
 
                                 // Alpha 动画：当前行和未播放行完整显示(靠文字颜色区分)，已播完行低透明度
@@ -832,16 +846,17 @@ fun LazyItemScope.LyricItem(
                                 val otherSidePadding = if (otherSide) {
                                     Modifier.padding(
                                         start = 20.dp,
-                                        end = if (mainLyric.last().second.endsWith("：")) 3.dp else 20.dp
+                                        end = if (mainLyric.lastOrNull()?.text?.endsWith("：") == true) 3.dp else 20.dp
                                     )
                                 } else {
                                     Modifier.padding(start = 20.dp, end = 20.dp)
                                 }
 
                                 val lyricTextStyle = mainTextStyle()
-                                // 修复: charLayoutCache 使用 mainLyric 作为 key
-                                val charLayoutCache = remember(mainLyric) { mutableMapOf<String, TextLayoutResult>() }
-                                
+                                val lineLift = animateFloatAsState(
+                                    targetValue = if (isCurrent) -4f else 0f,
+                                    animationSpec = TweenSpec(durationMillis = 180, easing = yosEasing)
+                                )
                                 Line(
                                     lines = mainLyric,
                                     style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
@@ -849,6 +864,7 @@ fun LazyItemScope.LyricItem(
                                     modifier = Modifier
                                         .graphicsLayer {
                                             this.alpha = thisAlpha.value
+                                            this.translationY = lineLift.value
                                             compositingStrategy = CompositingStrategy.ModulateAlpha
                                         }
                                         .padding(vertical = 4.dp)
@@ -883,162 +899,11 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
 
-                                        // 以下为逐字处理
-
-                                        var sum = 0
-                                        var lastTime = 0f
-
-                                        val wordsToDraw = arrayListOf<DrawWord>()
-
-                                        var averageTime = 0f
-
-                                        lastTime = mainLyric.firstOrNull()?.first ?: 0f
-
-                                        val measureStyle = lyricTextStyle.let { if (otherSide) it.copy(textAlign = TextAlign.End) else it }
-                                        mainLyric.fastForEachIndexed { wordIndex, word ->
-
-                                            // 旧的逐字处理逻辑
-                                            /*val process = processWords(word.second)
-
-                                    process.fastForEach { word ->
-
-                                        // 非逐字转移到上面处理
-                                        *//*if (isNotOneByOne.value) {
-                                                word.split("").fastForEach { charWord ->
-                                                    wordsToDraw += DrawWord(
-                                                        time = word.first,
-                                                        word = charWord,
-                                                        layout = measurer.measure(
-                                                            text = charWord,
-                                                            style = lyricTextStyle,
-                                                            constraints = measureResult.layoutInput.constraints,
-                                                            layoutDirection = if (viewAlign.value == Alignment.End) LayoutDirection.Rtl else LayoutDirection.Ltr
-                                                        ),
-                                                        topLeft = measureResult.getBoundingBox(sum.coerceAtMost(
-                                                            mainLyric.sumOf { it.second.length } - 1).coerceAtLeast(0)).topLeft,
-                                                        brush = { _, _ ->
-                                                               focusedSolidBrush
-                                                        }
-                                                    ).also {
-                                                        sum += charWord.length
-                                                    }
-                                                }
-
-                                                return@fastForEach
-                                            }*//*
-                                        }*/
-
-                                            //println(word.second + "：" + sum.coerceAtMost(mainLyric.sumOf { it.second.length } - 1).coerceAtLeast(0) + "，共 "+ mainLyric.sumOf { it.second.length })
-
-                                            // 新逻辑
-
-                                            val thisWord = word.second
-
-                                            if (thisWord.isEmpty()) {
-                                                return@fastForEachIndexed
-                                            }
-
-                                            averageTime = (word.first - lastTime) / thisWord.length
-
-                                            val thisWordGroupLastTime = if (wordIndex - 1 < 0) {
-                                                mainLyric.firstOrNull()?.first ?: 0f
-                                            } else {
-                                                mainLyric[(wordIndex - 1)].first
-                                            }
-                                            val groupPercent =
-                                                if ((word.first - thisWordGroupLastTime) == 0f) {
-                                                    0f
-                                                } else {
-                                                    ((liveTime - thisWordGroupLastTime).coerceAtLeast(
-                                                        0f
-                                                    ) / (word.first - thisWordGroupLastTime)).coerceIn(
-                                                        0f,
-                                                        1f
-                                                    )
-                                                }
-                                            val easedPercent = easing.transform(groupPercent.coerceIn(
-                                                0f,
-                                                1f
-                                            ))
-                                            val topLeftWeight = 4 * easedPercent
-
-                                            thisWord.forEach { char ->
-
-                                                //println("$char：$lastTime to ${lastTime + averageTime}")
-
-                                                val charWord = char.toString()
-
-                                                val layout = charLayoutCache.getOrPut(charWord) {
-                                                    measurer.measure(
-                                                        text = charWord,
-                                                        style = measureStyle,
-                                                        constraints = measureResult.layoutInput.constraints
-                                                    )
-                                                }
-
-                                                val thisWordLastTime = lastTime
-                                                val thisWordAverageTime = averageTime
-
-                                                wordsToDraw += DrawWord(
-                                                    time = lastTime + averageTime,
-                                                    word = charWord,
-                                                    layout = layout,
-                                                    topLeft = measureResult.getBoundingBox(sum.coerceAtMost(
-                                                        mainLyric.sumOf { it.second.length } - 1)
-                                                        .coerceAtLeast(0)).topLeft.minus(
-                                                            Offset(
-                                                                0F,
-                                                                topLeftWeight
-                                                            )
-                                                            ),
-                                                    startTime = thisWordLastTime,
-                                                    duration = thisWordAverageTime,
-                                                    brush = { px, percent ->
-                                                        if (thisWord == " ") {
-                                                            return@DrawWord unfocusedSolidBrush
-                                                        }
-
-                                                        val beforeColor = if (percent <= -0.5f) {
-                                                            unfocusedColor
-                                                        } else {
-                                                            focusedColor
-                                                        }
-
-                                                        val afterColor = if (percent >= 1f) {
-                                                            focusedColor
-                                                        } else {
-                                                            unfocusedColor
-                                                        }
-                                                        Brush.horizontalGradient(
-                                                            0f to beforeColor,
-                                                            (percent - px).coerceIn(
-                                                                0f,
-                                                                1f
-                                                            ) to beforeColor,
-                                                            (percent + px).coerceIn(
-                                                                0f,
-                                                                1f
-                                                            ) to afterColor
-                                                        )
-                                                    }
-                                                ).also {
-                                                    sum += charWord.length
-                                                    lastTime += averageTime
-                                                }
-                                            }
-                                        }
-
                                         onDrawBehind {
                                             val t = liveTimeRef.value.toFloat()
-                                            wordsToDraw.fastForEach { l ->
-                                                val percent = if (l.duration == 0f) Float.POSITIVE_INFINITY
-                                                              else (t - l.startTime) / l.duration
-                                                drawText(
-                                                    textLayoutResult = l.layout,
-                                                    topLeft = l.topLeft,
-                                                    brush = l.brush(0.3f, percent)
-                                                )
-                                            }
+                                            drawText(textLayoutResult = measureResult, color = unfocusedColor)
+                                            val progress = resolveLyricHighlightProgress(mainLyric, measureResult, t)
+                                            drawLyricHighlightOverlay(measureResult, progress, focusedColor)
                                         }
                                     }
                                 }
@@ -1222,33 +1087,237 @@ fun mainTextStyle(): TextStyle = TextStyle(
 )*/
 
 @Stable
-private data class DrawWord(
-    val time: Float,
-    val word: String,
-    val layout: TextLayoutResult,
-    val topLeft: Offset,
-    val startTime: Float,
-    val duration: Float,
-    val brush: (px: Float, percent: Float) -> Brush
+private data class LyricHighlightProgress(
+    val lineIndex: Int,
+    val rightPx: Float,
+    val featherPx: Float,
+    val settledRightPx: Float,
+    val completed: Boolean
 )
 
-/*
-fun processWords(input: String): List<String> {
-    val result = mutableListOf<String>()
-    var word = ""
-    for (char in input) {
-        if (char == ' ') {
-            if (word.isNotEmpty()) {
-                result.add(word)
-                word = ""
+private fun lyricBoundaryExtraMs(tokens: List<YosLyricToken>): Float {
+    val longestCharDuration = tokens.maxOfOrNull { token ->
+        val length = token.text.length.coerceAtLeast(1)
+        ((token.endMs - token.startMs).coerceAtLeast(0f) / length)
+    } ?: 0f
+    return (longestCharDuration * LYRIC_HIGHLIGHT_FADE_WIDTH).coerceIn(0f, LYRIC_MAX_BOUNDARY_EXTRA_MS)
+}
+
+private fun resolveLyricHighlightProgress(
+    tokens: List<YosLyricToken>,
+    layout: TextLayoutResult,
+    liveTime: Float
+): LyricHighlightProgress {
+    val textLength = layout.layoutInput.text.text.length
+    if (tokens.isEmpty() || textLength == 0) {
+        return LyricHighlightProgress(0, 0f, 1f, 0f, completed = true)
+    }
+
+    fun featherForOffset(offset: Int): Float {
+        val safeOffset = offset.coerceIn(0, textLength - 1)
+        val box = layout.getBoundingBox(safeOffset)
+        return (box.width * LYRIC_HIGHLIGHT_FADE_WIDTH).coerceAtLeast(1f)
+    }
+
+    fun progressAtOffset(
+        offset: Int,
+        rightPx: Float,
+        completed: Boolean,
+    ): LyricHighlightProgress {
+        val safeOffset = offset.coerceIn(0, textLength - 1)
+        val lineIndex = layout.getLineForOffset(safeOffset)
+        return LyricHighlightProgress(
+            lineIndex = lineIndex,
+            rightPx = rightPx,
+            featherPx = featherForOffset(safeOffset),
+            settledRightPx = rightPx,
+            completed = completed
+        )
+    }
+
+    val lastTokenTextOffset = tokens.sumOf { it.text.length }.coerceAtLeast(1) - 1
+    val lastTextOffset = lastTokenTextOffset.coerceAtMost(textLength - 1)
+
+    fun visualLineStartOffset(offset: Int): Int {
+        val safeOffset = offset.coerceIn(0, textLength - 1)
+        val lineIndex = layout.getLineForOffset(safeOffset)
+        return layout.getLineStart(lineIndex).coerceIn(0, textLength - 1)
+    }
+
+    fun visualLineEndOffset(offset: Int): Int {
+        val safeOffset = offset.coerceIn(0, textLength - 1)
+        val lineIndex = layout.getLineForOffset(safeOffset)
+        val lineStart = layout.getLineStart(lineIndex).coerceIn(0, textLength - 1)
+        val lineEnd = layout.getLineEnd(lineIndex, visibleEnd = true)
+            .coerceIn(lineStart + 1, textLength)
+        return (lineEnd - 1).coerceIn(0, textLength - 1)
+    }
+
+    fun startPxForOffset(offset: Int): Float {
+        val safeOffset = offset.coerceIn(0, textLength - 1)
+        val box = layout.getBoundingBox(safeOffset)
+        return if (safeOffset == visualLineStartOffset(safeOffset)) box.left - featherForOffset(safeOffset) else box.left
+    }
+
+    fun endPxForOffset(offset: Int): Float {
+        val safeOffset = offset.coerceIn(0, textLength - 1)
+        val box = layout.getBoundingBox(safeOffset)
+        return if (safeOffset == visualLineEndOffset(safeOffset)) box.right + featherForOffset(safeOffset) else box.right
+    }
+
+    fun isAfter(candidate: LyricHighlightProgress, current: LyricHighlightProgress?): Boolean {
+        if (current == null) return true
+        return candidate.lineIndex > current.lineIndex ||
+            (candidate.lineIndex == current.lineIndex && candidate.rightPx > current.rightPx)
+    }
+
+    var bestProgress: LyricHighlightProgress? = null
+    var bestSettledProgress: LyricHighlightProgress? = null
+    fun offerSettled(offset: Int, rightPx: Float) {
+        val candidate = progressAtOffset(offset, rightPx, completed = false)
+        if (isAfter(candidate, bestProgress)) bestProgress = candidate
+        if (isAfter(candidate, bestSettledProgress)) bestSettledProgress = candidate
+    }
+
+    fun offerActive(offset: Int, rightPx: Float) {
+        val active = progressAtOffset(offset, rightPx, completed = false)
+        val lineLeft = layout.getLineLeft(active.lineIndex)
+        val settledRight = bestSettledProgress
+            ?.takeIf { it.lineIndex == active.lineIndex }
+            ?.rightPx
+            ?.coerceIn(lineLeft, layout.getLineRight(active.lineIndex))
+            ?: lineLeft
+        val candidate = active.copy(settledRightPx = settledRight)
+        if (isAfter(candidate, bestProgress)) bestProgress = candidate
+    }
+
+    var textOffset = 0
+    var firstTextOffset = -1
+    var lastSeenOffset = -1
+    var lastVisualEffectiveEnd = 0f
+    tokens.forEach { token ->
+        val tokenText = token.text
+        if (tokenText.isEmpty()) return@forEach
+        val tokenStart = token.startMs
+        val tokenEnd = token.endMs.coerceAtLeast(tokenStart)
+        val tokenDuration = tokenEnd - tokenStart
+        val charDuration = if (tokenDuration <= 0f) 0f else tokenDuration / tokenText.length
+
+        tokenText.forEachIndexed { charIndex, _ ->
+            val currentOffset = textOffset + charIndex
+            if (currentOffset >= textLength) return@forEachIndexed
+            if (firstTextOffset < 0) firstTextOffset = currentOffset
+            lastSeenOffset = currentOffset
+            val charStart = tokenStart + charDuration * charIndex
+            val charEnd = if (charIndex == tokenText.length - 1) tokenEnd else charStart + charDuration
+            val charBox = layout.getBoundingBox(currentOffset)
+            val charWidth = (charBox.right - charBox.left).coerceAtLeast(1f)
+            val startPx = startPxForOffset(currentOffset)
+            val endPx = endPxForOffset(currentOffset)
+            val leftExtraPx = (charBox.left - startPx).coerceAtLeast(0f)
+            val rightExtraPx = (endPx - charBox.right).coerceAtLeast(0f)
+            val extraStartMs = if (charDuration <= 0f) 0f else (charDuration * leftExtraPx / charWidth)
+            val extraEndMs = if (charDuration <= 0f) 0f else (charDuration * rightExtraPx / charWidth)
+            val effectiveStart = charStart - extraStartMs
+            val effectiveEnd = charEnd + extraEndMs
+            if (currentOffset == lastTextOffset) lastVisualEffectiveEnd = effectiveEnd
+
+            if (charDuration <= 0f) {
+                if (liveTime >= charStart) {
+                    offerSettled(currentOffset, endPxForOffset(currentOffset))
+                }
+                return@forEachIndexed
             }
-            result.add(" ")
-        } else {
-            word += char
+
+            when {
+                liveTime >= effectiveEnd -> {
+                    offerSettled(currentOffset, endPx)
+                }
+                liveTime <= effectiveStart -> {
+                    return@forEachIndexed
+                }
+                else -> {
+                    val effectiveDuration = (effectiveEnd - effectiveStart).coerceAtLeast(1f)
+                    val percent = ((liveTime - effectiveStart) / effectiveDuration).coerceIn(0f, 1f)
+                    val rightPx = startPx + (endPx - startPx) * percent
+                    offerActive(currentOffset, rightPx)
+                }
+            }
+        }
+        textOffset += tokenText.length
+    }
+
+    val firstOffset = firstTextOffset.coerceAtLeast(0).coerceAtMost(textLength - 1)
+    val completedOffset = lastSeenOffset.coerceAtLeast(firstOffset).coerceAtMost(textLength - 1)
+    if (liveTime >= lastVisualEffectiveEnd && completedOffset == lastTextOffset) {
+        return progressAtOffset(completedOffset, endPxForOffset(completedOffset), completed = true)
+    }
+    return bestProgress ?: progressAtOffset(firstOffset, startPxForOffset(firstOffset), completed = false)
+}
+
+private fun DrawScope.drawLyricHighlightOverlay(
+    layout: TextLayoutResult,
+    progress: LyricHighlightProgress,
+    focusedColor: Color
+) {
+    if (progress.completed) {
+        drawText(textLayoutResult = layout, color = focusedColor)
+        return
+    }
+
+    val targetLine = progress.lineIndex.coerceIn(0, layout.lineCount - 1)
+    for (line in 0 until targetLine) {
+        drawFocusedLineClip(layout, line, layout.getLineRight(line), focusedColor)
+    }
+    drawFocusedLineClip(
+        layout = layout,
+        lineIndex = targetLine,
+        rightPx = progress.settledRightPx,
+        focusedColor = focusedColor
+    )
+    drawFocusedLineClip(
+        layout = layout,
+        lineIndex = targetLine,
+        rightPx = progress.rightPx,
+        focusedColor = focusedColor,
+        featherPx = progress.featherPx,
+        leftPx = progress.settledRightPx
+    )
+}
+
+private fun DrawScope.drawFocusedLineClip(
+    layout: TextLayoutResult,
+    lineIndex: Int,
+    rightPx: Float,
+    focusedColor: Color,
+    featherPx: Float = 0f,
+    leftPx: Float? = null
+) {
+    val lineLeft = layout.getLineLeft(lineIndex)
+    val lineRight = layout.getLineRight(lineIndex)
+    val top = layout.getLineTop(lineIndex)
+    val bottom = layout.getLineBottom(lineIndex)
+    val clipLeft = (leftPx ?: lineLeft).coerceIn(lineLeft, lineRight)
+    val solidRight = (rightPx - featherPx).coerceIn(clipLeft, lineRight)
+
+    if (solidRight > clipLeft) {
+        clipRect(left = clipLeft, top = top, right = solidRight, bottom = bottom) {
+            drawText(textLayoutResult = layout, color = focusedColor)
         }
     }
-    if (word.isNotEmpty()) {
-        result.add(word)
+
+    val featherStart = solidRight
+    val featherEnd = (rightPx + featherPx).coerceIn(lineLeft, lineRight)
+    if (featherEnd > featherStart) {
+        clipRect(left = featherStart, top = top, right = featherEnd, bottom = bottom) {
+            drawText(
+                textLayoutResult = layout,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(focusedColor, Color.Transparent),
+                    startX = featherStart,
+                    endX = featherEnd
+                )
+            )
+        }
     }
-    return result
-}*/
+}

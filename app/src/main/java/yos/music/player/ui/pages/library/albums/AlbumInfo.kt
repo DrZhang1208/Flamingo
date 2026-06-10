@@ -182,7 +182,7 @@ fun AlbumInfo(
                             color = MaterialTheme.colorScheme.primary
                         )
 
-                        val albumYear = songs.firstOrNull()?.releaseYear ?: songs.firstOrNull()?.recordingYear
+                        val albumYear = MusicLibrary.albumYear(albumName.value)
                         Text(
                             text = if (albumYear != null) "ALBUM · $albumYear" else "ALBUM",
                             fontSize = 11.5.sp,

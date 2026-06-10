@@ -7,10 +7,11 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import yos.music.player.code.utils.lrc.YosLyricLine
 
 @Stable
 object MediaViewModelObject {
-    val lrcEntries: MutableState<List<List<Pair<Float, String>>>> = mutableStateOf(listOf())
+    val lrcEntries: MutableState<List<YosLyricLine>> = mutableStateOf(listOf())
     val otherSideForLines = mutableStateListOf<Boolean>()
 
     // var mainLyricLines = mutableStateListOf<AnnotatedString>()
@@ -24,13 +25,13 @@ object MediaViewModelObject {
     val isDolby = mutableStateOf(false)
 
     // 内存歌词缓存，key 为 URI 字符串
-    private val lrcCache = LinkedHashMap<String, List<List<Pair<Float, String>>>>(50, 0.75f, true)
+    private val lrcCache = LinkedHashMap<String, List<YosLyricLine>>(50, 0.75f, true)
 
-    fun getCachedLrc(uri: String?): List<List<Pair<Float, String>>>? {
+    fun getCachedLrc(uri: String?): List<YosLyricLine>? {
         return uri?.let { lrcCache[it] }
     }
 
-    fun cacheLrc(uri: String?, entries: List<List<Pair<Float, String>>>) {
+    fun cacheLrc(uri: String?, entries: List<YosLyricLine>) {
         if (uri != null && entries.isNotEmpty()) {
             lrcCache[uri] = entries
         }

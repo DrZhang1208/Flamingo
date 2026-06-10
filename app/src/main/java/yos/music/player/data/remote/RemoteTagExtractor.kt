@@ -80,6 +80,7 @@ object RemoteTagExtractor {
             var bitrate: Int? = null
             var sampleRate: Int? = null
             var channels: Int? = null
+            var tagMap: Map<String, Array<String>> = emptyMap()
 
             try {
                 val meta = runCatching {
@@ -93,12 +94,13 @@ object RemoteTagExtractor {
                     }
                 }.getOrNull()
                 val map = meta?.propertyMap ?: emptyMap()
+                tagMap = map
                 title = map["TITLE"]?.lastOrNull()
                 artist = map["ARTIST"]?.lastOrNull()
                 album = map["ALBUM"]?.lastOrNull()
                 albumArtist = map["ALBUMARTIST"]?.lastOrNull()
                 genre = map["GENRE"]?.lastOrNull()
-                year = map["DATE"]?.lastOrNull()?.take(4)?.toIntOrNull()
+                year = AudioMetadataUtils.extractYearFromTags(map)
                 // TagLib JNI 不同音频格式可能返回秒或毫秒，安全换算
                 val rawLength = props?.length?.toLong() ?: 0L
                 duration = if (rawLength in 1..10000) rawLength * 1000L else rawLength
@@ -134,7 +136,10 @@ object RemoteTagExtractor {
                     if (album == null) album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
                     if (albumArtist == null) albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
                     if (genre == null) genre = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)
-                    if (year == null) year = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull()
+                    year = AudioMetadataUtils.extractYearFromTags(
+                        tagMap,
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
+                    ) ?: year
                     if (duration == null) duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                     if (trackNumber == null) trackNumber = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.toIntOrNull()
                     if (discNumber == null) discNumber = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)?.toIntOrNull()

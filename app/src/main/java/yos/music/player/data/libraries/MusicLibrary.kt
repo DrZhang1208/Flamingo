@@ -225,6 +225,17 @@ object MusicLibrary {
             songs.filter { (it.album ?: defaultAlbum) == albumName }
     }
 
+    fun albumYear(albumName: String): Int? =
+        inferAlbumYear(Album[albumName])
+
+    fun inferAlbumYear(albumSongs: List<YosMediaItem>): Int? =
+        albumSongs
+            .mapNotNull { it.releaseYear ?: it.recordingYear }
+            .groupingBy { it }
+            .eachCount()
+            .minWithOrNull(compareByDescending<Map.Entry<Int, Int>> { it.value }.thenBy { it.key })
+            ?.key
+
     @Stable
     object Artist {
         operator fun get(artistName: String) =

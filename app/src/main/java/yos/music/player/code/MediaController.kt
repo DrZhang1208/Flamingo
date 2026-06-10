@@ -63,6 +63,7 @@ import yos.music.player.code.MediaController.playingMusicList
 import yos.music.player.code.MediaController.shuffleEnabled
 import yos.music.player.code.MediaController.toggleShuffle
 import yos.music.player.code.utils.lrc.YosLrcFactory
+import yos.music.player.code.utils.lrc.YosLyricLine
 import yos.music.player.code.utils.player.FadeExo
 import yos.music.player.code.utils.player.FadeExo.fadePause
 import yos.music.player.code.utils.player.FadeExo.fadePlay
@@ -115,7 +116,7 @@ object MediaController {
     fun onServiceRunning() {
         val handler by lazy { Handler(Looper.getMainLooper()) }
         val lyricAPI by lazy { runCatching { API() }.getOrNull() }
-        var lastLyric = listOf<Pair<Float, String>>()
+        var lastLyric: YosLyricLine? = null
         val base64 = runCatching { Tools.drawableToBase64(getDrawable(R.drawable.flamingo_icon_notification)!!) }.getOrElse { "" }
         var statusBarLyricEnabled: Boolean
         var hooked = false
@@ -147,7 +148,7 @@ object MediaController {
                                 val lrcEntries = MediaViewModelObject.lrcEntries.value
 
                                 val nextIndex = lrcEntries.indexOfFirst { line ->
-                                    line.first().first >= liveTime
+                                    line.startMs > liveTime
                                 }
 
                                 val sendLyric = fun() {
@@ -163,13 +164,7 @@ object MediaController {
                                             return
                                         }
 
-                                        val lyric = StringBuffer("")
-                                        line.forEachIndexed { charIndex, char ->
-                                            if (charIndex >= line.size - 1) return@forEachIndexed
-                                            lyric.append(char.second)
-                                        }
-
-                                        val lyricResult = lyric.toString()
+                                        val lyricResult = line.text
 
                                         if (statusBarLyricEnabled && hooked) {
                                             lyricAPI?.sendLyric(
@@ -1082,16 +1077,18 @@ class YosPlaybackService : MediaSessionService() {
                     val newArtwork = metadata.artworkUri
                     val newTrackNumber = metadata.trackNumber?.toString()?.toIntOrNull()
                     val newDiscNumber = metadata.discNumber?.toString()?.toIntOrNull()
+                    val newYear = metadata.releaseYear ?: metadata.recordingYear
                     val changed = (newTitle != null && newTitle != current.title) ||
                                   (newArtist != null && newArtist != current.artists) ||
                                   (newAlbum != null && newAlbum != current.album) ||
                                   (newArtwork != null && newArtwork != current.thumb)
                     val needTrackDisc = (newTrackNumber != null && current.trackNumber == null) ||
                                         (newDiscNumber != null && current.discNumber == null)
-                    if (changed) {
+                    val needYear = newYear != null && current.releaseYear != newYear && current.recordingYear != newYear
+                    if (changed || needYear) {
                         // EXOPLAYER 源只填充空字段，不覆盖已有标签
                         applyTags(current, "EXOPLAYER", newTitle, newArtist, newAlbum, newArtwork,
-                            metadata.releaseYear ?: metadata.recordingYear, null)
+                            newYear, null)
                     }
                     if (needTrackDisc) {
                         // 音轨号/碟号为 null 时从 ExoPlayer 元数据补充

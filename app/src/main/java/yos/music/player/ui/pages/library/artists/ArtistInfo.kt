@@ -79,7 +79,7 @@ fun ArtistInfo(navController: NavController) {
     val albums = remember(songs.value) {
         songs.value.groupBy { it.album }.mapNotNull { (album, albumSongs) ->
             if (album == null) return@mapNotNull null
-            val year = albumSongs.mapNotNull { it.releaseYear ?: it.recordingYear }.maxOrNull()
+            val year = MusicLibrary.albumYear(album)
             album to year
         }.sortedByDescending { it.second ?: 0 }.map { it.first }
     }
@@ -177,7 +177,7 @@ fun ArtistInfo(navController: NavController) {
             itemsIndexed(albums, key = { _, album -> album }) { _, album ->
                 val albumSongs = songs.value.filter { it.album == album }
                 val albumCover = albumSongs.firstOrNull()?.thumb
-                val year = albumSongs.mapNotNull { it.releaseYear ?: it.recordingYear }.maxOrNull()
+                val year = MusicLibrary.albumYear(album)
                 Row(
                     Modifier.fillMaxWidth().clickable {
                         yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)

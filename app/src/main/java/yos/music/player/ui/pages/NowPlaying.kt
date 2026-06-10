@@ -184,6 +184,7 @@ import yos.music.player.code.SystemMediaControlResolver
 import yos.music.player.code.VolumeChangeReceiver
 import yos.music.player.code.YosPlaybackService
 import yos.music.player.code.utils.lrc.YosMediaEvent
+import yos.music.player.code.utils.lrc.YosLyricLine
 import yos.music.player.code.utils.lrc.YosUIConfig
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.code.utils.player.FadeExo.fadePause
@@ -275,7 +276,7 @@ fun NowPlaying(
     ) {
         val context = LocalContext.current
 
-        val lrcEntries: MutableState<List<List<Pair<Float, String>>>> =
+        val lrcEntries: MutableState<List<YosLyricLine>> =
             MediaViewModelObject.lrcEntries
         val bitmap: MutableState<Uri?> = MediaViewModelObject.bitmap
 
@@ -1189,7 +1190,7 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, navController:
 
 @Composable
 private fun Lyric(
-    lrcEntries: () -> List<List<Pair<Float, String>>>,
+    lrcEntries: () -> List<YosLyricLine>,
     weightLambda: () -> Boolean,
     controlsHeightPxLambda: () -> Int,
     translationLambda: () -> Boolean,

@@ -2,7 +2,6 @@ package yos.music.player.code.utils.lrc
 
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.util.fastForEachIndexed
-import androidx.compose.ui.util.fastJoinToString
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import yos.music.player.data.libraries.SettingsLibrary
@@ -18,23 +17,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
      * Lrc 歌词文本处理方法
      * @param lrcText Lrc 格式的文本
      */
-    /*fun formatLrcEntries(lrcText: String): List<Pair<Float, String>> {
-        val lrcLines = lrcText.lines()
-        return lrcLines.mapNotNull { line ->
-            val timeIndex = line.indexOf("]")
-            if (timeIndex == -1) return@mapNotNull null
-            val timeText = line.substring(1, timeIndex)
-            val timeParts = timeText.split(":")
-            if (timeParts.size != 2) return@mapNotNull null
-            val minutes = timeParts[0].toIntOrNull() ?: return@mapNotNull null
-            val seconds = timeParts[1].toFloatOrNull() ?: return@mapNotNull null
-            val time = (minutes * 60 + seconds) * 1000
-            val lyric = line.substring(timeIndex + 1)
-            if (lyric.isBlank() || lyric.trim() == "//") return@mapNotNull null
-            time to if (formatText) lyric.replace(Regex("(?!\\n)\\s+"), " ").trim() else lyric
-        }
-    }*/
-    fun formatLrcEntries(lrcText: String): List<List<Pair<Float, String>>> {
+    fun formatLrcEntries(lrcText: String): List<YosLyricLine> {
         val parsedPairs = when {
             lrcText.contains("<tt", ignoreCase = true) -> parseTtml(lrcText)
             krcFormattedLineRegex.containsMatchIn(lrcText) -> parseKrc(lrcText)
@@ -48,25 +31,36 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         // 关闭逐字歌词时，将逐字时间戳折叠为逐行
         val result = if (!SettingsLibrary.EnableWordByWordLyric) {
             filteredPairs.map { line ->
-                if (line.isEmpty()) return@map line
-                val firstTime = line.first().first
-                // 最后一位是翻译占位，只拼接前面的文本
-                val text = line.dropLast(1).fastJoinToString(separator = "") { it.second }
-                val translationSlot = line.last()
-                listOf(firstTime to "") + listOf(firstTime to text) + listOf(translationSlot)
+                line.copy(
+                    tokens = listOf(
+                        YosLyricToken(
+                            startMs = line.startMs,
+                            endMs = line.endMs.coerceAtLeast(line.startMs),
+                            text = line.text
+                        )
+                    )
+                )
             }
         } else filteredPairs
         return processOtherSide(result)
     }
 
-    fun formatPlainLyricEntries(lyricText: String): List<List<Pair<Float, String>>> {
+    fun formatPlainLyricEntries(lyricText: String): List<YosLyricLine> {
         val text = lyricText.lines()
             .map { cleanLyricText(it) }
             .filter { it.isNotBlank() && it != "//" }
             .joinToString("\n")
             .takeIf { it.isNotBlank() }
             ?: return emptyList()
-        return processOtherSide(listOf(mutableListOf(0f to "", 0f to text, 0f to "")))
+        return processOtherSide(
+            listOf(
+                YosLyricLine(
+                    startMs = 0f,
+                    endMs = 0f,
+                    tokens = listOf(YosLyricToken(0f, 0f, text))
+                )
+            )
+        )
     }
 
     private data class LyricSegment(val startMs: Float, val endMs: Float, val text: String)
@@ -97,13 +91,13 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     )
 
-    private fun parseLrcLike(text: String): List<MutableList<Pair<Float, String>>> {
+    private fun parseLrcLike(text: String): List<YosLyricLine> {
         val rawLines = text.lines().filter { raw ->
             val line = raw.trim()
             line.isNotEmpty() && !metadataRegex.matches(line) &&
                 !(lrcTimeTagRegex.find(line) == null && keyValueRegex.matches(line))
         }
-        val parsed = mutableListOf<MutableList<Pair<Float, String>>>()
+        val parsed = mutableListOf<YosLyricLine>()
         rawLines.forEach { rawLine ->
             val line = rawLine.trim().replace(Regex("([\\[\\]]){2,}"), "$1")
             val leadingTags = mutableListOf<MatchResult>()
@@ -131,7 +125,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         return parsed
     }
 
-    private fun parseInlineTimedLine(lineStart: Float, content: String): MutableList<Pair<Float, String>> {
+    private fun parseInlineTimedLine(lineStart: Float, content: String): YosLyricLine {
         val markers = inlineTimeTagRegex.findAll(content).toList()
         val segments = mutableListOf<LyricSegment>()
         if (markers.isEmpty()) return lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart, cleanLyricText(content))), "")
@@ -156,7 +150,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         return lineOf(lineStart, segments, "")
     }
 
-    private fun parseKrc(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseKrc(text: String): List<YosLyricLine> =
         text.lines().mapNotNull { rawLine ->
             val line = rawLine.trim()
             val lineMatch = krcLineRegex.find(line) ?: return@mapNotNull null
@@ -179,7 +173,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
 
-    private fun parseLyricifyLines(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseLyricifyLines(text: String): List<YosLyricLine> =
         text.lines().mapNotNull { rawLine ->
             val line = rawLine.trim()
             val match = lyricifyLineRegex.matchEntire(line) ?: return@mapNotNull null
@@ -189,7 +183,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             if (lyric.isBlank()) null else lineOf(lineStart, listOf(LyricSegment(lineStart, lineEnd.coerceAtLeast(lineStart), lyric)), "")
         }
 
-    private fun parseLyricifySyllable(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseLyricifySyllable(text: String): List<YosLyricLine> =
         text.lines().mapNotNull { rawLine ->
             val line = rawLine.trim()
             val head = lyricifySyllableLineHeadRegex.find(line) ?: return@mapNotNull null
@@ -205,7 +199,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             if (segments.isEmpty()) null else lineOf(lineStart, segments, "")
         }
 
-    private fun parseYrc(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseYrc(text: String): List<YosLyricLine> =
         text.lines().mapNotNull { line ->
             val lineMatch = yrcLineRegex.find(line) ?: return@mapNotNull null
             val lineStart = lineMatch.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
@@ -225,7 +219,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
 
-    private fun parseQrc(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseQrc(text: String): List<YosLyricLine> =
         text.lines().mapNotNull { line ->
             val lineMatch = qrcLineRegex.find(line) ?: return@mapNotNull null
             val lineStart = lineMatch.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
@@ -252,16 +246,16 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
         }
 
-    private fun parseTtml(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseTtml(text: String): List<YosLyricLine> =
         parseTtmlXml(text).ifEmpty { parseTtmlRegex(text) }
 
-    private fun parseTtmlXml(text: String): List<MutableList<Pair<Float, String>>> = runCatching {
+    private fun parseTtmlXml(text: String): List<YosLyricLine> = runCatching {
         val parser = XmlPullParserFactory.newInstance().apply {
             isNamespaceAware = true
         }.newPullParser()
         parser.setInput(StringReader(text))
 
-        val lines = mutableListOf<MutableList<Pair<Float, String>>>()
+        val lines = mutableListOf<YosLyricLine>()
         val divStartStack = mutableListOf(0f)
         var inParagraph = false
         var lineStart = 0f
@@ -356,7 +350,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         lines
     }.getOrElse { emptyList() }
 
-    private fun parseTtmlRegex(text: String): List<MutableList<Pair<Float, String>>> =
+    private fun parseTtmlRegex(text: String): List<YosLyricLine> =
         ttmlPRegex.findAll(text).mapNotNull { p ->
             val pAttrs = parseXmlAttrs(p.groupValues[1])
             val body = p.groupValues[2]
@@ -390,51 +384,81 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         lineStart: Float,
         segments: List<LyricSegment>,
         translation: String
-    ): MutableList<Pair<Float, String>> {
-        val result = mutableListOf<Pair<Float, String>>(lineStart to "")
-        segments.sortedBy { it.startMs }.forEach { segment ->
-            if (segment.text.isNotBlank()) result += segment.endMs.coerceAtLeast(lineStart) to segment.text
-        }
-        result += lineStart to translation
-        return result
+    ): YosLyricLine {
+        val tokens = segments
+            .sortedBy { it.startMs }
+            .filter { it.text.isNotBlank() }
+            .map { segment ->
+                YosLyricToken(
+                    startMs = segment.startMs.coerceAtLeast(lineStart),
+                    endMs = segment.endMs.coerceAtLeast(segment.startMs).coerceAtLeast(lineStart),
+                    text = segment.text
+                )
+            }
+        val endMs = tokens.maxOfOrNull { it.endMs } ?: lineStart
+        return YosLyricLine(
+            startMs = lineStart,
+            endMs = endMs.coerceAtLeast(lineStart),
+            tokens = tokens,
+            translation = translation
+        )
     }
 
     private fun extractOffsetMs(text: String): Float =
         offsetRegex.find(text)?.groupValues?.getOrNull(1)?.toFloatOrNull() ?: 0f
 
     private fun applyOffset(
-        lines: List<MutableList<Pair<Float, String>>>,
+        lines: List<YosLyricLine>,
         offsetMs: Float
-    ): List<MutableList<Pair<Float, String>>> {
+    ): List<YosLyricLine> {
         if (offsetMs == 0f) return lines
         return lines.map { line ->
-            line.map { (time, lyric) -> (time - offsetMs).coerceAtLeast(0f) to lyric }.toMutableList()
+            val startMs = (line.startMs - offsetMs).coerceAtLeast(0f)
+            line.copy(
+                startMs = startMs,
+                endMs = (line.endMs - offsetMs).coerceAtLeast(startMs),
+                tokens = line.tokens.map { token ->
+                    val tokenStart = (token.startMs - offsetMs).coerceAtLeast(0f)
+                    token.copy(
+                        startMs = tokenStart,
+                        endMs = (token.endMs - offsetMs).coerceAtLeast(tokenStart)
+                    )
+                }
+            )
         }
     }
 
-    private fun addOrMergeLine(lines: MutableList<MutableList<Pair<Float, String>>>, line: MutableList<Pair<Float, String>>) {
-        val lineStart = line.firstOrNull()?.first ?: return
-        val existing = lines.find { abs((it.firstOrNull()?.first ?: -1f) - lineStart) < 1f }
-        if (existing != null) {
-            val translationText = line.dropLast(1).firstOrNull { it.second.isNotBlank() }?.second.orEmpty()
-            if (translationText.isNotBlank()) existing[existing.lastIndex] = existing.last().first to translationText
+    private fun addOrMergeLine(lines: MutableList<YosLyricLine>, line: YosLyricLine) {
+        val lineStart = line.startMs
+        val existingIndex = lines.indexOfFirst { abs(it.startMs - lineStart) < 1f }
+        if (existingIndex >= 0) {
+            val existing = lines[existingIndex]
+            val translationText = line.text
+            if (translationText.isNotBlank()) {
+                lines[existingIndex] = existing.copy(translation = translationText)
+            }
         } else {
             lines += line
         }
     }
 
-    private fun normalizeParsedLines(lines: List<MutableList<Pair<Float, String>>>): List<MutableList<Pair<Float, String>>> =
+    private fun normalizeParsedLines(lines: List<YosLyricLine>): List<YosLyricLine> =
         lines.asSequence()
-            .filter { it.size >= 2 }
             .map { line ->
-                val normalized = line.map { it.first to cleanLyricText(it.second) }.toMutableList()
-                if (normalized.lastIndex < 0 || normalized.last().second.isNotBlank()) {
-                    normalized += (normalized.firstOrNull()?.first ?: 0f) to ""
-                }
-                normalized
+                val tokens = line.tokens.map { token ->
+                    token.copy(text = cleanLyricText(token.text))
+                }.filter { it.text.isNotBlank() }
+                val startMs = line.startMs.coerceAtLeast(0f)
+                val endMs = (tokens.maxOfOrNull { it.endMs } ?: line.endMs).coerceAtLeast(startMs)
+                line.copy(
+                    startMs = startMs,
+                    endMs = endMs,
+                    tokens = tokens,
+                    translation = cleanLyricText(line.translation)
+                )
             }
             .filter { line ->
-                val text = line.dropLast(1).fastJoinToString(separator = "") { it.second }.trim().uppercase()
+                val text = line.text.trim().uppercase()
                 text.isNotBlank() && !text.startsWith("TITLE=") && !text.startsWith("ARTIST=") &&
                     !text.startsWith("ALBUM=") && !text.startsWith("GENRE=") &&
                     !text.startsWith("DATE=") && !text.startsWith("YEAR=") &&
@@ -442,7 +466,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                     !text.startsWith("WRITER=") && !text.startsWith("ENCODER=") &&
                     !text.startsWith("LENGTH=")
             }
-            .sortedBy { it.first().first }
+            .sortedBy { it.startMs }
             .toList()
 
     private fun parseLrcTimeMs(raw: String): Float? {
@@ -506,9 +530,9 @@ class YosLrcFactory(private val formatText: Boolean = true) {
      * 合并后，每行歌词的最后一个元素将为翻译文本。
      */
     fun mergeTranslation(
-        lrcEntries: List<List<Pair<Float, String>>>,
+        lrcEntries: List<YosLyricLine>,
         translationText: String
-    ): List<List<Pair<Float, String>>> {
+    ): List<YosLyricLine> {
         // 解析翻译 LRC 文本
         val translationLines = translationText.lines()
             .mapNotNull { line ->
@@ -535,13 +559,12 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         return if (translationLines.isNotEmpty()) {
             // LRC 格式的翻译：按时间戳匹配
             lrcEntries.map { line ->
-                if (line.isEmpty()) return@map line
-                val lineTime = line.first().first
+                val lineTime = line.startMs
                 val matchedTranslation = translationLines
                     .filter { abs(it.first - lineTime) < 50f }
                     .minByOrNull { abs(it.first - lineTime) }
                 if (matchedTranslation != null) {
-                    line.dropLast(1) + (line.last().first to matchedTranslation.second)
+                    line.copy(translation = matchedTranslation.second)
                 } else {
                     line
                 }
@@ -553,8 +576,8 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 .filter { it.isNotEmpty() && it != "//" }
             if (plainLines.isEmpty()) return lrcEntries
             lrcEntries.mapIndexed { index, line ->
-                if (index < plainLines.size && line.isNotEmpty()) {
-                    line.dropLast(1) + (line.last().first to plainLines[index])
+                if (index < plainLines.size) {
+                    line.copy(translation = plainLines[index])
                 } else {
                     line
                 }
@@ -562,15 +585,15 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         }
     }
 
-    private fun processOtherSide(lrcEntries: List<List<Pair<Float, String>>>): List<List<Pair<Float, String>>> {
+    private fun processOtherSide(lrcEntries: List<YosLyricLine>): List<YosLyricLine> {
         fun normalizeSinger(raw: String): String = raw.trim().trimEnd(':', '：').trim()
         fun isChorusSinger(singer: String): Boolean = singer == "合" || singer == "合唱" || singer.equals("ALL", ignoreCase = true)
 
         // Count duet markers - only enable duet mode if there are multiple markers
         val duetMarkerCount = lrcEntries.count { lines ->
-            val lyric = lines.fastJoinToString(separator = "") { it.second }
+            val lyric = lines.text + lines.translation
             lyric.trimEnd().endsWith(":") || lyric.trimEnd().endsWith("：") ||
-                (lines.size > 1 && lines[1].second.matches(Regex(".+\\s*:\\s*")))
+                (lines.tokens.size > 1 && lines.tokens.firstOrNull()?.text?.matches(Regex(".+\\s*:\\s*")) == true)
         }
         val isDuetSong = duetMarkerCount >= 3
 
@@ -580,7 +603,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         var otherSideFirstTime = false
 
         val filteredLrcEntries = lrcEntries.map { lines ->
-            val lyric = lines.fastJoinToString(separator = "") { it.second }
+            val lyric = lines.text + lines.translation
             var deleteType = -1
 
             if (isDuetSong && (lyric.trimEnd().endsWith(":") || lyric.trimEnd().endsWith("："))) {
@@ -591,8 +614,8 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                         lastSinger = singer
                     }
                 }
-            } else if (isDuetSong && lines.size > 1) {
-                val currentSinger = lines[1].second
+            } else if (isDuetSong && lines.tokens.isNotEmpty()) {
+                val currentSinger = lines.tokens.first().text
                 if (currentSinger.matches(Regex(".+\\s*:\\s*"))) {
                     deleteType = 0
                     val singer = normalizeSinger(currentSinger)
@@ -611,11 +634,10 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             otherSideResult.add(otherSide)
 
             if (isDuetSong) {
-                lines.filterIndexed { index, char ->
-                    !((index == 1 && char.second.matches(Regex(".+\\s*:\\s*"))) && deleteType == 0)
-                }
+                val tokens = if (deleteType == 0) lines.tokens.drop(1) else lines.tokens
+                lines.copy(tokens = tokens, otherSide = otherSide)
             } else {
-                lines
+                lines.copy(otherSide = false)
             }
         }
 
