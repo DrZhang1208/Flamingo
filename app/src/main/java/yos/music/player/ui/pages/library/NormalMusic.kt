@@ -53,7 +53,6 @@ import kotlinx.coroutines.withContext
 import yos.music.player.R
 import yos.music.player.code.MediaController
 import yos.music.player.data.libraries.MusicLibrary
-import yos.music.player.data.libraries.MusicLibrary.songs
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.SettingsLibrary.EnableDescending
 import yos.music.player.data.libraries.SettingsLibrary.SongSort
@@ -124,7 +123,7 @@ fun NormalMusic(navController: NavController) {
                 withContext(Dispatchers.IO) {
                     val currentMusicList = LibraryObject.getTargetListWithTitle().second
                     val filteredList = if (useSearch.value) {
-                        songs.asSequence().filter { song ->
+                        currentMusicList.asSequence().filter { song ->
                             (song.title ?: defaultTitle).contains(searchText.value, ignoreCase = true) ||
                             (song.artistsList ?: defaultArtists).any { it.contains(searchText.value, ignoreCase = true) }
                         }.toList()

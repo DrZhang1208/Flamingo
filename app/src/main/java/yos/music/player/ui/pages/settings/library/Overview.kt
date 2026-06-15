@@ -51,7 +51,6 @@ import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.Folder
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.MusicLibrary.allFolders
-import yos.music.player.data.libraries.MusicLibrary.hideFolders
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.UI
 import yos.music.player.ui.pages.settings.SettingBackground
@@ -203,7 +202,7 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             }
         }
 
-        CupertinoSwitch(checked = !hideFolders.any { it == folder.path }, onCheckedChange = {
+        CupertinoSwitch(checked = !MusicLibrary.isFolderHidden(folder), onCheckedChange = {
             scope.launch(Dispatchers.IO) {
                 Vibrator.click(context)
                 withContext(Dispatchers.Main) {

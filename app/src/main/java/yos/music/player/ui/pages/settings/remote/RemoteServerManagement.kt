@@ -56,9 +56,11 @@ import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
+import yos.music.player.data.remote.RemoteTagDatabase
 import yos.music.player.data.remote.ServerConfig
 import yos.music.player.data.remote.ServerType
 import yos.music.player.ui.pages.settings.GroupSpacer
+import yos.music.player.ui.pages.settings.ListHeader
 import yos.music.player.ui.pages.settings.SettingBackground
 import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.ui.widgets.basic.RoundColumn
@@ -73,6 +75,8 @@ fun RemoteServerManagement(navController: NavController) {
     var deleteTarget by remember { mutableStateOf<ServerConfig?>(null) }
     var showEditDialog by remember { mutableStateOf<ServerConfig?>(null) }
     var openMenuId by remember { mutableStateOf<String?>(null) }
+    var confirmClearSongCache by remember { mutableStateOf(false) }
+    var confirmClearTagCache by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -187,12 +191,13 @@ fun RemoteServerManagement(navController: NavController) {
             // 缓存大小设置
             item("cache_title") {
                 GroupSpacer()
-                Text("缓存设置", modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).alpha(0.6f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                ListHeader("缓存设置")
             }
             item("cache_settings") {
                 val ctx = LocalContext.current
                 val cacheDir = java.io.File(ctx.cacheDir, "audio_cache")
                 val cacheSize = remember { mutableStateOf(cacheDir.walkTopDown().sumOf { it.length() }) }
+                var tagCacheCount by remember(refreshKey) { mutableStateOf(RemoteTagDatabase.count()) }
                 val formattedSize = when {
                     cacheSize.value >= 1024L * 1024 * 1024 -> "%.1f GB".format(cacheSize.value / (1024.0 * 1024 * 1024))
                     cacheSize.value >= 1024 * 1024 -> "%.1f MB".format(cacheSize.value / (1024.0 * 1024.0))
@@ -204,7 +209,7 @@ fun RemoteServerManagement(navController: NavController) {
                 val cacheOptions = listOf(500 to "500 MB", 1024 to "1 GB", 5120 to "5 GB", 10240 to "10 GB", 0 to "无限制")
                 val currentLabel = cacheOptions.firstOrNull { it.first == SettingsLibrary.RemoteCacheSizeMB }?.second ?: "${SettingsLibrary.RemoteCacheSizeMB} MB"
                 RoundColumn {
-                    Row(Modifier.fillMaxWidth().clickable { showClear = !showClear }.padding(horizontal = 12.dp, vertical = 12.dp),
+                    Row(Modifier.fillMaxWidth().clickable { showClear = !showClear }.padding(horizontal = 15.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("已用缓存", Modifier.weight(1f), fontSize = 16.sp)
                         Text(formattedSize, fontSize = 16.sp, modifier = Modifier.alpha(0.5f))
@@ -212,26 +217,21 @@ fun RemoteServerManagement(navController: NavController) {
                     AnimatedVisibility(showClear, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         Column {
                             Row(Modifier.fillMaxWidth().clickable {
-                                cacheDir.deleteRecursively(); cacheDir.mkdirs()
-                                cacheSize.value = 0; showClear = false
+                                confirmClearSongCache = true
                             }.padding(horizontal = 28.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("清除歌曲缓存", fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                                Text("清除歌曲缓存", Modifier.weight(1f), fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                                Text(formattedSize, fontSize = 15.sp, modifier = Modifier.alpha(0.45f))
                             }
                             Row(Modifier.fillMaxWidth().clickable {
-                                scope.launch(Dispatchers.IO) {
-                                    yos.music.player.data.remote.RemoteTagDatabase.clearAll()
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(ctx, "已清除标签缓存", Toast.LENGTH_SHORT).show()
-                                        showClear = false
-                                    }
-                                }
+                                confirmClearTagCache = true
                             }.padding(horizontal = 28.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("清除标签缓存", fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                                Text("清除标签缓存", Modifier.weight(1f), fontSize = 15.sp, color = Color.Red.copy(alpha = 0.7f))
+                                Text("${tagCacheCount} 条", fontSize = 15.sp, modifier = Modifier.alpha(0.45f))
                             }
                         }
                     }
-                    Box(Modifier.fillMaxWidth().padding(start = 12.dp).height(0.5.dp).background(Color.Black.copy(alpha = 0.1f)))
-                    Row(Modifier.fillMaxWidth().clickable { showCacheOptions = !showCacheOptions }.padding(horizontal = 12.dp, vertical = 12.dp),
+                    Box(Modifier.fillMaxWidth().padding(start = 15.dp).height(0.5.dp).background(Color.Black.copy(alpha = 0.1f)))
+                    Row(Modifier.fillMaxWidth().clickable { showCacheOptions = !showCacheOptions }.padding(horizontal = 15.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("缓存上限", Modifier.weight(1f), fontSize = 16.sp)
                         Text(currentLabel, fontSize = 16.sp, modifier = Modifier.alpha(0.5f))
@@ -252,6 +252,52 @@ fun RemoteServerManagement(navController: NavController) {
             }
             item("space_end") { GroupSpacer() }
         })
+    }
+
+    if (confirmClearSongCache) {
+        val ctx = LocalContext.current
+        val cacheDir = java.io.File(ctx.cacheDir, "audio_cache")
+        OptionDialog(
+            icon = { Spacer(Modifier.size(0.dp)) },
+            title = "清除歌曲缓存",
+            subTitle = "确定要清除已缓存的远程歌曲文件吗？",
+            content = null,
+            positiveContent = "清除",
+            onPositive = {
+                cacheDir.deleteRecursively()
+                cacheDir.mkdirs()
+                Toast.makeText(ctx, "已清除歌曲缓存", Toast.LENGTH_SHORT).show()
+                refreshKey++
+                confirmClearSongCache = false
+            },
+            negativeContent = "取消",
+            onNegative = { confirmClearSongCache = false },
+            onDismissRequest = { confirmClearSongCache = false }
+        )
+    }
+
+    if (confirmClearTagCache) {
+        val ctx = LocalContext.current
+        OptionDialog(
+            icon = { Spacer(Modifier.size(0.dp)) },
+            title = "清除标签缓存",
+            subTitle = "确定要清除所有远程音乐标签缓存吗？",
+            content = null,
+            positiveContent = "清除",
+            onPositive = {
+                scope.launch(Dispatchers.IO) {
+                    RemoteTagDatabase.clearAll()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "已清除标签缓存", Toast.LENGTH_SHORT).show()
+                        refreshKey++
+                        confirmClearTagCache = false
+                    }
+                }
+            },
+            negativeContent = "取消",
+            onNegative = { confirmClearTagCache = false },
+            onDismissRequest = { confirmClearTagCache = false }
+        )
     }
 
     // WebDAV 对话框

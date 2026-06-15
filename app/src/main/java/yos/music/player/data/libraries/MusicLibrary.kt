@@ -180,8 +180,7 @@ object MusicLibrary {
             }
 
             val hiddenUris = lazy {
-                val hideFolderPaths = hideFolders.toSet()
-                allFolders.filter { it.path in hideFolderPaths }
+                allFolders.filter { isFolderHidden(it) }
                     .flatMap { it.songs }
                     .mapNotNull { it.uri }
                     .toSet()
@@ -422,6 +421,21 @@ object MusicLibrary {
     /** 统一路径格式，去除前后斜杠 */
     private fun normalizePath(path: String) = path.trim('/')
 
+    private fun normalizeHiddenFolderKey(key: String): String {
+        return if (key.startsWith("remote:")) key else normalizePath(key)
+    }
+
+    private fun folderVisibilityKey(folder: Folder): String {
+        val normalizedPath = normalizePath(folder.path)
+        val serverId = folder.serverId
+        return if (serverId != null) "remote:$serverId:$normalizedPath" else normalizedPath
+    }
+
+    fun isFolderHidden(folder: Folder): Boolean {
+        val key = folderVisibilityKey(folder)
+        return hideFolders.any { normalizeHiddenFolderKey(it) == key }
+    }
+
     private fun saveRemoteFoldersMeta() {
         // 按 (serverId, normalizedPath) 去重，防止重复保存
         val metas = remoteFolders
@@ -503,7 +517,7 @@ object MusicLibrary {
         val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
         remoteFolders.removeAll { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
         removeLegacyRemoteFolderMirror(serverId, normalizedPath)
-        removeHiddenFolderPath(normalizedPath)
+        removeHiddenFolderPath(serverId, normalizedPath)
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
         saveRemoteFoldersMeta()
         folderListVersion++
@@ -520,7 +534,7 @@ object MusicLibrary {
         if (foldersToRemove.isEmpty() && urisToRemove.isEmpty()) return 0
 
         remoteFolders.removeAll { it.serverId == serverId }
-        foldersToRemove.forEach { removeHiddenFolderPath(normalizePath(it.path)) }
+        foldersToRemove.forEach { removeHiddenFolderPath(serverId, normalizePath(it.path)) }
         folders = folders.filterNot { folder ->
             folder.songs.any { it.serverId == serverId || it.uri?.toString() in urisToRemove }
         }
@@ -541,8 +555,12 @@ object MusicLibrary {
         }
     }
 
-    private fun removeHiddenFolderPath(normalizedPath: String) {
-        hideFoldersSaver = hideFoldersSaver.filterNot { normalizePath(it.value) == normalizedPath }
+    private fun removeHiddenFolderPath(serverId: String?, normalizedPath: String) {
+        val remoteKey = serverId?.let { "remote:$it:$normalizedPath" }
+        hideFoldersSaver = hideFoldersSaver.filterNot {
+            val value = normalizeHiddenFolderKey(it.value)
+            value == remoteKey || (serverId == null && value == normalizedPath)
+        }
     }
 
     private val cachedGson by lazy {
@@ -594,10 +612,13 @@ object MusicLibrary {
     }*/
 
     private fun updateFolderVisibility(folder: Folder, hide: Boolean) {
+        val key = folderVisibilityKey(folder)
         if (hide) {
-            hideFoldersSaver = hideFoldersSaver.plus(YosStringWrapper(folder.path))
+            if (!hideFolders.any { normalizeHiddenFolderKey(it) == key }) {
+                hideFoldersSaver = hideFoldersSaver.plus(YosStringWrapper(key))
+            }
         } else {
-            hideFoldersSaver = hideFoldersSaver.minus(YosStringWrapper(folder.path))
+            hideFoldersSaver = hideFoldersSaver.filterNot { normalizeHiddenFolderKey(it.value) == key }
         }
         invalidateSongsCache()
     }
@@ -740,6 +761,10 @@ object MusicLibrary {
         for (folder in foldersToRefresh) {
             val serverId = folder.serverId ?: continue
             val path = folder.path
+            if (isFolderHidden(folder)) {
+                result.addAll(folder.songs)
+                continue
+            }
 
             runCatching {
                 yos.music.player.data.remote.RemoteServerManager.connect(serverId)

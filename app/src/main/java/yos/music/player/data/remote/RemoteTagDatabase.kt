@@ -49,6 +49,10 @@ object RemoteTagDatabase {
 
     fun delete(uri: String) { mmkv.removeValueForKey(uri) }
 
+    fun count(): Int {
+        return mmkv.allKeys()?.size ?: 0
+    }
+
     fun cleanup(maxDays: Int = 30) {
         val cutoff = System.currentTimeMillis() / 1000 - maxDays * 86400L
         val allKeys = mmkv.allKeys() ?: return
