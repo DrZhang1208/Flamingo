@@ -48,7 +48,7 @@ android {
                     def appName = "Flamingo"
                     def versionName = variant.versionName
                     def date = new Date().format('yyMMddHHmm')
-                    outputFileName = "${appName}_${versionName}_${date}.ApK"
+                    outputFileName = "${appName}_${versionName}_${date}.apk"
                 }
             }
         }

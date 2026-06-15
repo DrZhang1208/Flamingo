@@ -10,6 +10,7 @@
 build/
 /build-output/
 local.properties
+build.sh
 
 # Android
 /app/build/
