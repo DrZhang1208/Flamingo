@@ -112,10 +112,34 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 val yosEasing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
-private const val LYRIC_HIGHLIGHT_FADE_WIDTH = 0.30f
 private const val LYRIC_LAST_LINE_DURATION_MS = 4000f
 private const val LYRIC_POSITION_BACKWARD_JITTER_MS = 500
-private const val LYRIC_MAX_BOUNDARY_EXTRA_MS = 600f
+private const val LYRIC_MAX_BOUNDARY_EXTRA_MS = 500f
+private const val UPLIFT_HEIGHT_PX = 10f
+
+// ── Pre-computed per-character layout metrics ──
+// Computed once from TextLayoutResult; reused every frame for lerp-based mask animation.
+@Stable
+private data class CharLayoutInfo(
+    val textOffset: Int,
+    val startMs: Float,
+    val endMs: Float,
+    val xStartPx: Float,
+    val xEndPx: Float,
+    val visualLine: Int,
+)
+
+// ── Per-frame highlight mask state ──
+// innerFeatherPx & glowWidthPx are dynamically sized based on character duration:
+//   - slow/long syllables → wide feather + broad glow (soft, atmospheric)
+//   - fast/short syllables → tight feather + narrow glow (sharp, precise)
+private data class HighlightMask(
+    val completed: Boolean,
+    val visualLine: Int,
+    val maskRightPx: Float,
+    val innerFeatherPx: Float,
+    val glowWidthPx: Float,
+)
 
 /**
  * YosLyricView 主控件
@@ -151,18 +175,21 @@ fun YosLyricView(
 
     // 每帧更新播放位置和歌词行索引，驱动逐字歌词动画
     val framePosition = remember { mutableIntStateOf(0) }
-    // 手动 seek 后的冷却时间戳，防止 LaunchedEffect 循环立即覆盖手动设置的索引
-    val manualSeekCooldown = remember { mutableStateOf(0L) }
+    // 手动 seek 的目标位置 (ms)，-1 表示无待处理的 seek。
+    // 替换原来的时间戳冷却机制：当播放器位置到达目标附近时自动清除，避免固定冷却时间在快/慢设备上的不同步问题。
+    val pendingSeekTargetMs = remember { mutableIntStateOf(-1) }
+    val pendingSeekTimestamp = remember { mutableStateOf(0L) }
     LaunchedEffect(lrcEntries) {
-        // 歌词切换时重置状态，确保入场动画和首句 scale 动画完整播放
         MainViewModelObject.syncLyricIndex.intValue = -1
         framePosition.intValue = 0
-        manualSeekCooldown.value = 0L
+        pendingSeekTargetMs.intValue = -1
+        pendingSeekTimestamp.value = 0L
         delay(80)
         while (isActive) {
             val rawPos =
                 yos.music.player.code.MediaController.mediaControl?.currentPosition?.toInt() ?: 0
             val previousPos = framePosition.intValue
+            // 仅对小幅后退做抖动过滤；大幅跳变（seek）直接放行
             val pos = if (rawPos < previousPos && previousPos - rawPos < LYRIC_POSITION_BACKWARD_JITTER_MS) {
                 previousPos
             } else {
@@ -170,15 +197,24 @@ fun YosLyricView(
             }
             framePosition.intValue = pos
 
-            // 手动 seek 冷却期内不覆盖 syncLyricIndex，避免色闪
-            val inCooldown = manualSeekCooldown.value > 0L &&
-                    (System.currentTimeMillis() - manualSeekCooldown.value) < 300L
-            if (!inCooldown) {
+            // 检查待处理的 seek 是否已完成
+            val target = pendingSeekTargetMs.intValue
+            if (target >= 0) {
+                val nearTarget = kotlin.math.abs(pos - target) < 300
+                val timedOut = System.currentTimeMillis() - pendingSeekTimestamp.value > 2000L
+                if (nearTarget || timedOut) {
+                    pendingSeekTargetMs.intValue = -1
+                    pendingSeekTimestamp.value = 0L
+                }
+            }
+
+            // 无待处理 seek 时正常同步歌词行索引
+            if (pendingSeekTargetMs.intValue < 0) {
                 val entries = lrcEntriesLambda()
                 if (entries.isNotEmpty()) {
                     val nextIdx = entries.indexOfFirst { it.startMs > pos }
                     MainViewModelObject.syncLyricIndex.intValue = when {
-                        nextIdx == 0 -> -1  // 尚未到达第一句歌词的时间
+                        nextIdx == 0 -> -1
                         nextIdx != -1 -> (nextIdx - 1).coerceAtLeast(0)
                         else -> (entries.size - 1).coerceAtLeast(0)
                     }
@@ -493,8 +529,11 @@ fun YosLyricView(
                                 Vibrator.doubleClick(context)
                                 isUserScrolling.value = false
                                 enableLyricScroll.value = true
+                                // 立即更新歌词行索引和高亮位置，消除 seek 等待期间的闪烁
                                 currentLyricIndex.intValue = index
-                                manualSeekCooldown.value = System.currentTimeMillis()
+                                framePosition.intValue = lines.startMs.toInt()
+                                pendingSeekTargetMs.intValue = lines.startMs.toInt()
+                                pendingSeekTimestamp.value = System.currentTimeMillis()
                                 mediaEvent.onSeek(lines.startMs.toInt())
                             }
                         }
@@ -627,7 +666,7 @@ private fun LazyItemScope.Line(
     measurer: TextMeasurer,
     modifier: Modifier,
     viewAlign: Alignment.Horizontal,
-    draw: CacheDrawScope.(Constraints, TextLayoutResult) -> DrawResult
+    draw: CacheDrawScope.(Constraints, TextLayoutResult, List<CharLayoutInfo>) -> DrawResult
 ) =
     YosWrapper {
         val styledString = remember(style, lines) {
@@ -679,6 +718,11 @@ private fun LazyItemScope.Line(
                         )
                     }
 
+                    // Pre-compute per-character pixel positions once; reused every frame for lerp animation.
+                    val charLayout = remember(measureResult, lines) {
+                        precomputeCharLayout(lines, measureResult)
+                    }
+
                     val heightPx = with(density) { (style.lineHeight * measureResult.lineCount).toPx() }
                     val widthPx = runCatching {
                         (0 until measureResult.lineCount).maxOf {
@@ -702,7 +746,8 @@ private fun LazyItemScope.Line(
                                         finalWidthPx.roundToInt(),
                                         heightPx.roundToInt()
                                     ),
-                                    measureResult
+                                    measureResult,
+                                    charLayout
                                 )
                             }
                     )
@@ -740,8 +785,9 @@ fun LazyItemScope.LyricItem(
     val unfocusedColor = Color(0x2EFFFFFF)
 
     // 使用 remember 保存状态,确保 LazyColumn 复用时状态正确
-    val isNotOneByOne = remember(mainLyric) {
-        mainLyric.isEmpty() || mainLyric.all { it.startMs == it.endMs }
+    val enableWordByWordLyric = SettingsLibrary.EnableWordByWordLyric
+    val isNotOneByOne = remember(mainLyric, enableWordByWordLyric) {
+        !enableWordByWordLyric || mainLyric.isEmpty() || mainLyric.all { it.startMs == it.endMs }
     }
     // 保持 liveTime 最新引用，避免 drawWithCache 缓存导致逐字高亮使用过期的 liveTime
     val liveTimeRef = rememberUpdatedState(liveTime)
@@ -857,6 +903,8 @@ fun LazyItemScope.LyricItem(
                                     targetValue = if (isCurrent) -4f else 0f,
                                     animationSpec = TweenSpec(durationMillis = 180, easing = yosEasing)
                                 )
+                                // EMA-smoothed glow widths to prevent jumps at character boundaries
+                                val smoothGlow = remember { mutableStateOf(0f to 0f) }
                                 Line(
                                     lines = mainLyric,
                                     style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
@@ -876,7 +924,7 @@ fun LazyItemScope.LyricItem(
                                             onClick()
                                         },
                                     viewAlign = viewAlign
-                                ) { parentConstraints, measureResult ->
+                                ) { _, measureResult, charLayout ->
                                     // 非逐字歌词:全高亮
                                     if (isNotOneByOne) {
                                         return@Line onDrawWithContent {
@@ -899,13 +947,29 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
 
-                                        onDrawBehind {
-                                            val t = liveTimeRef.value.toFloat()
-                                            drawText(textLayoutResult = measureResult, color = unfocusedColor)
-                                            val progress = resolveLyricHighlightProgress(mainLyric, measureResult, t)
-                                            drawLyricHighlightOverlay(measureResult, progress, focusedColor)
-                                        }
+                                    // 当前行逐字歌词：双层渲染 + 时间驱动遮罩
+                                    onDrawBehind {
+                                        val currentTimeMs = liveTimeRef.value.toFloat()
+
+                                        // 计算遮罩（只算一次，底层和顶层共用）
+                                        val rawMask = calculateHighlightMask(charLayout, currentTimeMs)
+
+                                        // EMA 平滑羽化/光晕宽度，消除跨字符边界时的跳变
+                                        val (prevInner, prevGlow) = smoothGlow.value
+                                        val blend = 0.25f
+                                        val newInner = prevInner + blend * (rawMask.innerFeatherPx - prevInner)
+                                        val newGlow = prevGlow + blend * (rawMask.glowWidthPx - prevGlow)
+                                        smoothGlow.value = newInner to newGlow
+
+                                        val mask = rawMask.copy(innerFeatherPx = newInner, glowWidthPx = newGlow)
+
+                                        // 底图层：未播放文本（暗色）+ 逐字上浮，与顶层同步
+                                        drawUnplayedChars(measureResult, charLayout, mask, currentTimeMs, unfocusedColor)
+
+                                        // 顶图层：已播放文本（亮色）+ 遮罩 + 光晕 + 逐字上浮
+                                        drawHighlightOverlay(measureResult, mask, charLayout, currentTimeMs, focusedColor)
                                     }
+                                }
                                 }
                                 // 翻译文本 - 需要在 textAlign 定义的作用域内
                                 val textAlign = if (otherSide) TextAlign.End else TextAlign.Start
@@ -1086,238 +1150,250 @@ fun mainTextStyle(): TextStyle = TextStyle(
     )
 )*/
 
-@Stable
-private data class LyricHighlightProgress(
-    val lineIndex: Int,
-    val rightPx: Float,
-    val featherPx: Float,
-    val settledRightPx: Float,
-    val completed: Boolean
-)
-
 private fun lyricBoundaryExtraMs(tokens: List<YosLyricToken>): Float {
     val longestCharDuration = tokens.maxOfOrNull { token ->
         val length = token.text.length.coerceAtLeast(1)
         ((token.endMs - token.startMs).coerceAtLeast(0f) / length)
     } ?: 0f
-    return (longestCharDuration * LYRIC_HIGHLIGHT_FADE_WIDTH).coerceIn(0f, LYRIC_MAX_BOUNDARY_EXTRA_MS)
+    return (longestCharDuration * 0.5f).coerceIn(0f, LYRIC_MAX_BOUNDARY_EXTRA_MS)
 }
 
-private fun resolveLyricHighlightProgress(
+// ── Pre-computation: extract per-character pixel positions from TextLayoutResult ──
+
+private fun precomputeCharLayout(
     tokens: List<YosLyricToken>,
     layout: TextLayoutResult,
-    liveTime: Float
-): LyricHighlightProgress {
-    val textLength = layout.layoutInput.text.text.length
-    if (tokens.isEmpty() || textLength == 0) {
-        return LyricHighlightProgress(0, 0f, 1f, 0f, completed = true)
-    }
-
-    fun featherForOffset(offset: Int): Float {
-        val safeOffset = offset.coerceIn(0, textLength - 1)
-        val box = layout.getBoundingBox(safeOffset)
-        return (box.width * LYRIC_HIGHLIGHT_FADE_WIDTH).coerceAtLeast(1f)
-    }
-
-    fun progressAtOffset(
-        offset: Int,
-        rightPx: Float,
-        completed: Boolean,
-    ): LyricHighlightProgress {
-        val safeOffset = offset.coerceIn(0, textLength - 1)
-        val lineIndex = layout.getLineForOffset(safeOffset)
-        return LyricHighlightProgress(
-            lineIndex = lineIndex,
-            rightPx = rightPx,
-            featherPx = featherForOffset(safeOffset),
-            settledRightPx = rightPx,
-            completed = completed
-        )
-    }
-
-    val lastTokenTextOffset = tokens.sumOf { it.text.length }.coerceAtLeast(1) - 1
-    val lastTextOffset = lastTokenTextOffset.coerceAtMost(textLength - 1)
-
-    fun visualLineStartOffset(offset: Int): Int {
-        val safeOffset = offset.coerceIn(0, textLength - 1)
-        val lineIndex = layout.getLineForOffset(safeOffset)
-        return layout.getLineStart(lineIndex).coerceIn(0, textLength - 1)
-    }
-
-    fun visualLineEndOffset(offset: Int): Int {
-        val safeOffset = offset.coerceIn(0, textLength - 1)
-        val lineIndex = layout.getLineForOffset(safeOffset)
-        val lineStart = layout.getLineStart(lineIndex).coerceIn(0, textLength - 1)
-        val lineEnd = layout.getLineEnd(lineIndex, visibleEnd = true)
-            .coerceIn(lineStart + 1, textLength)
-        return (lineEnd - 1).coerceIn(0, textLength - 1)
-    }
-
-    fun startPxForOffset(offset: Int): Float {
-        val safeOffset = offset.coerceIn(0, textLength - 1)
-        val box = layout.getBoundingBox(safeOffset)
-        return if (safeOffset == visualLineStartOffset(safeOffset)) box.left - featherForOffset(safeOffset) else box.left
-    }
-
-    fun endPxForOffset(offset: Int): Float {
-        val safeOffset = offset.coerceIn(0, textLength - 1)
-        val box = layout.getBoundingBox(safeOffset)
-        return if (safeOffset == visualLineEndOffset(safeOffset)) box.right + featherForOffset(safeOffset) else box.right
-    }
-
-    fun isAfter(candidate: LyricHighlightProgress, current: LyricHighlightProgress?): Boolean {
-        if (current == null) return true
-        return candidate.lineIndex > current.lineIndex ||
-            (candidate.lineIndex == current.lineIndex && candidate.rightPx > current.rightPx)
-    }
-
-    var bestProgress: LyricHighlightProgress? = null
-    var bestSettledProgress: LyricHighlightProgress? = null
-    fun offerSettled(offset: Int, rightPx: Float) {
-        val candidate = progressAtOffset(offset, rightPx, completed = false)
-        if (isAfter(candidate, bestProgress)) bestProgress = candidate
-        if (isAfter(candidate, bestSettledProgress)) bestSettledProgress = candidate
-    }
-
-    fun offerActive(offset: Int, rightPx: Float) {
-        val active = progressAtOffset(offset, rightPx, completed = false)
-        val lineLeft = layout.getLineLeft(active.lineIndex)
-        val settledRight = bestSettledProgress
-            ?.takeIf { it.lineIndex == active.lineIndex }
-            ?.rightPx
-            ?.coerceIn(lineLeft, layout.getLineRight(active.lineIndex))
-            ?: lineLeft
-        val candidate = active.copy(settledRightPx = settledRight)
-        if (isAfter(candidate, bestProgress)) bestProgress = candidate
-    }
-
+): List<CharLayoutInfo> {
+    val text = layout.layoutInput.text.text
+    if (tokens.isEmpty() || text.isEmpty()) return emptyList()
+    val result = mutableListOf<CharLayoutInfo>()
     var textOffset = 0
-    var firstTextOffset = -1
-    var lastSeenOffset = -1
-    var lastVisualEffectiveEnd = 0f
-    tokens.forEach { token ->
-        val tokenText = token.text
-        if (tokenText.isEmpty()) return@forEach
-        val tokenStart = token.startMs
-        val tokenEnd = token.endMs.coerceAtLeast(tokenStart)
-        val tokenDuration = tokenEnd - tokenStart
-        val charDuration = if (tokenDuration <= 0f) 0f else tokenDuration / tokenText.length
-
-        tokenText.forEachIndexed { charIndex, _ ->
-            val currentOffset = textOffset + charIndex
-            if (currentOffset >= textLength) return@forEachIndexed
-            if (firstTextOffset < 0) firstTextOffset = currentOffset
-            lastSeenOffset = currentOffset
-            val charStart = tokenStart + charDuration * charIndex
-            val charEnd = if (charIndex == tokenText.length - 1) tokenEnd else charStart + charDuration
-            val charBox = layout.getBoundingBox(currentOffset)
-            val charWidth = (charBox.right - charBox.left).coerceAtLeast(1f)
-            val startPx = startPxForOffset(currentOffset)
-            val endPx = endPxForOffset(currentOffset)
-            val leftExtraPx = (charBox.left - startPx).coerceAtLeast(0f)
-            val rightExtraPx = (endPx - charBox.right).coerceAtLeast(0f)
-            val extraStartMs = if (charDuration <= 0f) 0f else (charDuration * leftExtraPx / charWidth)
-            val extraEndMs = if (charDuration <= 0f) 0f else (charDuration * rightExtraPx / charWidth)
-            val effectiveStart = charStart - extraStartMs
-            val effectiveEnd = charEnd + extraEndMs
-            if (currentOffset == lastTextOffset) lastVisualEffectiveEnd = effectiveEnd
-
-            if (charDuration <= 0f) {
-                if (liveTime >= charStart) {
-                    offerSettled(currentOffset, endPxForOffset(currentOffset))
-                }
-                return@forEachIndexed
-            }
-
-            when {
-                liveTime >= effectiveEnd -> {
-                    offerSettled(currentOffset, endPx)
-                }
-                liveTime <= effectiveStart -> {
-                    return@forEachIndexed
-                }
-                else -> {
-                    val effectiveDuration = (effectiveEnd - effectiveStart).coerceAtLeast(1f)
-                    val percent = ((liveTime - effectiveStart) / effectiveDuration).coerceIn(0f, 1f)
-                    val rightPx = startPx + (endPx - startPx) * percent
-                    offerActive(currentOffset, rightPx)
-                }
-            }
+    for (token in tokens) {
+        val tokenLen = token.text.length
+        if (tokenLen == 0) continue
+        val tokenDuration = (token.endMs - token.startMs).coerceAtLeast(0f)
+        for (i in 0 until tokenLen) {
+            val charOffset = textOffset + i
+            if (charOffset >= text.length) break
+            val box = layout.getBoundingBox(charOffset)
+            val line = layout.getLineForOffset(charOffset)
+            val charDuration = if (tokenDuration > 0f) tokenDuration / tokenLen else 0f
+            result += CharLayoutInfo(
+                textOffset = charOffset,
+                startMs = token.startMs + charDuration * i,
+                endMs = if (i == tokenLen - 1) token.endMs else token.startMs + charDuration * (i + 1),
+                xStartPx = box.left,
+                xEndPx = box.right,
+                visualLine = line,
+            )
         }
-        textOffset += tokenText.length
+        textOffset += tokenLen
     }
-
-    val firstOffset = firstTextOffset.coerceAtLeast(0).coerceAtMost(textLength - 1)
-    val completedOffset = lastSeenOffset.coerceAtLeast(firstOffset).coerceAtMost(textLength - 1)
-    if (liveTime >= lastVisualEffectiveEnd && completedOffset == lastTextOffset) {
-        return progressAtOffset(completedOffset, endPxForOffset(completedOffset), completed = true)
-    }
-    return bestProgress ?: progressAtOffset(firstOffset, startPxForOffset(firstOffset), completed = false)
+    return result
 }
 
-private fun DrawScope.drawLyricHighlightOverlay(
+// ── Per-frame: calculate highlight mask using linear interpolation ──
+// X_current = X_start + α × (X_end − X_start), where α = (t − T_begin) / (T_end − T_begin)
+
+private fun calculateHighlightMask(
+    chars: List<CharLayoutInfo>,
+    currentTimeMs: Float,
+): HighlightMask {
+    if (chars.isEmpty()) return HighlightMask(
+        completed = false, visualLine = 0, maskRightPx = 0f, innerFeatherPx = 0f, glowWidthPx = 0f
+    )
+
+    var lastCompletedX = chars.first().xStartPx
+    var lastCompletedLine = 0
+
+    for (char in chars) {
+        val charStart = char.startMs
+        val charEnd = char.endMs.coerceAtLeast(charStart)
+
+        when {
+            currentTimeMs >= charEnd -> {
+                lastCompletedX = char.xEndPx
+                lastCompletedLine = char.visualLine
+            }
+            currentTimeMs <= charStart -> {
+                return HighlightMask(
+                    completed = false, visualLine = lastCompletedLine,
+                    maskRightPx = lastCompletedX, innerFeatherPx = 0f, glowWidthPx = 0f,
+                )
+            }
+            else -> {
+                val duration = (charEnd - charStart).coerceAtLeast(0.001f)
+                val alpha = ((currentTimeMs - charStart) / duration).coerceIn(0f, 1f)
+                val maskX = char.xStartPx + alpha * (char.xEndPx - char.xStartPx)
+
+                // Dynamic feather/glow width: wide for slow syllables, tight for fast ones
+                val innerFeather = when {
+                    duration < 80f -> 6f
+                    duration < 200f -> 10f
+                    duration < 500f -> 16f
+                    duration < 1000f -> 24f
+                    else -> 32f
+                }
+                val glowWidth = (innerFeather * 2f).coerceIn(10f, 48f)
+
+                return HighlightMask(
+                    completed = false, visualLine = char.visualLine,
+                    maskRightPx = maskX, innerFeatherPx = innerFeather, glowWidthPx = glowWidth,
+                )
+            }
+        }
+    }
+
+    return HighlightMask(
+        completed = true, visualLine = chars.last().visualLine,
+        maskRightPx = chars.last().xEndPx, innerFeatherPx = 0f, glowWidthPx = 0f,
+    )
+}
+
+// ── Base layer: unplayed chars with per-character uplift ──
+
+private fun DrawScope.drawUnplayedChars(
     layout: TextLayoutResult,
-    progress: LyricHighlightProgress,
-    focusedColor: Color
+    chars: List<CharLayoutInfo>,
+    mask: HighlightMask,
+    currentTimeMs: Float,
+    dimColor: Color,
 ) {
-    if (progress.completed) {
-        drawText(textLayoutResult = layout, color = focusedColor)
+    if (chars.isEmpty() || mask.completed) return
+
+    val targetLine = mask.visualLine.coerceIn(0, layout.lineCount - 1)
+
+    // Future visual lines — all chars at rest (α = 0, no uplift)
+    for (line in (targetLine + 1) until layout.lineCount) {
+        clipRect(
+            left = layout.getLineLeft(line),
+            top = layout.getLineTop(line),
+            right = layout.getLineRight(line),
+            bottom = layout.getLineBottom(line),
+        ) {
+            drawText(textLayoutResult = layout, color = dimColor)
+        }
+    }
+
+    // Current visual line — per-character uplift synced with overlay
+    val lineTop = layout.getLineTop(targetLine)
+    val lineBottom = layout.getLineBottom(targetLine)
+    val lineChars = chars.filter { it.visualLine == targetLine }
+
+    for (char in lineChars) {
+        val duration = (char.endMs - char.startMs).coerceAtLeast(0.001f)
+        val alpha = ((currentTimeMs - char.startMs) / duration).coerceIn(0f, 1f)
+        val upliftY = alpha * UPLIFT_HEIGHT_PX
+
+        clipRect(char.xStartPx, lineTop - upliftY, char.xEndPx, lineBottom) {
+            drawText(textLayoutResult = layout, color = dimColor, topLeft = Offset(0f, -upliftY))
+        }
+    }
+}
+
+// ── Overlay drawing: per-character uplift + glow halo ──
+// Each character floats up independently driven by its own α (progress factor):
+//   α = (currentTime − charStartMs) / (charEndMs − charStartMs)
+//   upliftY = α · UPLIFT_HEIGHT_PX
+// Once α reaches 1.0 the char stays locked at peak elevation.
+
+private val GlowColor = Color(0xFFFFF8F0) // warm white, simulates over-bright halo
+
+private fun DrawScope.drawHighlightOverlay(
+    layout: TextLayoutResult,
+    mask: HighlightMask,
+    chars: List<CharLayoutInfo>,
+    currentTimeMs: Float,
+    focusedColor: Color,
+) {
+    if (mask.completed) {
+        drawText(textLayoutResult = layout, color = focusedColor, topLeft = Offset(0f, -UPLIFT_HEIGHT_PX))
         return
     }
 
-    val targetLine = progress.lineIndex.coerceIn(0, layout.lineCount - 1)
+    val targetLine = mask.visualLine.coerceIn(0, layout.lineCount - 1)
+
+    // Draw fully completed visual lines at peak elevation
     for (line in 0 until targetLine) {
-        drawFocusedLineClip(layout, line, layout.getLineRight(line), focusedColor)
-    }
-    drawFocusedLineClip(
-        layout = layout,
-        lineIndex = targetLine,
-        rightPx = progress.settledRightPx,
-        focusedColor = focusedColor
-    )
-    drawFocusedLineClip(
-        layout = layout,
-        lineIndex = targetLine,
-        rightPx = progress.rightPx,
-        focusedColor = focusedColor,
-        featherPx = progress.featherPx,
-        leftPx = progress.settledRightPx
-    )
-}
-
-private fun DrawScope.drawFocusedLineClip(
-    layout: TextLayoutResult,
-    lineIndex: Int,
-    rightPx: Float,
-    focusedColor: Color,
-    featherPx: Float = 0f,
-    leftPx: Float? = null
-) {
-    val lineLeft = layout.getLineLeft(lineIndex)
-    val lineRight = layout.getLineRight(lineIndex)
-    val top = layout.getLineTop(lineIndex)
-    val bottom = layout.getLineBottom(lineIndex)
-    val clipLeft = (leftPx ?: lineLeft).coerceIn(lineLeft, lineRight)
-    val solidRight = (rightPx - featherPx).coerceIn(clipLeft, lineRight)
-
-    if (solidRight > clipLeft) {
-        clipRect(left = clipLeft, top = top, right = solidRight, bottom = bottom) {
-            drawText(textLayoutResult = layout, color = focusedColor)
+        clipRect(
+            left = layout.getLineLeft(line),
+            top = layout.getLineTop(line) - UPLIFT_HEIGHT_PX,
+            right = layout.getLineRight(line),
+            bottom = layout.getLineBottom(line),
+        ) {
+            drawText(textLayoutResult = layout, color = focusedColor, topLeft = Offset(0f, -UPLIFT_HEIGHT_PX))
         }
     }
 
-    val featherStart = solidRight
-    val featherEnd = (rightPx + featherPx).coerceIn(lineLeft, lineRight)
-    if (featherEnd > featherStart) {
-        clipRect(left = featherStart, top = top, right = featherEnd, bottom = bottom) {
-            drawText(
-                textLayoutResult = layout,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(focusedColor, Color.Transparent),
-                    startX = featherStart,
-                    endX = featherEnd
+    // Current visual line — per-character uplift
+    val lineLeft = layout.getLineLeft(targetLine)
+    val lineRight = layout.getLineRight(targetLine)
+    val lineTop = layout.getLineTop(targetLine)
+    val lineBottom = layout.getLineBottom(targetLine)
+    val glowStart = (mask.maskRightPx - mask.innerFeatherPx).coerceIn(lineLeft, lineRight)
+    val maskEdge = mask.maskRightPx.coerceIn(lineLeft, lineRight)
+    val glowEnd = (mask.maskRightPx + mask.glowWidthPx).coerceIn(lineLeft, lineRight)
+
+    val lineChars = chars.filter { it.visualLine == targetLine }
+    for (char in lineChars) {
+        val cx = char.xStartPx
+        val ce = char.xEndPx
+        val duration = (char.endMs - char.startMs).coerceAtLeast(0.001f)
+        val alpha = ((currentTimeMs - char.startMs) / duration).coerceIn(0f, 1f)
+        val upliftY = alpha * UPLIFT_HEIGHT_PX
+
+        fun drawChar(color: Color) {
+            clipRect(cx, lineTop - upliftY, ce, lineBottom) {
+                drawText(textLayoutResult = layout, color = color, topLeft = Offset(0f, -upliftY))
+            }
+        }
+
+        fun drawCharGradient(startX: Float, endX: Float, colors: List<Color>) {
+            clipRect(cx, lineTop - upliftY, ce, lineBottom) {
+                drawText(
+                    textLayoutResult = layout,
+                    brush = Brush.horizontalGradient(colors = colors, startX = startX, endX = endX),
+                    topLeft = Offset(0f, -upliftY),
                 )
-            )
+            }
+        }
+
+        when {
+            // Char fully within solid zone
+            ce <= glowStart -> drawChar(focusedColor)
+            // Char straddles solid→glow boundary
+            cx < glowStart && ce > glowStart && ce <= maskEdge -> {
+                drawCharGradient(glowStart.coerceIn(cx, ce), ce, listOf(focusedColor, GlowColor))
+            }
+            // Char fully within inner feather zone
+            ce <= maskEdge -> drawCharGradient(cx, ce, listOf(focusedColor, GlowColor))
+            // Char straddles maskEdge
+            cx < maskEdge && ce > maskEdge && ce <= glowEnd -> {
+                val split = maskEdge.coerceIn(cx, ce)
+                // Left portion: focused → glow
+                clipRect(cx, lineTop - upliftY, split, lineBottom) {
+                    drawText(
+                        textLayoutResult = layout,
+                        brush = Brush.horizontalGradient(listOf(focusedColor, GlowColor), startX = cx, endX = split),
+                        topLeft = Offset(0f, -upliftY),
+                    )
+                }
+                // Right portion: glow → transparent
+                clipRect(split, lineTop - upliftY, ce, lineBottom) {
+                    drawText(
+                        textLayoutResult = layout,
+                        brush = Brush.horizontalGradient(listOf(GlowColor, Color.Transparent), startX = split, endX = ce),
+                        topLeft = Offset(0f, -upliftY),
+                    )
+                }
+            }
+            // Char fully within glow zone
+            cx >= maskEdge && ce <= glowEnd ->
+                drawCharGradient(cx, ce, listOf(GlowColor, Color.Transparent))
+            // Char straddles glowEnd
+            cx < glowEnd && ce > glowEnd ->
+                drawCharGradient(cx, glowEnd.coerceIn(cx, ce), listOf(GlowColor, Color.Transparent))
+            // Char beyond glow zone → not drawn (stays dim in base layer)
         }
     }
 }

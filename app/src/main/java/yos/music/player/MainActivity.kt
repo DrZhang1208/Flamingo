@@ -766,10 +766,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         color = Color.Transparent
                                     ) {
 
-                                        val isPlaying =
-                                            rememberSaveable(key = "MainActivity_isPlaying") {
-                                                MediaViewModelObject.isPlaying
-                                            }
+                                        val isPlaying = MediaViewModelObject.isPlaying
 
                                         // NowPlaying
                                         YosWrapper {

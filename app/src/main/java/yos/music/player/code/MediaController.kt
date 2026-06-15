@@ -264,7 +264,10 @@ object MediaController {
             }
 
             if (!play) {
-                musicPlaying.value = music
+                withContext(Dispatchers.Main) {
+                    MediaViewModelObject.isPlaying.value = false
+                    musicPlaying.value = music
+                }
                 refresh(music)
             }
 

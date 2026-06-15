@@ -791,6 +791,21 @@ private fun ColumnScope.Album(
         .padding(bottom = 33.dp),
     contentAlignment = Alignment.BottomCenter
 ) {
+    val springSpec: AnimationSpec<Float> = remember("Album_springSpec") {
+        SpringSpec(stiffness = 300f, dampingRatio = 1f, visibilityThreshold = 0.001f)
+    }
+    val tweenSpec: AnimationSpec<Float> = remember("Album_tweenSpec") {
+        TweenSpec(durationMillis = 420, easing = EaseOutQuart)
+    }
+    val targetScale = if (isSwitching()) null else if (isPlaying()) 0f else 1f
+    val scale = remember("Album_scale") { Animatable(targetScale ?: 0f) }
+
+    LaunchedEffect(targetScale) {
+        targetScale?.let {
+            scale.animateTo(it, animationSpec = if (it == 0f) springSpec else tweenSpec)
+        }
+    }
+
     val albumShape = YosRoundedCornerShape(8)
     val currentUrl = remember { mutableStateOf(albumUrl()) }
 
@@ -802,7 +817,7 @@ private fun ColumnScope.Album(
     }
 
     YosWrapper {
-        val dp = 7.dp
+        val dp = (7 + (37 * scale.value)).dp
         Box(
             Modifier
                 .fillMaxWidth()

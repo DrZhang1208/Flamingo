@@ -25,6 +25,7 @@ import yos.music.player.data.libraries.PlayList
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
 import yos.music.player.data.libraries.YosStringWrapper
+import yos.music.player.data.objects.MediaViewModelObject
 import kotlin.system.exitProcess
 
 class YosBasicApplication : Application() {
@@ -39,6 +40,7 @@ class YosBasicApplication : Application() {
 
         // 初始化 MMKV
         MMKV.initialize(this)
+        MediaViewModelObject.isPlaying.value = false
 
         // 初始化远程服务器管理器（加密凭据存储）
         yos.music.player.data.remote.RemoteServerManager.init(this)
@@ -105,7 +107,10 @@ class YosBasicApplication : Application() {
 
                         // 切到主线程修改 Compose State，避免 snapshot 锁竞争
                         if (savedMusic != null) {
-                            mainHandler.post { musicPlaying.value = savedMusic }
+                            mainHandler.post {
+                                MediaViewModelObject.isPlaying.value = false
+                                musicPlaying.value = savedMusic
+                            }
                         }
 
                         if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {

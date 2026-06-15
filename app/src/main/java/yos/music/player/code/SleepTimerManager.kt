@@ -11,8 +11,7 @@ import android.widget.Toast
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.core.content.ContextCompat
-import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.data.objects.MediaViewModelObject
 
 /**
  * 定时关闭管理器
@@ -22,7 +21,7 @@ import yos.music.player.data.libraries.SettingsLibrary
  * 2. 不持久化定时状态,进程被杀后自动清空(冷启动时默认无定时)
  * 3. 手动暂停音乐时,定时器继续计时(最佳实践:用户明确设置定时,应严格遵守)
  * 4. 固定时长模式下切歌不影响定时; "播完当前歌曲"模式下切歌会取消定时
- * 5. "延长到整首歌曲"模式: 倒计时结束后,如果正在播放,则等待当前歌曲播完再暂停
+ * 5. "延长到整首歌曲"模式: 倒计时结束后,如果正在播放,则等待当前歌曲播完再退出应用
  */
 @Stable
 object SleepTimerManager {
@@ -96,7 +95,7 @@ object SleepTimerManager {
         startCountdown(context)
         
         val extendMsg = if (extendToSongEnd) "(将延长到歌曲播完)" else ""
-        Toast.makeText(context, "将于 $minutes 分钟后暂停播放 $extendMsg", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "将于 $minutes 分钟后退出应用 $extendMsg", Toast.LENGTH_SHORT).show()
     }
     
     /**
@@ -135,19 +134,9 @@ object SleepTimerManager {
         if (isExtendToSongEnd.value && isActive.value && remainingSeconds.intValue == 0) {
             Handler(Looper.getMainLooper()).post {
                 val context = yos.music.player.code.MediaController.appContext
-                
-                // 暂停播放
-                yos.music.player.code.MediaController.mediaControl?.pause()
-                context?.let { cancelTimer(it, silent = true) }
-                context?.let { 
-                    Toast.makeText(it, "歌曲已播放完毕，应用即将退出", Toast.LENGTH_SHORT).show()
-                }
-                
-                // 延迟退出，让 Toast 显示
-                Handler(Looper.getMainLooper()).postDelayed({
-                    android.os.Process.killProcess(android.os.Process.myPid())
-                    kotlin.system.exitProcess(0)
-                }, 1500)
+                context?.let {
+                    exitApplication(it, "歌曲已播放完毕，应用即将退出")
+                } ?: exitProcessNow()
             }
         }
     }
@@ -246,6 +235,20 @@ object SleepTimerManager {
         val sec = seconds % 60
         return "${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}"
     }
+
+    fun exitApplication(context: Context, message: String) {
+        MediaViewModelObject.isPlaying.value = false
+        cancelTimer(context, silent = true)
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        Handler(Looper.getMainLooper()).post {
+            exitProcessNow()
+        }
+    }
+
+    private fun exitProcessNow() {
+        android.os.Process.killProcess(android.os.Process.myPid())
+        kotlin.system.exitProcess(0)
+    }
 }
 
 /**
@@ -264,17 +267,7 @@ class SleepTimerReceiver : android.content.BroadcastReceiver() {
                 Toast.makeText(context, "倒计时结束，将等待当前歌曲播完后退出", Toast.LENGTH_SHORT).show()
             } else {
                 // 非延长模式：直接退出软件
-                val mediaControl = yos.music.player.code.MediaController.mediaControl
-                mediaControl?.pause()
-                
-                manager.cancelTimer(context, silent = true)
-                Toast.makeText(context, "定时关闭时间已到，应用即将退出", Toast.LENGTH_SHORT).show()
-                
-                // 延迟退出，让 Toast 显示
-                Handler(Looper.getMainLooper()).postDelayed({
-                    android.os.Process.killProcess(android.os.Process.myPid())
-                    kotlin.system.exitProcess(0)
-                }, 1500)
+                manager.exitApplication(context, "定时关闭时间已到，应用即将退出")
             }
         }
     }

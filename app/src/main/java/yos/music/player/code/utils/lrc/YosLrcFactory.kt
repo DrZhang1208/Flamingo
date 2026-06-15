@@ -35,7 +35,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                     tokens = listOf(
                         YosLyricToken(
                             startMs = line.startMs,
-                            endMs = line.endMs.coerceAtLeast(line.startMs),
+                            endMs = line.startMs,
                             text = line.text
                         )
                     )
@@ -133,14 +133,14 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         val prefix = content.substring(0, markers.first().range.first)
         if (prefix.isNotBlank()) {
             val firstTime = parseLrcTimeMs(markers.first().groupValues[1]) ?: lineStart
-            segments += LyricSegment(lineStart, firstTime, cleanLyricText(prefix))
+            segments += LyricSegment(lineStart, firstTime, cleanLyricTokenText(prefix))
         }
 
         markers.forEachIndexed { index, marker ->
             val start = parseLrcTimeMs(marker.groupValues[1]) ?: return@forEachIndexed
             val textStart = marker.range.last + 1
             val textEnd = markers.getOrNull(index + 1)?.range?.first ?: content.length
-            val lyric = cleanLyricText(content.substring(textStart, textEnd))
+            val lyric = cleanLyricTokenText(content.substring(textStart, textEnd))
             if (lyric.isNotBlank()) {
                 val end = parseLrcTimeMs(markers.getOrNull(index + 1)?.groupValues?.get(1) ?: "")
                     ?: (start + estimateSegmentDuration(lyric))
@@ -162,7 +162,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 val rawStart = word.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
                 val duration = word.groupValues[2].toFloatOrNull() ?: 0f
                 val start = normalizeRelativeTime(lineStart, rawStart)
-                val lyric = cleanLyricText(word.groupValues[3])
+                val lyric = cleanLyricTokenText(word.groupValues[3])
                 if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
             }.toList()
             val fallbackText = cleanLyricText(body.replace(krcWordRegex, ""))
@@ -190,7 +190,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             if (head.range.first != 0) return@mapNotNull null
             val body = line.substring(head.range.last + 1)
             val segments = qrcWordRegex.findAll(body).mapNotNull { word ->
-                val lyric = cleanLyricText(word.groupValues[1])
+                val lyric = cleanLyricTokenText(word.groupValues[1])
                 val start = word.groupValues[2].toFloatOrNull() ?: return@mapNotNull null
                 val duration = word.groupValues[3].toFloatOrNull() ?: 0f
                 if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
@@ -208,7 +208,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val segments = yrcWordRegex.findAll(body).mapNotNull { word ->
                 val rawStart = word.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
                 val duration = word.groupValues[2].toFloatOrNull() ?: 0f
-                val lyric = cleanLyricText(word.groupValues[3])
+                val lyric = cleanLyricTokenText(word.groupValues[3])
                 if (lyric.isBlank()) null else LyricSegment(rawStart, rawStart + duration, lyric)
             }.toList()
             val fallbackText = cleanLyricText(body.replace(yrcWordRegex, ""))
@@ -226,7 +226,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val lineDuration = lineMatch.groupValues[2].toFloatOrNull() ?: 0f
             val body = line.substring(lineMatch.range.last + 1)
             val suffixSegments = qrcWordRegex.findAll(body).mapNotNull { word ->
-                val lyric = cleanLyricText(word.groupValues[1])
+                val lyric = cleanLyricTokenText(word.groupValues[1])
                 val start = word.groupValues[2].toFloatOrNull() ?: return@mapNotNull null
                 val duration = word.groupValues[3].toFloatOrNull() ?: 0f
                 if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
@@ -234,7 +234,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val prefixSegments = yrcWordRegex.findAll(body).mapNotNull { word ->
                 val start = word.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
                 val duration = word.groupValues[2].toFloatOrNull() ?: 0f
-                val lyric = cleanLyricText(word.groupValues[3])
+                val lyric = cleanLyricTokenText(word.groupValues[3])
                 if (lyric.isBlank()) null else LyricSegment(start, start + duration, lyric)
             }.toList()
             val segments = if (suffixSegments.isNotEmpty()) suffixSegments else prefixSegments
@@ -267,6 +267,14 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         fun currentDivStart(): Float = divStartStack.lastOrNull() ?: 0f
         fun resolveTime(raw: String?, base: Float): Float? =
             parseTtmlTimeMs(raw)?.let { normalizeRelativeTime(base, it) }
+        fun currentTimedSpan(): MutableTtmlSpan? = spanStack.lastOrNull { it != null }
+        fun appendInlineTextToLastSegment(raw: String) {
+            if (segments.isEmpty() || !isInlineTtmlText(raw)) return
+            val text = cleanLyricTokenText(raw)
+            if (text.isEmpty()) return
+            val lastIndex = segments.lastIndex
+            segments[lastIndex] = segments[lastIndex].copy(text = segments[lastIndex].text + text)
+        }
 
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             when (parser.eventType) {
@@ -310,7 +318,12 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                     if (inParagraph) {
                         val value = parser.text.orEmpty()
                         plainText.append(value)
-                        spanStack.lastOrNull { it != null }?.text?.append(value)
+                        val timedSpan = currentTimedSpan()
+                        if (timedSpan != null) {
+                            timedSpan.text.append(value)
+                        } else {
+                            appendInlineTextToLastSegment(value)
+                        }
                     }
                 }
                 XmlPullParser.END_TAG -> {
@@ -319,7 +332,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                             if (inParagraph && spanStack.isNotEmpty()) {
                                 val span = spanStack.removeAt(spanStack.lastIndex)
                                 if (span != null) {
-                                    val lyric = cleanLyricText(span.text.toString())
+                                    val lyric = cleanLyricTokenText(span.text.toString())
                                     if (lyric.isNotBlank()) segments += LyricSegment(span.startMs, span.endMs, lyric)
                                 }
                             }
@@ -356,15 +369,23 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val body = p.groupValues[2]
             val lineStart = parseTtmlTimeMs(pAttrs["begin"]) ?: 0f
             val lineEnd = parseTtmlTimeMs(pAttrs["end"]) ?: (lineStart + (parseTtmlTimeMs(pAttrs["dur"]) ?: 0f))
-            val spans = ttmlSpanRegex.findAll(body).mapNotNull { span ->
+            val spans = mutableListOf<LyricSegment>()
+            var lastSpanEnd = 0
+            ttmlSpanRegex.findAll(body).forEach { span ->
+                appendInlineTextToLastSegment(spans, body.substring(lastSpanEnd, span.range.first))
                 val attrs = parseXmlAttrs(span.groupValues[1])
-                val lyric = cleanLyricText(stripXml(span.groupValues[2]))
-                if (lyric.isBlank()) return@mapNotNull null
+                val lyric = cleanLyricTokenText(stripXml(span.groupValues[2]))
+                if (lyric.isBlank()) {
+                    lastSpanEnd = span.range.last + 1
+                    return@forEach
+                }
                 val start = parseTtmlTimeMs(attrs["begin"])?.let { normalizeRelativeTime(lineStart, it) } ?: lineStart
                 val end = parseTtmlTimeMs(attrs["end"])
                     ?: (start + (parseTtmlTimeMs(attrs["dur"]) ?: estimateSegmentDuration(lyric)))
-                LyricSegment(start, end.coerceAtLeast(start), lyric)
-            }.toList()
+                spans += LyricSegment(start, end.coerceAtLeast(start), lyric)
+                lastSpanEnd = span.range.last + 1
+            }
+            appendInlineTextToLastSegment(spans, body.substring(lastSpanEnd))
             val plain = cleanLyricText(stripXml(body))
             when {
                 spans.isNotEmpty() -> lineOf(lineStart, spans, "")
@@ -446,7 +467,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         lines.asSequence()
             .map { line ->
                 val tokens = line.tokens.map { token ->
-                    token.copy(text = cleanLyricText(token.text))
+                    token.copy(text = cleanLyricTokenText(token.text))
                 }.filter { it.text.isNotBlank() }
                 val startMs = line.startMs.coerceAtLeast(0f)
                 val endMs = (tokens.maxOfOrNull { it.endMs } ?: line.endMs).coerceAtLeast(startMs)
@@ -510,6 +531,23 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         return if (formatText) text.trim() else text
     }
 
+    private fun cleanLyricTokenText(raw: String): String =
+        decodeXmlEntities(raw)
+            .replace("//", "")
+            .replace(Regex("(?!\\n)\\s+"), " ")
+
+    private fun isInlineTtmlText(raw: String): Boolean =
+        raw.isNotEmpty() && !raw.contains('\n') && !raw.contains('\r')
+
+    private fun appendInlineTextToLastSegment(segments: MutableList<LyricSegment>, raw: String) {
+        val text = stripXml(raw)
+        if (segments.isEmpty() || !isInlineTtmlText(text)) return
+        val cleaned = cleanLyricTokenText(text)
+        if (cleaned.isEmpty()) return
+        val lastIndex = segments.lastIndex
+        segments[lastIndex] = segments[lastIndex].copy(text = segments[lastIndex].text + cleaned)
+    }
+
     private fun parseXmlAttrs(raw: String): Map<String, String> =
         ttmlAttrRegex.findAll(raw).associate { it.groupValues[1].substringAfter(":") to it.groupValues[2] }
 
@@ -523,6 +561,11 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&apos;", "'")
+            .replace("&nbsp;", " ")
+            .replace("&#160;", " ")
+            .replace("&#xA0;", " ")
+            .replace("&#xa0;", " ")
+            .replace('\u00A0', ' ')
 
     /**
      * 将翻译文本合并到已解析的歌词数据中。
