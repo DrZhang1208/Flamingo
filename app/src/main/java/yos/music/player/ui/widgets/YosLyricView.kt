@@ -115,6 +115,7 @@ val yosEasing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
 private const val LYRIC_LAST_LINE_DURATION_MS = 4000f
 private const val LYRIC_POSITION_BACKWARD_JITTER_MS = 500
 private const val LYRIC_MAX_BOUNDARY_EXTRA_MS = 500f
+private const val UPLIFT_HEIGHT_PX = 10f
 // ── Pre-computed per-character layout metrics ──
 // Computed once from TextLayoutResult; reused every frame for lerp-based mask animation.
 @Stable
@@ -961,11 +962,11 @@ fun LazyItemScope.LyricItem(
 
                                         val mask = rawMask.copy(innerFeatherPx = newInner, glowWidthPx = newGlow)
 
-                                        // 底图层：整行未播放文本（暗色）
-                                        drawUnplayedChars(measureResult, charLayout, mask, unfocusedColor)
+                                        // 底图层：整行未播放文本（暗色），逐字保留上浮
+                                        drawUnplayedChars(measureResult, charLayout, mask, currentTimeMs, unfocusedColor)
 
-                                        // 顶图层：整行共用一个时间驱动遮罩和光晕
-                                        drawHighlightOverlay(measureResult, mask, focusedColor)
+                                        // 顶图层：整行共用一个时间驱动遮罩和光晕，逐字保留上浮
+                                        drawHighlightOverlay(measureResult, mask, charLayout, currentTimeMs, focusedColor)
                                     }
                                 }
                                 }
@@ -1248,30 +1249,43 @@ private fun calculateHighlightMask(
     )
 }
 
-// ── Base layer: one dim text layer shared by the whole lyric line ──
+// ── Base layer: dim text with per-character uplift, sharing the same timing as the overlay ──
 
 private fun DrawScope.drawUnplayedChars(
     layout: TextLayoutResult,
     chars: List<CharLayoutInfo>,
     mask: HighlightMask,
+    currentTimeMs: Float,
     dimColor: Color,
 ) {
     if (chars.isEmpty() || mask.completed) return
-    drawText(textLayoutResult = layout, color = dimColor)
+    for (line in 0 until layout.lineCount) {
+        val lineTop = layout.getLineTop(line)
+        val lineBottom = layout.getLineBottom(line)
+        val lineChars = chars.filter { it.visualLine == line }
+        for (char in lineChars) {
+            val upliftY = calculateCharUplift(char, currentTimeMs)
+            clipRect(char.xStartPx, lineTop - upliftY, char.xEndPx, lineBottom) {
+                drawText(textLayoutResult = layout, color = dimColor, topLeft = Offset(0f, -upliftY))
+            }
+        }
+    }
 }
 
 // ── Overlay drawing: a single continuous mask shared by the whole lyric line ──
-// The mask edge still follows token timing, so fast lyrics move quickly and long syllables move slowly.
+// The mask edge still follows token timing, while each character keeps its own uplift timing.
 
 private val GlowColor = Color(0xFFFFF8F0) // warm white, simulates over-bright halo
 
 private fun DrawScope.drawHighlightOverlay(
     layout: TextLayoutResult,
     mask: HighlightMask,
+    chars: List<CharLayoutInfo>,
+    currentTimeMs: Float,
     focusedColor: Color,
 ) {
     if (mask.completed) {
-        drawText(textLayoutResult = layout, color = focusedColor)
+        drawLineChars(layout, chars, currentTimeMs, focusedColor)
         return
     }
 
@@ -1279,40 +1293,88 @@ private fun DrawScope.drawHighlightOverlay(
 
     // Draw fully completed visual lines with the same overlay, no per-character clipping.
     for (line in 0 until targetLine) {
-        clipRect(
-            left = layout.getLineLeft(line),
-            top = layout.getLineTop(line),
-            right = layout.getLineRight(line),
-            bottom = layout.getLineBottom(line),
-        ) {
-            drawText(textLayoutResult = layout, color = focusedColor)
-        }
+        drawLineChars(layout, chars.filter { it.visualLine == line }, currentTimeMs, focusedColor)
     }
 
     // Current visual line — one solid zone plus one feather/glow zone.
     val lineLeft = layout.getLineLeft(targetLine)
     val lineRight = layout.getLineRight(targetLine)
-    val lineTop = layout.getLineTop(targetLine)
-    val lineBottom = layout.getLineBottom(targetLine)
     val glowStart = (mask.maskRightPx - mask.innerFeatherPx).coerceIn(lineLeft, lineRight)
     val maskEdge = mask.maskRightPx.coerceIn(lineLeft, lineRight)
     val glowEnd = (mask.maskRightPx + mask.glowWidthPx).coerceIn(lineLeft, lineRight)
 
     if (glowStart > lineLeft) {
-        clipRect(lineLeft, lineTop, glowStart, lineBottom) {
-            drawText(textLayoutResult = layout, color = focusedColor)
-        }
+        drawLineChars(layout, chars, currentTimeMs, focusedColor, targetLine, lineLeft, glowStart)
     }
 
     if (glowEnd > glowStart) {
-        clipRect(glowStart, lineTop, glowEnd, lineBottom) {
+        drawLineChars(
+            layout = layout,
+            chars = chars,
+            currentTimeMs = currentTimeMs,
+            brush = Brush.horizontalGradient(
+                colors = listOf(focusedColor, GlowColor, Color.Transparent),
+                startX = glowStart,
+                endX = glowEnd,
+            ),
+            visualLine = targetLine,
+            clipLeft = glowStart,
+            clipRight = glowEnd,
+        )
+    }
+}
+
+private fun calculateCharUplift(char: CharLayoutInfo, currentTimeMs: Float): Float {
+    val duration = (char.endMs - char.startMs).coerceAtLeast(0.001f)
+    val alpha = ((currentTimeMs - char.startMs) / duration).coerceIn(0f, 1f)
+    return alpha * UPLIFT_HEIGHT_PX
+}
+
+private fun DrawScope.drawLineChars(
+    layout: TextLayoutResult,
+    chars: List<CharLayoutInfo>,
+    currentTimeMs: Float,
+    color: Color,
+    visualLine: Int? = null,
+    clipLeft: Float = Float.NEGATIVE_INFINITY,
+    clipRight: Float = Float.POSITIVE_INFINITY,
+) {
+    val lineChars = visualLine?.let { line -> chars.filter { it.visualLine == line } } ?: chars
+    for (char in lineChars) {
+        val left = maxOf(char.xStartPx, clipLeft)
+        val right = minOf(char.xEndPx, clipRight)
+        if (right <= left) continue
+        val upliftY = calculateCharUplift(char, currentTimeMs)
+        val lineTop = layout.getLineTop(char.visualLine)
+        val lineBottom = layout.getLineBottom(char.visualLine)
+        clipRect(left, lineTop - upliftY, right, lineBottom) {
+            drawText(textLayoutResult = layout, color = color, topLeft = Offset(0f, -upliftY))
+        }
+    }
+}
+
+private fun DrawScope.drawLineChars(
+    layout: TextLayoutResult,
+    chars: List<CharLayoutInfo>,
+    currentTimeMs: Float,
+    brush: Brush,
+    visualLine: Int,
+    clipLeft: Float,
+    clipRight: Float,
+) {
+    val lineChars = chars.filter { it.visualLine == visualLine }
+    for (char in lineChars) {
+        val left = maxOf(char.xStartPx, clipLeft)
+        val right = minOf(char.xEndPx, clipRight)
+        if (right <= left) continue
+        val upliftY = calculateCharUplift(char, currentTimeMs)
+        val lineTop = layout.getLineTop(char.visualLine)
+        val lineBottom = layout.getLineBottom(char.visualLine)
+        clipRect(left, lineTop - upliftY, right, lineBottom) {
             drawText(
                 textLayoutResult = layout,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(focusedColor, GlowColor, Color.Transparent),
-                    startX = glowStart,
-                    endX = glowEnd,
-                ),
+                brush = brush,
+                topLeft = Offset(0f, -upliftY),
             )
         }
     }
