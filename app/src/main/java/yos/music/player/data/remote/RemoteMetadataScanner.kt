@@ -1,14 +1,17 @@
 package yos.music.player.data.remote
 
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import yos.music.player.data.libraries.YosMediaItem
 
 /**
@@ -26,6 +29,8 @@ object RemoteMetadataScanner {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var scanJob: Job? = null
+    @Volatile private var activeScanServerId: String? = null
+    @Volatile private var activeScanUris: Set<String> = emptySet()
 
     private val _scanProgress = MutableStateFlow(ScanProgress())
     val scanProgress: StateFlow<ScanProgress> = _scanProgress
@@ -97,80 +102,106 @@ object RemoteMetadataScanner {
             val toProcess = (pending + completeRetry).distinctBy { it.uri?.toString() }
             if (toProcess.isEmpty()) return@launch
 
+            activeScanServerId = serverId
+            activeScanUris = toProcess.mapNotNull { it.uri?.toString() }.toSet()
             _scanProgress.value = ScanProgress(serverId, toProcess.size, 0, "", true)
 
-            for ((i, item) in toProcess.withIndex()) {
-                val path = item.uri?.path ?: continue
-                val uri = item.uri?.toString() ?: path
-                _scanProgress.value = ScanProgress(serverId, toProcess.size, i, item.title ?: path, true)
+            try {
+                for ((i, item) in toProcess.withIndex()) {
+                    coroutineContext.ensureActive()
+                    val path = item.uri?.path ?: continue
+                    val uri = item.uri?.toString() ?: path
+                    _scanProgress.value = ScanProgress(serverId, toProcess.size, i, item.title ?: path, true)
 
-                try {
-                    val result = RemoteTagExtractor.extract(serverId, path, uri)
-                    val duration = result.duration ?: item.duration
-                    val bitrate = yos.music.player.code.AudioMetadataUtils.reliableBitrateKbps(
-                        result.bitrate ?: item.bitrate,
-                        item.fileSize,
-                        duration.takeIf { it > 0L }
-                    )
-                    val updated = item.copy(
-                        duration = result.duration ?: item.duration,
-                        title = result.title ?: item.title,
-                        artists = result.artist ?: item.artists,
-                        albumArtists = result.albumArtist ?: item.albumArtists,
-                        album = result.album ?: item.album,
-                        genre = result.genre ?: item.genre,
-                        releaseYear = result.year ?: item.releaseYear,
-                        recordingYear = result.year ?: item.recordingYear,
-                        trackNumber = result.trackNumber ?: item.trackNumber,
-                        discNumber = result.discNumber ?: item.discNumber,
-                        composer = result.composer ?: item.composer,
-                        thumb = result.coverUri ?: item.thumb,
-                        bitrate = bitrate ?: result.bitrate ?: item.bitrate,
-                        sampleRate = result.sampleRate ?: item.sampleRate,
-                        channels = result.channels ?: item.channels,
-                        tagScanStatus = "COMPLETE"
-                    )
-                    RemoteTagDatabase.put(uri, CachedTags(
-                        uri = uri,
-                        title = updated.title,
-                        artist = updated.artists,
-                        album = updated.album,
-                        albumArtist = updated.albumArtists,
-                        genre = updated.genre,
-                        year = updated.releaseYear ?: updated.recordingYear,
-                        duration = if (updated.duration > 0) updated.duration else null,
-                        trackNumber = updated.trackNumber,
-                        discNumber = updated.discNumber,
-                        composer = updated.composer,
-                        coverPath = result.coverUri?.toString(),
-                        lyrics = result.lyrics,
-                        bitrate = updated.bitrate,
-                        sampleRate = result.sampleRate,
-                        channels = result.channels,
-                        fileSize = updated.fileSize
-                    ))
-                    RemoteRetryManager.onBackgroundScanSuccess(uri)
-                    withContext(Dispatchers.Main) {
-                        onItemUpdated(updated)
-                    }
-                } catch (_: Exception) {
-                    val failCount = RemoteRetryManager.onBackgroundScanFailed(uri, serverId, path)
-                    val newStatus = if (failCount >= RemoteRetryManager.MAX_BACKGROUND_RETRIES) "FAILED"
-                        else RemoteRetryManager.encodeFailStatus(failCount)
-                    val failed = item.copy(tagScanStatus = newStatus)
-                    withContext(Dispatchers.Main) {
-                        onItemUpdated(failed)
+                    try {
+                        val result = RemoteTagExtractor.extract(serverId, path, uri)
+                        coroutineContext.ensureActive()
+                        val duration = result.duration ?: item.duration
+                        val bitrate = yos.music.player.code.AudioMetadataUtils.reliableBitrateKbps(
+                            result.bitrate ?: item.bitrate,
+                            item.fileSize,
+                            duration.takeIf { it > 0L }
+                        )
+                        val updated = item.copy(
+                            duration = result.duration ?: item.duration,
+                            title = result.title ?: item.title,
+                            artists = result.artist ?: item.artists,
+                            albumArtists = result.albumArtist ?: item.albumArtists,
+                            album = result.album ?: item.album,
+                            genre = result.genre ?: item.genre,
+                            releaseYear = result.year ?: item.releaseYear,
+                            recordingYear = result.year ?: item.recordingYear,
+                            trackNumber = result.trackNumber ?: item.trackNumber,
+                            discNumber = result.discNumber ?: item.discNumber,
+                            composer = result.composer ?: item.composer,
+                            thumb = result.coverUri ?: item.thumb,
+                            bitrate = bitrate ?: result.bitrate ?: item.bitrate,
+                            sampleRate = result.sampleRate ?: item.sampleRate,
+                            channels = result.channels ?: item.channels,
+                            tagScanStatus = "COMPLETE"
+                        )
+                        RemoteTagDatabase.put(uri, CachedTags(
+                            uri = uri,
+                            title = updated.title,
+                            artist = updated.artists,
+                            album = updated.album,
+                            albumArtist = updated.albumArtists,
+                            genre = updated.genre,
+                            year = updated.releaseYear ?: updated.recordingYear,
+                            duration = if (updated.duration > 0) updated.duration else null,
+                            trackNumber = updated.trackNumber,
+                            discNumber = updated.discNumber,
+                            composer = updated.composer,
+                            coverPath = result.coverUri?.toString(),
+                            lyrics = result.lyrics,
+                            bitrate = updated.bitrate,
+                            sampleRate = result.sampleRate,
+                            channels = result.channels,
+                            fileSize = updated.fileSize
+                        ))
+                        RemoteRetryManager.onBackgroundScanSuccess(uri)
+                        withContext(Dispatchers.Main) {
+                            onItemUpdated(updated)
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        val failCount = RemoteRetryManager.onBackgroundScanFailed(uri, serverId, path)
+                        val newStatus = if (failCount >= RemoteRetryManager.MAX_BACKGROUND_RETRIES) "FAILED"
+                            else RemoteRetryManager.encodeFailStatus(failCount)
+                        val failed = item.copy(tagScanStatus = newStatus)
+                        withContext(Dispatchers.Main) {
+                            onItemUpdated(failed)
+                        }
                     }
                 }
-            }
 
-            _scanProgress.value = ScanProgress(serverId, toProcess.size, toProcess.size, "", false)
+                _scanProgress.value = ScanProgress(serverId, toProcess.size, toProcess.size, "", false)
+            } finally {
+                activeScanServerId = null
+                activeScanUris = emptySet()
+            }
         }
     }
 
     fun cancelScan() {
         scanJob?.cancel()
+        activeScanServerId = null
+        activeScanUris = emptySet()
         _scanProgress.value = ScanProgress()
+    }
+
+    fun cancelScanForUris(uris: Collection<String>) {
+        val keys = uris.toSet()
+        if (keys.isNotEmpty() && activeScanUris.any { it in keys }) {
+            cancelScan()
+        }
+    }
+
+    fun cancelScanForServer(serverId: String) {
+        if (activeScanServerId == serverId) {
+            cancelScan()
+        }
     }
 
     // --- Helpers ---

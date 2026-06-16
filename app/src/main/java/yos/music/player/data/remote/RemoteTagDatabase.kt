@@ -2,8 +2,8 @@ package yos.music.player.data.remote
 
 import android.content.Context
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
+import java.io.File
 import yos.music.player.code.AudioMetadataUtils
 
 data class CachedTags(
@@ -29,10 +29,14 @@ data class CachedTags(
 
 object RemoteTagDatabase {
     private const val MMKV_ID = "remote_tags"
+    private const val REMOTE_COVER_DIR = "remote_covers"
     private val mmkv by lazy { MMKV.mmkvWithID(MMKV_ID) }
     private val gson = Gson()
+    @Volatile private var appContext: Context? = null
 
-    fun init(context: Context) { /* MMKV lazy inits */ }
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
 
     fun get(uri: String): CachedTags? {
         val json = mmkv.decodeString(uri) ?: return null
@@ -45,9 +49,13 @@ object RemoteTagDatabase {
     fun put(uri: String, tags: CachedTags) {
         val updated = tags.copy(updatedAt = System.currentTimeMillis() / 1000)
         mmkv.encode(uri, gson.toJson(updated))
+        touchCover(updated.coverPath)
     }
 
-    fun delete(uri: String) { mmkv.removeValueForKey(uri) }
+    fun delete(uri: String) {
+        getRaw(uri)?.coverPath?.let { deleteCover(it) }
+        mmkv.removeValueForKey(uri)
+    }
 
     fun count(): Int {
         return mmkv.allKeys()?.size ?: 0
@@ -55,20 +63,69 @@ object RemoteTagDatabase {
 
     fun cleanup(maxDays: Int = 30) {
         val cutoff = System.currentTimeMillis() / 1000 - maxDays * 86400L
-        val allKeys = mmkv.allKeys() ?: return
+        val allKeys = mmkv.allKeys() ?: emptyArray()
         for (key in allKeys) {
             val json = mmkv.decodeString(key) ?: continue
             try {
                 val tags = gson.fromJson(json, CachedTags::class.java)
-                if (tags.updatedAt < cutoff) mmkv.removeValueForKey(key)
-            } catch (_: Exception) { mmkv.removeValueForKey(key) }
+                if (tags.updatedAt < cutoff) {
+                    deleteCover(tags.coverPath)
+                    mmkv.removeValueForKey(key)
+                }
+            } catch (_: Exception) {
+                mmkv.removeValueForKey(key)
+            }
         }
+        cleanupCoverFiles(maxDays)
     }
 
     fun clearAll() {
-        val allKeys = mmkv.allKeys() ?: return
+        val allKeys = mmkv.allKeys() ?: emptyArray()
         for (key in allKeys) {
+            getRaw(key)?.coverPath?.let { deleteCover(it) }
             mmkv.removeValueForKey(key)
         }
+        clearCoverFiles()
+    }
+
+    private fun getRaw(uri: String): CachedTags? {
+        val json = mmkv.decodeString(uri) ?: return null
+        return runCatching { gson.fromJson(json, CachedTags::class.java) }.getOrNull()
+    }
+
+    private fun touchCover(coverPath: String?) {
+        val file = coverFile(coverPath) ?: return
+        if (file.exists()) runCatching { file.setLastModified(System.currentTimeMillis()) }
+    }
+
+    private fun deleteCover(coverPath: String?) {
+        val file = coverFile(coverPath) ?: return
+        if (file.exists()) runCatching { file.delete() }
+    }
+
+    private fun coverFile(coverPath: String?): File? {
+        if (coverPath.isNullOrBlank()) return null
+        val rawPath = coverPath.removePrefix("file://").removePrefix("file:")
+        return File(rawPath)
+    }
+
+    private fun cleanupCoverFiles(maxDays: Int) {
+        val cutoff = System.currentTimeMillis() - maxDays * 86400_000L
+        coverDir()?.listFiles()?.forEach { file ->
+            if (file.isFile && file.lastModified() < cutoff) {
+                runCatching { file.delete() }
+            }
+        }
+    }
+
+    private fun clearCoverFiles() {
+        coverDir()?.listFiles()?.forEach { file ->
+            if (file.isFile) runCatching { file.delete() }
+        }
+    }
+
+    private fun coverDir(): File? {
+        val context = appContext ?: RemoteServerManager.appContext ?: return null
+        return File(context.cacheDir, REMOTE_COVER_DIR)
     }
 }

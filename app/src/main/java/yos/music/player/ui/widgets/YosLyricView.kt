@@ -115,8 +115,6 @@ val yosEasing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
 private const val LYRIC_LAST_LINE_DURATION_MS = 4000f
 private const val LYRIC_POSITION_BACKWARD_JITTER_MS = 500
 private const val LYRIC_MAX_BOUNDARY_EXTRA_MS = 500f
-private const val UPLIFT_HEIGHT_PX = 10f
-
 // ── Pre-computed per-character layout metrics ──
 // Computed once from TextLayoutResult; reused every frame for lerp-based mask animation.
 @Stable
@@ -963,11 +961,11 @@ fun LazyItemScope.LyricItem(
 
                                         val mask = rawMask.copy(innerFeatherPx = newInner, glowWidthPx = newGlow)
 
-                                        // 底图层：未播放文本（暗色）+ 逐字上浮，与顶层同步
-                                        drawUnplayedChars(measureResult, charLayout, mask, currentTimeMs, unfocusedColor)
+                                        // 底图层：整行未播放文本（暗色）
+                                        drawUnplayedChars(measureResult, charLayout, mask, unfocusedColor)
 
-                                        // 顶图层：已播放文本（亮色）+ 遮罩 + 光晕 + 逐字上浮
-                                        drawHighlightOverlay(measureResult, mask, charLayout, currentTimeMs, focusedColor)
+                                        // 顶图层：整行共用一个时间驱动遮罩和光晕
+                                        drawHighlightOverlay(measureResult, mask, focusedColor)
                                     }
                                 }
                                 }
@@ -1250,82 +1248,48 @@ private fun calculateHighlightMask(
     )
 }
 
-// ── Base layer: unplayed chars with per-character uplift ──
+// ── Base layer: one dim text layer shared by the whole lyric line ──
 
 private fun DrawScope.drawUnplayedChars(
     layout: TextLayoutResult,
     chars: List<CharLayoutInfo>,
     mask: HighlightMask,
-    currentTimeMs: Float,
     dimColor: Color,
 ) {
     if (chars.isEmpty() || mask.completed) return
-
-    val targetLine = mask.visualLine.coerceIn(0, layout.lineCount - 1)
-
-    // Future visual lines — all chars at rest (α = 0, no uplift)
-    for (line in (targetLine + 1) until layout.lineCount) {
-        clipRect(
-            left = layout.getLineLeft(line),
-            top = layout.getLineTop(line),
-            right = layout.getLineRight(line),
-            bottom = layout.getLineBottom(line),
-        ) {
-            drawText(textLayoutResult = layout, color = dimColor)
-        }
-    }
-
-    // Current visual line — per-character uplift synced with overlay
-    val lineTop = layout.getLineTop(targetLine)
-    val lineBottom = layout.getLineBottom(targetLine)
-    val lineChars = chars.filter { it.visualLine == targetLine }
-
-    for (char in lineChars) {
-        val duration = (char.endMs - char.startMs).coerceAtLeast(0.001f)
-        val alpha = ((currentTimeMs - char.startMs) / duration).coerceIn(0f, 1f)
-        val upliftY = alpha * UPLIFT_HEIGHT_PX
-
-        clipRect(char.xStartPx, lineTop - upliftY, char.xEndPx, lineBottom) {
-            drawText(textLayoutResult = layout, color = dimColor, topLeft = Offset(0f, -upliftY))
-        }
-    }
+    drawText(textLayoutResult = layout, color = dimColor)
 }
 
-// ── Overlay drawing: per-character uplift + glow halo ──
-// Each character floats up independently driven by its own α (progress factor):
-//   α = (currentTime − charStartMs) / (charEndMs − charStartMs)
-//   upliftY = α · UPLIFT_HEIGHT_PX
-// Once α reaches 1.0 the char stays locked at peak elevation.
+// ── Overlay drawing: a single continuous mask shared by the whole lyric line ──
+// The mask edge still follows token timing, so fast lyrics move quickly and long syllables move slowly.
 
 private val GlowColor = Color(0xFFFFF8F0) // warm white, simulates over-bright halo
 
 private fun DrawScope.drawHighlightOverlay(
     layout: TextLayoutResult,
     mask: HighlightMask,
-    chars: List<CharLayoutInfo>,
-    currentTimeMs: Float,
     focusedColor: Color,
 ) {
     if (mask.completed) {
-        drawText(textLayoutResult = layout, color = focusedColor, topLeft = Offset(0f, -UPLIFT_HEIGHT_PX))
+        drawText(textLayoutResult = layout, color = focusedColor)
         return
     }
 
     val targetLine = mask.visualLine.coerceIn(0, layout.lineCount - 1)
 
-    // Draw fully completed visual lines at peak elevation
+    // Draw fully completed visual lines with the same overlay, no per-character clipping.
     for (line in 0 until targetLine) {
         clipRect(
             left = layout.getLineLeft(line),
-            top = layout.getLineTop(line) - UPLIFT_HEIGHT_PX,
+            top = layout.getLineTop(line),
             right = layout.getLineRight(line),
             bottom = layout.getLineBottom(line),
         ) {
-            drawText(textLayoutResult = layout, color = focusedColor, topLeft = Offset(0f, -UPLIFT_HEIGHT_PX))
+            drawText(textLayoutResult = layout, color = focusedColor)
         }
     }
 
-    // Current visual line — per-character uplift
+    // Current visual line — one solid zone plus one feather/glow zone.
     val lineLeft = layout.getLineLeft(targetLine)
     val lineRight = layout.getLineRight(targetLine)
     val lineTop = layout.getLineTop(targetLine)
@@ -1334,66 +1298,22 @@ private fun DrawScope.drawHighlightOverlay(
     val maskEdge = mask.maskRightPx.coerceIn(lineLeft, lineRight)
     val glowEnd = (mask.maskRightPx + mask.glowWidthPx).coerceIn(lineLeft, lineRight)
 
-    val lineChars = chars.filter { it.visualLine == targetLine }
-    for (char in lineChars) {
-        val cx = char.xStartPx
-        val ce = char.xEndPx
-        val duration = (char.endMs - char.startMs).coerceAtLeast(0.001f)
-        val alpha = ((currentTimeMs - char.startMs) / duration).coerceIn(0f, 1f)
-        val upliftY = alpha * UPLIFT_HEIGHT_PX
-
-        fun drawChar(color: Color) {
-            clipRect(cx, lineTop - upliftY, ce, lineBottom) {
-                drawText(textLayoutResult = layout, color = color, topLeft = Offset(0f, -upliftY))
-            }
+    if (glowStart > lineLeft) {
+        clipRect(lineLeft, lineTop, glowStart, lineBottom) {
+            drawText(textLayoutResult = layout, color = focusedColor)
         }
+    }
 
-        fun drawCharGradient(startX: Float, endX: Float, colors: List<Color>) {
-            clipRect(cx, lineTop - upliftY, ce, lineBottom) {
-                drawText(
-                    textLayoutResult = layout,
-                    brush = Brush.horizontalGradient(colors = colors, startX = startX, endX = endX),
-                    topLeft = Offset(0f, -upliftY),
-                )
-            }
-        }
-
-        when {
-            // Char fully within solid zone
-            ce <= glowStart -> drawChar(focusedColor)
-            // Char straddles solid→glow boundary
-            cx < glowStart && ce > glowStart && ce <= maskEdge -> {
-                drawCharGradient(glowStart.coerceIn(cx, ce), ce, listOf(focusedColor, GlowColor))
-            }
-            // Char fully within inner feather zone
-            ce <= maskEdge -> drawCharGradient(cx, ce, listOf(focusedColor, GlowColor))
-            // Char straddles maskEdge
-            cx < maskEdge && ce > maskEdge && ce <= glowEnd -> {
-                val split = maskEdge.coerceIn(cx, ce)
-                // Left portion: focused → glow
-                clipRect(cx, lineTop - upliftY, split, lineBottom) {
-                    drawText(
-                        textLayoutResult = layout,
-                        brush = Brush.horizontalGradient(listOf(focusedColor, GlowColor), startX = cx, endX = split),
-                        topLeft = Offset(0f, -upliftY),
-                    )
-                }
-                // Right portion: glow → transparent
-                clipRect(split, lineTop - upliftY, ce, lineBottom) {
-                    drawText(
-                        textLayoutResult = layout,
-                        brush = Brush.horizontalGradient(listOf(GlowColor, Color.Transparent), startX = split, endX = ce),
-                        topLeft = Offset(0f, -upliftY),
-                    )
-                }
-            }
-            // Char fully within glow zone
-            cx >= maskEdge && ce <= glowEnd ->
-                drawCharGradient(cx, ce, listOf(GlowColor, Color.Transparent))
-            // Char straddles glowEnd
-            cx < glowEnd && ce > glowEnd ->
-                drawCharGradient(cx, glowEnd.coerceIn(cx, ce), listOf(GlowColor, Color.Transparent))
-            // Char beyond glow zone → not drawn (stays dim in base layer)
+    if (glowEnd > glowStart) {
+        clipRect(glowStart, lineTop, glowEnd, lineBottom) {
+            drawText(
+                textLayoutResult = layout,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(focusedColor, GlowColor, Color.Transparent),
+                    startX = glowStart,
+                    endX = glowEnd,
+                ),
+            )
         }
     }
 }

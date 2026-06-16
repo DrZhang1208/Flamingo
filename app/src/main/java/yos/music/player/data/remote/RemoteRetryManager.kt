@@ -80,6 +80,32 @@ object RemoteRetryManager {
         }
     }
 
+    fun clearRetriesForUris(uris: Collection<String>) {
+        val keys = uris.map(::key).toSet()
+        if (keys.isEmpty()) return
+        synchronized(lock) {
+            keys.forEach { k ->
+                activeJobs[k]?.cancel()
+                activeJobs.remove(k)
+                retryMap.remove(k)
+            }
+        }
+    }
+
+    fun clearRetriesForServer(serverId: String) {
+        synchronized(lock) {
+            val keys = retryMap.values
+                .filter { it.serverId == serverId }
+                .map { key(it.uri) }
+                .toSet()
+            keys.forEach { k ->
+                activeJobs[k]?.cancel()
+                activeJobs.remove(k)
+                retryMap.remove(k)
+            }
+        }
+    }
+
     /** 后台扫描失败，记录重试状态。返回当前失败次数 */
     fun onBackgroundScanFailed(uri: String, serverId: String, remotePath: String): Int {
         synchronized(lock) {

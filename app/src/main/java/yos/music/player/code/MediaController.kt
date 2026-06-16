@@ -495,6 +495,32 @@ class YosPlaybackService : MediaSessionService() {
                 sharedCache = null
             }
         }
+
+        fun removeCachedResources(resourceKeys: Collection<String>) {
+            synchronized(sharedCacheLock) {
+                val cache = sharedCache ?: return
+                resourceKeys.forEach { key ->
+                    runCatching { cache.removeResource(key) }
+                }
+            }
+        }
+
+        fun clearCachedResources() {
+            synchronized(sharedCacheLock) {
+                val cache = sharedCache ?: return
+                runCatching {
+                    cache.keys.toList().forEach { key ->
+                        runCatching { cache.removeResource(key) }
+                    }
+                }
+            }
+        }
+
+        fun getCachedResourceBytes(): Long {
+            synchronized(sharedCacheLock) {
+                return runCatching { sharedCache?.cacheSpace ?: 0L }.getOrDefault(0L)
+            }
+        }
     }
 
     @OptIn(UnstableApi::class)

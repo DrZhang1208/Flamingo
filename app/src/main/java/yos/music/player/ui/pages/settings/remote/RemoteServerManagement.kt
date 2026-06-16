@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.code.YosPlaybackService
 import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
 import yos.music.player.data.remote.RemoteTagDatabase
@@ -196,7 +197,7 @@ fun RemoteServerManagement(navController: NavController) {
             item("cache_settings") {
                 val ctx = LocalContext.current
                 val cacheDir = java.io.File(ctx.cacheDir, "audio_cache")
-                val cacheSize = remember { mutableStateOf(cacheDir.walkTopDown().sumOf { it.length() }) }
+                val cacheSize = remember(refreshKey) { mutableStateOf(YosPlaybackService.getCachedResourceBytes()) }
                 var tagCacheCount by remember(refreshKey) { mutableStateOf(RemoteTagDatabase.count()) }
                 val formattedSize = when {
                     cacheSize.value >= 1024L * 1024 * 1024 -> "%.1f GB".format(cacheSize.value / (1024.0 * 1024 * 1024))
@@ -264,8 +265,12 @@ fun RemoteServerManagement(navController: NavController) {
             content = null,
             positiveContent = "清除",
             onPositive = {
-                cacheDir.deleteRecursively()
-                cacheDir.mkdirs()
+                YosPlaybackService.clearCachedResources()
+                cacheDir.listFiles()?.forEach { file ->
+                    if (!isMedia3CacheMetadataFile(file)) {
+                        runCatching { file.deleteRecursively() }
+                    }
+                }
                 Toast.makeText(ctx, "已清除歌曲缓存", Toast.LENGTH_SHORT).show()
                 refreshKey++
                 confirmClearSongCache = false
@@ -356,6 +361,11 @@ fun RemoteServerManagement(navController: NavController) {
             onDismissRequest = { deleteTarget = null }
         )
     }
+}
+
+private fun isMedia3CacheMetadataFile(file: java.io.File): Boolean {
+    val name = file.name
+    return name == "cache.uid" || name.endsWith(".uid") || name == "index" || name.endsWith(".index")
 }
 
 private fun buildSubTitle(config: ServerConfig): String {

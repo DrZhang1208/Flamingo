@@ -515,6 +515,9 @@ object MusicLibrary {
         val normalizedPath = normalizePath(folderPath)
         val rf = remoteFolders.find { it.serverId == serverId && normalizePath(it.path) == normalizedPath } ?: return false
         val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
+        yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForUris(urisToRemove)
+        yos.music.player.data.remote.RemoteRetryManager.clearRetriesForUris(urisToRemove)
+        clearRemoteCachedArtifacts(urisToRemove)
         remoteFolders.removeAll { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
         removeLegacyRemoteFolderMirror(serverId, normalizedPath)
         removeHiddenFolderPath(serverId, normalizedPath)
@@ -533,19 +536,29 @@ object MusicLibrary {
             .toSet()
         if (foldersToRemove.isEmpty() && urisToRemove.isEmpty()) return 0
 
+        yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForServer(serverId)
+        yos.music.player.data.remote.RemoteRetryManager.clearRetriesForServer(serverId)
+        clearRemoteCachedArtifacts(urisToRemove)
         remoteFolders.removeAll { it.serverId == serverId }
         foldersToRemove.forEach { removeHiddenFolderPath(serverId, normalizePath(it.path)) }
         folders = folders.filterNot { folder ->
             folder.songs.any { it.serverId == serverId || it.uri?.toString() in urisToRemove }
         }
         songSaver = songSaver.filter { it.serverId != serverId && it.uri?.toString() !in urisToRemove }
-        urisToRemove.forEach { uri ->
-            runCatching { yos.music.player.data.remote.RemoteTagDatabase.delete(uri) }
-        }
         saveRemoteFoldersMeta()
         folderListVersion++
         bumpSongsVersion()
         return foldersToRemove.size
+    }
+
+    private fun clearRemoteCachedArtifacts(resourceKeys: Collection<String>) {
+        val keys = resourceKeys.filter { it.isNotBlank() }.toSet()
+        if (keys.isEmpty()) return
+
+        yos.music.player.code.YosPlaybackService.removeCachedResources(keys)
+        keys.forEach { uri ->
+            runCatching { yos.music.player.data.remote.RemoteTagDatabase.delete(uri) }
+        }
     }
 
     private fun removeLegacyRemoteFolderMirror(serverId: String, normalizedPath: String) {
