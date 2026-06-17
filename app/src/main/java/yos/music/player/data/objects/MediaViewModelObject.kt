@@ -37,6 +37,14 @@ object MediaViewModelObject {
         }
     }
 
+    /**
+     * 清空内存歌词缓存。当影响解析结果的设置（如「逐字歌词」开关）变化时调用，
+     * 否则已解析并缓存的歌词（key 仅为 URI）不会重新解析，导致切换开关后旧歌词异常。
+     */
+    fun clearLrcCache() {
+        lrcCache.clear()
+    }
+
     // val songSort = mutableStateOf(SettingData.getString("yos_player_song_sort", "MUSIC_TITLE"))
     // val enableDescending = mutableStateOf(SettingData.get("yos_player_enable_descending", false))
 }

@@ -115,7 +115,12 @@ fun LyricSetting(navController: NavController) =
                             SwitchItem(
                                 title = "逐字歌词",
                                 desc = "关闭后将逐字歌词解析为逐行歌词",
-                                onClick = { SettingsLibrary.EnableWordByWordLyric = !SettingsLibrary.EnableWordByWordLyric },
+                                onClick = {
+                                    SettingsLibrary.EnableWordByWordLyric = !SettingsLibrary.EnableWordByWordLyric
+                                    // 清空内存歌词缓存：缓存 key 仅为 URI，不含逐字开关，
+                                    // 切换开关后若不清缓存，已加载的歌不会重新解析，逐字效果异常。
+                                    yos.music.player.data.objects.MediaViewModelObject.clearLrcCache()
+                                },
                                 checkedLambda = { SettingsLibrary.EnableWordByWordLyric }
                             )
                         }

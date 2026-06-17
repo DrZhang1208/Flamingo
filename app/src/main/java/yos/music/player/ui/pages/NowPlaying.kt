@@ -1283,15 +1283,15 @@ private fun Lyric(
                         val colors = if (p == 0f) {
                             arrayOf(
                                 0f to Color.Transparent,
-                                0.06f to Color(0x59000000),
-                                0.14f to Color.Black,
+                                0.025f to Color(0x59000000),
+                                0.05f to Color.Black,
                                 1f to Color.Black
                             )
                         } else {
                             arrayOf(
                                 0f to Color.Transparent,
-                                0.06f to Color(0x59000000),
-                                0.14f to Color.Black,
+                                0.025f to Color(0x59000000),
+                                0.05f to Color.Black,
                                 cutStart to Color.Black,
                                 cutFadeEnd to Color.Transparent,
                                 1f to Color.Transparent
