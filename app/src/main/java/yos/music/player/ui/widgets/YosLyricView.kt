@@ -117,6 +117,10 @@ private const val LYRIC_LAST_LINE_DURATION_MS = 4000f
 private const val LYRIC_POSITION_BACKWARD_JITTER_MS = 500
 private const val LYRIC_MAX_BOUNDARY_EXTRA_MS = 500f
 private const val UPLIFT_HEIGHT_PX = 10f
+
+// 行首光晕预热：第一字开始前 240ms 让 maskEdge 从 lineLeft - glow 渐进推到 lineLeft，
+// 视觉上光晕从行外滑入贴近第一字左缘，避免"光晕在第一字突然出现"。
+private const val LYRIC_LINE_PREROLL_MS = 240f
 // 字符裁剪区域的水平缓冲，解决字形溢出（如 J 的左侧投影）导致的跨字符高亮泄漏
 private const val CHAR_CLIP_HORIZONTAL_PAD_PX = 2f
 // ── Pre-computed per-character layout metrics ──
@@ -268,7 +272,11 @@ fun YosLyricView(
                         }
                         error > 2f -> {
                             // smoothPos 落后于播放器：正向加速追赶
-                            smoothPos += error * 0.15f
+                            // 限制每帧最大校正量为一帧间隔 (~16ms)，
+                            // 避免追赶幅度过大导致 smoothPos 瞬间越过歌词时间戳边界，
+                            // 触发 completed = true 或 syncLyricIndex 提前切换（"闪一下全亮"的 bug）
+                            val maxCorrection = 16f
+                            smoothPos += minOf(error * 0.15f, maxCorrection)
                         }
                         // error <= 2f 或负数（smoothPos 超前）：保持当前速率，
                         // 不减速不回退，播放器自然会赶上
@@ -1021,10 +1029,6 @@ fun LazyItemScope.LyricItem(
                                 val lyricTextStyle = mainTextStyle()
                                 // 上浮只属于当前行，切换后直接归位，不拖尾动画。
                                 val lineLiftPx = if (isCurrent) -4f else 0f
-                                // EMA-smoothed glow widths to prevent jumps at character boundaries.
-                                // key = mainLyric：LazyColumn 复用槽位时按歌词行内容重置 EMA，
-                                // 避免上一行的羽化/光晕宽度值被带到新行导致开头几个字错乱。
-                                val smoothGlow = remember(mainLyric) { mutableStateOf(0f to 0f) }
                                 Line(
                                     lines = mainLyric,
                                     style = if (otherSide) lyricTextStyle.copy(textAlign = TextAlign.End) else lyricTextStyle,
@@ -1055,9 +1059,25 @@ fun LazyItemScope.LyricItem(
                                     // 逐字歌词但不是当前行
                                     if (!isCurrent) {
                                         if (showHighLight) {
-                                            // 已播放完,高亮
-                                            return@Line onDrawWithContent {
-                                                drawText(textLayoutResult = measureResult, color = focusedColor, topLeft = Offset(0F, -4F))
+                                            // 已播放完：使用逐字 mask 渲染（mask 走到末尾），
+                                            // 而非直接全行 focusedColor，避免行切换时从逐字渲染突变到全行高光的视觉跳变
+                                            return@Line onDrawBehind {
+                                                val enableHighlight = SettingsLibrary.DebugLyricEnableHighlight
+                                                val enableUplift = SettingsLibrary.DebugLyricEnableUplift
+                                                if (!enableHighlight) {
+                                                    // 调试：关闭高光后，过往行回退为暗色
+                                                    drawText(textLayoutResult = measureResult, color = unfocusedColor)
+                                                    return@onDrawBehind
+                                                }
+                                                val completedMask = HighlightMask(
+                                                    completed = true,
+                                                    activeVisualLine = Int.MAX_VALUE,
+                                                    fullyDoneVisualLines = 0..(charLayout.maxOfOrNull { it.visualLine } ?: 0),
+                                                    maskRightPx = charLayout.maxOfOrNull { it.xEndPx } ?: 0f,
+                                                    innerFeatherPx = 0f,
+                                                    glowWidthPx = 0f,
+                                                )
+                                                drawHighlightCore(measureResult, completedMask, charLayout, liveTimeRef.value, focusedColor, enableUplift)
                                             }
                                         } else {
                                             // 未播放,不高亮
@@ -1067,27 +1087,39 @@ fun LazyItemScope.LyricItem(
                                         }
                                     }
 
-                                    // 当前行逐字歌词：双层渲染 + 时间驱动遮罩
+                                    // 当前行逐字歌词：多 pass 渲染（每 pass 可独立开关）
                                     onDrawBehind {
                                         val currentTimeMs = liveTimeRef.value
 
-                                        // 计算遮罩（只算一次，底层和顶层共用）
-                                        val rawMask = calculateHighlightMask(charLayout, currentTimeMs)
+                                        // 一帧读一次 debug 开关，避免每个 pass 重复读
+                                        val enableHighlight = SettingsLibrary.DebugLyricEnableHighlight
+                                        val enableGlow      = SettingsLibrary.DebugLyricEnableGlow
+                                        val enableUplift    = SettingsLibrary.DebugLyricEnableUplift
+                                        val enableSmooth    = SettingsLibrary.DebugLyricEnableSmoothVelocity
 
-                                        // EMA 平滑羽化/光晕宽度，消除跨字符边界时的跳变
-                                        val (prevInner, prevGlow) = smoothGlow.value
-                                        val blend = 0.25f
-                                        val newInner = prevInner + blend * (rawMask.innerFeatherPx - prevInner)
-                                        val newGlow = prevGlow + blend * (rawMask.glowWidthPx - prevGlow)
-                                        smoothGlow.value = newInner to newGlow
+                                        // 计算遮罩（只算一次，所有 pass 共用）。
+                                        // EMA 已删除：feather 输入改成"行内最长字时长"后同行 raw 恒定，
+                                        // EMA 反而成了行首启动期的拖尾（每次进入这一行都要 ~12 帧追平到目标），
+                                        // 跨次播放时序不同 → 视觉上像偶发闪烁。
+                                        val mask = calculateHighlightMask(
+                                            chars = charLayout,
+                                            currentTimeMs = currentTimeMs,
+                                            smoothVelocity = enableSmooth,
+                                            enableGlow = enableGlow,
+                                        )
 
-                                        val mask = rawMask.copy(innerFeatherPx = newInner, glowWidthPx = newGlow)
+                                        // Pass 1: 暗色底图层（整行未播放文本，逐字保留可选上浮）
+                                        drawUnplayedChars(measureResult, charLayout, mask, currentTimeMs, unfocusedColor, enableUplift)
 
-                                        // 底图层：整行未播放文本（暗色），逐字保留上浮
-                                        drawUnplayedChars(measureResult, charLayout, mask, currentTimeMs, unfocusedColor)
+                                        // Pass 2: 高光硬边层
+                                        if (enableHighlight) {
+                                            drawHighlightCore(measureResult, mask, charLayout, currentTimeMs, focusedColor, enableUplift)
+                                        }
 
-                                        // 顶图层：整行共用一个时间驱动遮罩和光晕，逐字保留上浮
-                                        drawHighlightOverlay(measureResult, mask, charLayout, currentTimeMs, focusedColor)
+                                        // Pass 3: 高光右侧光晕羽化
+                                        if (enableHighlight && enableGlow) {
+                                            drawGlowFeather(measureResult, mask, charLayout, currentTimeMs, focusedColor, enableUplift)
+                                        }
                                     }
                                 }
                                 }
@@ -1388,17 +1420,16 @@ private fun Char.isAsciiWordChar(): Boolean {
 // 零宽 token（charStart == charEnd）直接当作已唱完，不做 0.001 强行插值，
 // 消除换行首字瞬跳。
 
-private fun featherForDuration(durationMs: Float): Float = when {
-    durationMs < 80f -> 8f
-    durationMs < 200f -> 14f
-    durationMs < 500f -> 22f
-    durationMs < 1000f -> 32f
-    else -> 42f
-}
+// 字内羽化宽度随时长连续变化，避免跨字跨桶导致 glow 宽度阶跃 +
+// EMA 多帧追赶造成的"呼吸式闪烁"。系数 25 = 经验值，1000ms ≈ 40px。
+private fun featherForDuration(durationMs: Float): Float =
+    (durationMs / 25f).coerceIn(8f, 42f)
 
 private fun calculateHighlightMask(
     chars: List<CharLayoutInfo>,
     currentTimeMs: Float,
+    smoothVelocity: Boolean = true,
+    enableGlow: Boolean = true,
 ): HighlightMask {
     val empty = HighlightMask(
         completed = false, activeVisualLine = -1, fullyDoneVisualLines = -1..-2,
@@ -1407,6 +1438,16 @@ private fun calculateHighlightMask(
     if (chars.isEmpty()) return empty
 
     val lastVisualLine = chars.last().visualLine
+
+    // 每个 visualLine 内最长字时长。光晕/羽化宽度按所在行最长字一次性确定，
+    // 整行内字间切换 feather 恒定 —— 避免"长字→短字"瞬间 feather 缩水 + EMA
+    // 多帧追赶造成的"光晕往回退"视觉。
+    val lineMaxDurationMs = HashMap<Int, Float>()
+    for (c in chars) {
+        val d = (c.endMs - c.startMs).coerceAtLeast(0f)
+        val cur = lineMaxDurationMs[c.visualLine] ?: 0f
+        if (d > cur) lineMaxDurationMs[c.visualLine] = d
+    }
 
     // 全部唱完
     val lastCharEnd = chars.last().let { it.endMs.coerceAtLeast(it.startMs) }
@@ -1419,12 +1460,30 @@ private fun calculateHighlightMask(
         )
     }
 
-    // 还没开始唱任何字
+    // 还没开始唱任何字 —— 行首 preroll：第一字开始前 LYRIC_LINE_PREROLL_MS 内，
+    // maskEdge 从 lineLeft - glow 渐进推到 lineLeft，让光晕从行外扫入字 1 左缘。
+    // glow 宽度直接给行 max，不再 0 起步，消除 EMA 启动期带来的"光晕渐入"延迟。
     val firstCharStart = chars.first().startMs
     if (currentTimeMs <= firstCharStart) {
+        val firstLine = chars.first().visualLine
+        val lineDur = lineMaxDurationMs[firstLine] ?: 0f
+        val feather = featherForDuration(lineDur)
+        val glow = (feather * 2.25f).coerceIn(16f, 72f)
+        val prerollAlpha = if (currentTimeMs >= firstCharStart - LYRIC_LINE_PREROLL_MS) {
+            ((currentTimeMs - (firstCharStart - LYRIC_LINE_PREROLL_MS)) / LYRIC_LINE_PREROLL_MS)
+                .coerceIn(0f, 1f)
+        } else 0f
+        val lineLeft = chars.first().xStartPx
         return HighlightMask(
-            completed = false, activeVisualLine = -1, fullyDoneVisualLines = -1..-2,
-            maskRightPx = chars.first().xStartPx, innerFeatherPx = 0f, glowWidthPx = 0f,
+            completed = false,
+            // 设为第一字所在行（通常是 0），drawGlowFeather 才会进入并画 brush。
+            // drawHighlightCore 在 maskRightPx ≤ lineLeft 时硬边段会被 coerceIn 钉到 lineLeft，
+            // 自然不画硬边高光，只画光晕末端。
+            activeVisualLine = firstLine,
+            fullyDoneVisualLines = -1..-2,
+            maskRightPx = lineLeft - (1f - prerollAlpha) * if (enableGlow) glow else 0f,
+            innerFeatherPx = if (enableGlow) feather else 0f,
+            glowWidthPx = if (enableGlow) glow else 0f,
         )
     }
 
@@ -1476,53 +1535,67 @@ private fun calculateHighlightMask(
             val duration = (charEnd - charStart).coerceAtLeast(0.001f)
             val rawAlpha = ((currentTimeMs - charStart) / duration).coerceIn(0f, 1f)
 
-            // 三次 Hermite 平滑变速：字内速度从 prevVel 平滑过渡到 nextVel，
-            // 起止时间精确落在字的开始和结束，无速度跳变。
-            val vCurr = if (duration > 0f && charWidth > 0f) charWidth / duration else 0f
-            val vPrev = prevVel.coerceAtLeast(0f)
-            val vNext = run {
-                val next = chars.getOrNull(idx + 1)
-                if (next != null) {
-                    val nd = (next.endMs - next.startMs).coerceAtLeast(0.001f)
-                    val nw = next.xEndPx - if (next.visualLine != char.visualLine)
-                        chars.first { it.visualLine == next.visualLine }.xStartPx
-                    else char.xEndPx
-                    if (nd > 0f && nw > 0f) nw / nd else 0f
-                } else 0f
+            val smoothAlpha = if (smoothVelocity) {
+                // 三次 Hermite 平滑变速：字内速度从 prevVel 平滑过渡到 nextVel，
+                // 起止时间精确落在字的开始和结束，无速度跳变。
+                val vCurr = if (duration > 0f && charWidth > 0f) charWidth / duration else 0f
+                val vPrev = prevVel.coerceAtLeast(0f)
+                val vNext = run {
+                    val next = chars.getOrNull(idx + 1)
+                    if (next != null) {
+                        val nd = (next.endMs - next.startMs).coerceAtLeast(0.001f)
+                        val nw = next.xEndPx - if (next.visualLine != char.visualLine)
+                            chars.first { it.visualLine == next.visualLine }.xStartPx
+                        else char.xEndPx
+                        if (nd > 0f && nw > 0f) nw / nd else 0f
+                    } else 0f
+                }
+
+                // 收紧 s0/s1 到 [0.7, 1.3]：保留前后字速度差带来的软启停感，
+                // 但单字内最大进度偏离压到 ~7%，避免 t=0.3 时 mask 已走 60% 这种
+                // 视觉脱节（clamp 太松时 s0 可达 3，f(0.3)≈0.6）。
+                val s0 = if (vPrev > 0f && vCurr > 0f) (2f * vPrev / (vPrev + vCurr)).coerceIn(0.7f, 1.3f) else 1f
+                val s1 = if (vNext > 0f && vCurr > 0f) (2f * vNext / (vCurr + vNext)).coerceIn(0.7f, 1.3f) else 1f
+
+                // 三次 Hermite: f(t) = at³ + bt² + ct, f(0)=0, f(1)=1, f'(0)=s0, f'(1)=s1
+                val a = s0 + s1 - 2f
+                val b = 3f - 2f * s0 - s1
+                val c = s0
+                val t = rawAlpha
+                ((a * t + b) * t + c) * t
+            } else {
+                rawAlpha
             }
 
-            val s0 = if (vPrev > 0f && vCurr > 0f) (2f * vPrev / (vPrev + vCurr)).coerceIn(0f, 3f) else 1f
-            val s1 = if (vNext > 0f && vCurr > 0f) (2f * vNext / (vCurr + vNext)).coerceIn(0f, 3f) else 1f
-
-            // 三次 Hermite: f(t) = at³ + bt² + ct, f(0)=0, f(1)=1, f'(0)=s0, f'(1)=s1
-            val a = s0 + s1 - 2f
-            val b = 3f - 2f * s0 - s1
-            val c = s0
-            val t = rawAlpha
-            val smoothAlpha = ((a * t + b) * t + c) * t
-
             maskRightPx = startX + smoothAlpha * charWidth
-            innerFeather = featherForDuration(charEnd - charStart)
-            glowWidth = (innerFeather * 2.25f).coerceIn(16f, 72f)
+            val lineDur = lineMaxDurationMs[char.visualLine] ?: (charEnd - charStart)
+            innerFeather = if (enableGlow) featherForDuration(lineDur) else 0f
+            glowWidth = if (enableGlow) (innerFeather * 2.25f).coerceIn(16f, 72f) else 0f
         } else {
             // 尚未开始的字（字间间隙）：mask 边缘停在起跳点
             if (activeLine == -1) {
                 activeLine = char.visualLine
                 maskRightPx = startX
-                innerFeather = featherForDuration(charEnd - charStart)
-                glowWidth = (innerFeather * 2.25f).coerceIn(16f, 72f)
+                val lineDur = lineMaxDurationMs[char.visualLine] ?: (charEnd - charStart)
+                innerFeather = if (enableGlow) featherForDuration(lineDur) else 0f
+                glowWidth = if (enableGlow) (innerFeather * 2.25f).coerceIn(16f, 72f) else 0f
             }
         }
         break
     }
 
     // activeLine 可能仍未被设置（例如所有字都判定为 done 但 lastCharEnd 判定未触发，浮点边界）
+    // 不要再返回 completed=true —— 那会让 drawHighlightCore 把整行刷成 focusedColor，
+    // 偶发触发会被肉眼看作"行内突然全亮一下"。退化为"最后一字 active"，maskRightPx 钉在末端，
+    // 视觉上等同于本帧停留在最后一字位置，下一帧 syncLyricIndex 会推进到下一行。
     if (activeLine == -1) {
+        val lastChar = chars.last()
         return HighlightMask(
-            completed = true,
-            activeVisualLine = Int.MAX_VALUE,
-            fullyDoneVisualLines = 0..lastVisualLine,
-            maskRightPx = chars.last().xEndPx, innerFeatherPx = 0f, glowWidthPx = 0f,
+            completed = false,
+            activeVisualLine = lastChar.visualLine,
+            fullyDoneVisualLines = 0..(lastChar.visualLine - 1),
+            maskRightPx = lastChar.xEndPx,
+            innerFeatherPx = 0f, glowWidthPx = 0f,
         )
     }
 
@@ -1571,13 +1644,14 @@ private fun DrawScope.drawUnplayedChars(
     mask: HighlightMask,
     currentTimeMs: Float,
     dimColor: Color,
+    enableUplift: Boolean,
 ) {
     if (chars.isEmpty() || mask.completed) return
     for (line in 0 until layout.lineCount) {
         val sorted = chars.filter { it.visualLine == line }.distinctBy { it.upliftKey() }
         for (i in sorted.indices) {
             val char = sorted[i]
-            val upliftY = calculateCharUplift(char, currentTimeMs)
+            val upliftY = calculateCharUplift(char, currentTimeMs, enableUplift)
             val (clipTop, clipBottom) = visualLineClip(layout, char.visualLine, upliftY)
             val (left, right) = seamlessClipBounds(sorted, i,
                 Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY)
@@ -1600,12 +1674,17 @@ private fun DrawScope.drawUnplayedChars(
 
 private val GlowColor = Color(0xFFFFF8F0) // warm white, simulates over-bright halo
 
-private fun DrawScope.drawHighlightOverlay(
+/**
+ * 高光硬边层：覆盖已唱完的折行 + 当前行 [lineLeft, maskEdge] 实心区域。
+ * 不画光晕渐变。
+ */
+private fun DrawScope.drawHighlightCore(
     layout: TextLayoutResult,
     mask: HighlightMask,
     chars: List<CharLayoutInfo>,
     currentTimeMs: Float,
     focusedColor: Color,
+    enableUplift: Boolean,
 ) {
     if (layout.lineCount == 0) return
 
@@ -1613,7 +1692,7 @@ private fun DrawScope.drawHighlightOverlay(
         // 全部唱完：逐行绘制，避免 seamlessClipBounds 在不同 visual line 之间
         // 计算无意义的中点导致换行首字被裁剪消失
         for (line in 0 until layout.lineCount) {
-            drawLineChars(layout, chars, currentTimeMs, focusedColor, visualLine = line)
+            drawLineChars(layout, chars, currentTimeMs, focusedColor, enableUplift, visualLine = line)
         }
         return
     }
@@ -1624,56 +1703,74 @@ private fun DrawScope.drawHighlightOverlay(
         mask.fullyDoneVisualLines.toList()
     }
 
-    // 已全部唱完的折行：整行纯亮色，一笔画完
+    // 已全部唱完的折行：整行纯亮色
     for (line in validDoneLines) {
         if (line in 0 until layout.lineCount) {
-            drawLineChars(layout, chars, currentTimeMs, focusedColor, visualLine = line)
+            drawLineChars(layout, chars, currentTimeMs, focusedColor, enableUplift, visualLine = line)
         }
     }
 
-    // 正在唱的折行：硬边高光 + 右侧羽化。
-    // 1. 硬边 [lineLeft, maskEdge] → 纯白实心，已唱区域完整覆盖
-    // 2. 羽化 [maskEdge, maskEdge + glow] → 渐变白→暖白→透明，自然过渡
-    // 两段在 maskEdge 处精准对接（均为聚焦色），无分界。
+    // 当前行硬边高光：[lineLeft, maskEdge]
     val activeLine = mask.activeVisualLine
     if (activeLine < 0 || activeLine >= layout.lineCount) return
-
     val lineLeft = layout.getLineLeft(activeLine)
     val lineRight = layout.getLineRight(activeLine)
     val maskEdge = mask.maskRightPx.coerceIn(lineLeft, lineRight)
-    val glow = mask.glowWidthPx.coerceAtLeast(0f)
-
-    // 硬边高光：[lineLeft, maskEdge]
     if (maskEdge > lineLeft) {
-        drawLineChars(layout, chars, currentTimeMs, focusedColor, activeLine, lineLeft, maskEdge)
-    }
-
-    // 右侧羽化：[maskEdge, maskEdge + glow]
-    // 渐变立刻过渡（0.0→0.05→1.0），聚焦色只占前 5%
-    val featherEnd = maskEdge + glow
-    if (featherEnd > maskEdge) {
-        val brush = Brush.horizontalGradient(
-            colorStops = arrayOf(
-                0.0f to focusedColor,
-                0.05f to GlowColor,
-                1.0f to Color.Transparent,
-            ),
-            startX = maskEdge,
-            endX = featherEnd,
-        )
-        drawLineChars(
-            layout = layout,
-            chars = chars,
-            currentTimeMs = currentTimeMs,
-            brush = brush,
-            visualLine = activeLine,
-            clipLeft = maskEdge,
-            clipRight = featherEnd,
-        )
+        drawLineChars(layout, chars, currentTimeMs, focusedColor, enableUplift, activeLine, lineLeft, maskEdge)
     }
 }
 
-private fun calculateCharUplift(char: CharLayoutInfo, currentTimeMs: Float): Float {
+/**
+ * 高光右侧光晕羽化层：仅在当前行 [maskEdge, maskEdge + glow] 区间画渐变（focusedColor → GlowColor → 透明）。
+ * 与 drawHighlightCore 在 maskEdge 处对接。
+ */
+private fun DrawScope.drawGlowFeather(
+    layout: TextLayoutResult,
+    mask: HighlightMask,
+    chars: List<CharLayoutInfo>,
+    currentTimeMs: Float,
+    focusedColor: Color,
+    enableUplift: Boolean,
+) {
+    if (layout.lineCount == 0 || mask.completed) return
+    val activeLine = mask.activeVisualLine
+    if (activeLine < 0 || activeLine >= layout.lineCount) return
+    val lineLeft = layout.getLineLeft(activeLine)
+    val lineRight = layout.getLineRight(activeLine)
+    // 行首 preroll 阶段 maskRightPx 可能小于 lineLeft —— 不再 coerceIn 钉到 lineLeft，
+    // 让 brush 起点保持在行外，渐变曲线沿原方向延伸；可见 clip 区裁到行内 [lineLeft, lineRight]。
+    // 视觉上即"光晕从行外滑入字 1 左缘"。
+    val rawMaskEdge = mask.maskRightPx.coerceAtMost(lineRight)
+    val glow = mask.glowWidthPx.coerceAtLeast(0f)
+    val brushEnd = rawMaskEdge + glow
+    val featherEnd = brushEnd.coerceAtMost(lineRight)
+    val visibleStart = maxOf(rawMaskEdge, lineLeft)
+    if (featherEnd <= visibleStart) return
+
+    val brush = Brush.horizontalGradient(
+        colorStops = arrayOf(
+            0.0f to focusedColor,
+            0.05f to GlowColor,
+            1.0f to Color.Transparent,
+        ),
+        startX = rawMaskEdge,
+        endX = brushEnd,
+    )
+    drawLineChars(
+        layout = layout,
+        chars = chars,
+        currentTimeMs = currentTimeMs,
+        brush = brush,
+        visualLine = activeLine,
+        clipLeft = visibleStart,
+        clipRight = featherEnd,
+        enableUplift = enableUplift,
+    )
+}
+
+private fun calculateCharUplift(char: CharLayoutInfo, currentTimeMs: Float, enabled: Boolean = true): Float {
+    if (!enabled) return 0f
     val duration = (char.upliftEndMs - char.upliftStartMs).coerceAtLeast(0.001f)
     val alpha = ((currentTimeMs - char.upliftStartMs) / duration).coerceIn(0f, 1f)
     return alpha * UPLIFT_HEIGHT_PX
@@ -1684,6 +1781,7 @@ private fun DrawScope.drawLineChars(
     chars: List<CharLayoutInfo>,
     currentTimeMs: Float,
     color: Color,
+    enableUplift: Boolean = true,
     visualLine: Int? = null,
     clipLeft: Float = Float.NEGATIVE_INFINITY,
     clipRight: Float = Float.POSITIVE_INFINITY,
@@ -1694,7 +1792,7 @@ private fun DrawScope.drawLineChars(
         val char = sorted[i]
         val (left, right) = seamlessClipBounds(sorted, i, clipLeft, clipRight)
         if (right <= left) continue
-        val upliftY = calculateCharUplift(char, currentTimeMs)
+        val upliftY = calculateCharUplift(char, currentTimeMs, enableUplift)
         val (clipTop, clipBottom) = visualLineClip(layout, char.visualLine, upliftY)
         clipRect(
             left = left,
@@ -1715,13 +1813,14 @@ private fun DrawScope.drawLineChars(
     visualLine: Int,
     clipLeft: Float,
     clipRight: Float,
+    enableUplift: Boolean = true,
 ) {
     val sorted = chars.filter { it.visualLine == visualLine }.distinctBy { it.upliftKey() }
     for (i in sorted.indices) {
         val char = sorted[i]
         val (left, right) = seamlessClipBounds(sorted, i, clipLeft, clipRight)
         if (right <= left) continue
-        val upliftY = calculateCharUplift(char, currentTimeMs)
+        val upliftY = calculateCharUplift(char, currentTimeMs, enableUplift)
         val (clipTop, clipBottom) = visualLineClip(layout, char.visualLine, upliftY)
         clipRect(
             left = left,

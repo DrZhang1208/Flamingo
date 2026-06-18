@@ -134,6 +134,45 @@ fun LyricSetting(navController: NavController) =
                         }
                         ListHeader(content = stringResource(id = R.string.settings_performance_lyric_blur_effect_desc))
                         GroupSpacer()
+
+                        // ── 逐字歌词渲染调试 ─────────────────────
+                        // 每个开关对应一个独立 pass，逐项关闭可以隔离闪烁/异常源头。
+                        // 全部默认开启，关闭后才会偏离正式行为。
+                        ListHeader(content = "逐字歌词调试")
+                        GroupSpacer()
+                        RoundColumn {
+                            SwitchItem(
+                                title = "高光遮罩",
+                                desc = "关闭后当前行只剩暗色底图，便于观察上浮等基础层",
+                                onClick = { SettingsLibrary.DebugLyricEnableHighlight = !SettingsLibrary.DebugLyricEnableHighlight },
+                                checkedLambda = { SettingsLibrary.DebugLyricEnableHighlight }
+                            )
+                            SwitchItem(
+                                title = "右侧光晕",
+                                desc = "关闭后高光右侧无渐变羽化，仅剩硬边",
+                                onClick = { SettingsLibrary.DebugLyricEnableGlow = !SettingsLibrary.DebugLyricEnableGlow },
+                                checkedLambda = { SettingsLibrary.DebugLyricEnableGlow }
+                            )
+                            SwitchItem(
+                                title = "逐字上浮",
+                                desc = "关闭后字符不做 Y 位移",
+                                onClick = { SettingsLibrary.DebugLyricEnableUplift = !SettingsLibrary.DebugLyricEnableUplift },
+                                checkedLambda = { SettingsLibrary.DebugLyricEnableUplift }
+                            )
+                            SwitchItem(
+                                title = "Hermite 平滑变速",
+                                desc = "关闭后字内进度走线性",
+                                onClick = { SettingsLibrary.DebugLyricEnableSmoothVelocity = !SettingsLibrary.DebugLyricEnableSmoothVelocity },
+                                checkedLambda = { SettingsLibrary.DebugLyricEnableSmoothVelocity }
+                            )
+                            SwitchItem(
+                                title = "EMA 光晕平滑",
+                                desc = "关闭后光晕宽度按瞬时值",
+                                onClick = { SettingsLibrary.DebugLyricEnableEmaGlow = !SettingsLibrary.DebugLyricEnableEmaGlow },
+                                checkedLambda = { SettingsLibrary.DebugLyricEnableEmaGlow }
+                            )
+                        }
+                        GroupSpacer()
                     }
                 }
             })

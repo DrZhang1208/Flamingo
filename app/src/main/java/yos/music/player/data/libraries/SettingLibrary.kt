@@ -42,6 +42,11 @@ object SettingsLibrary {
             AudioFloatOutput
             RemoteCacheSizeMB
             EnableExcludeSongsUnderOneMinute
+            DebugLyricEnableHighlight
+            DebugLyricEnableGlow
+            DebugLyricEnableUplift
+            DebugLyricEnableSmoothVelocity
+            DebugLyricEnableEmaGlow
         } catch (_: Exception) {}
     }
 
@@ -334,6 +339,60 @@ object SettingsLibrary {
     var EnableExcludeSongsUnderOneMinute by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "settings_library_enable_exclude_songs_under_one_minute",
+        initialValue = true
+    )
+
+    // ── 逐字歌词调试开关 ─────────────────────────────────────────────
+    // 全部默认 true，与重构前行为一致。逐项关闭可以隔离每个 pass，
+    // 用于定位闪烁等渲染问题。
+
+    /**
+     * Debug: 启用逐字高光绘制。关闭则当前行只显示暗色底图，便于观察上浮/EMA 等基础层。
+     */
+    @Stable
+    var DebugLyricEnableHighlight by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "debug_lyric_enable_highlight",
+        initialValue = true
+    )
+
+    /**
+     * Debug: 启用高光右侧光晕羽化。关闭则只剩硬边遮罩，无渐变拖尾。
+     */
+    @Stable
+    var DebugLyricEnableGlow by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "debug_lyric_enable_glow",
+        initialValue = true
+    )
+
+    /**
+     * Debug: 启用逐字上浮。关闭则全行不再做 Y 位移（仍走 per-char 裁剪逻辑）。
+     */
+    @Stable
+    var DebugLyricEnableUplift by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "debug_lyric_enable_uplift",
+        initialValue = true
+    )
+
+    /**
+     * Debug: 启用 Hermite 平滑变速。关闭则字内进度走线性，便于核对原始时间映射。
+     */
+    @Stable
+    var DebugLyricEnableSmoothVelocity by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "debug_lyric_enable_smooth_velocity",
+        initialValue = true
+    )
+
+    /**
+     * Debug: 启用 EMA 平滑光晕宽度。关闭则光晕宽度直接采用瞬时值。
+     */
+    @Stable
+    var DebugLyricEnableEmaGlow by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "debug_lyric_enable_ema_glow",
         initialValue = true
     )
 }
