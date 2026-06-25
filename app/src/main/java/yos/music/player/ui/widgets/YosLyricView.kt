@@ -239,6 +239,7 @@ fun YosLyricView(
         // 时间插值：本地时钟前推 + EMA 拉回校准，消除播放器回调离散导致的阶梯跳变
         var smoothPos = initPos.toFloat()
         var lastFrameTimeMs = 0L
+        var wasPlaying = false  // 跟踪播放/暂停切换，用于暂停恢复时重置 smoothPos
         while (isActive) {
             withFrameMillis { frameTimeMs ->
                 if (lastFrameTimeMs == 0L) {
@@ -257,6 +258,13 @@ fun YosLyricView(
                     framePosition.intValue = target
                     framePositionFloat.value = target.toFloat()
                 } else if (isPlaying) {
+                    // 暂停→恢复：跳过本地时钟推算，直接吸附到播放器位置。
+                    // 避免暂停期间 lastFrameTimeMs 过期导致 smoothPos 跳越。
+                    if (!wasPlaying) {
+                        smoothPos = rawPos.toFloat()
+                        lastFrameTimeMs = frameTimeMs
+                    }
+
                     // 本地时钟前推：用帧间隔 × 播放速度推算位移
                     val speed = mc?.playbackParameters?.speed ?: 1f
                     val elapsed = maxOf((frameTimeMs - lastFrameTimeMs) * speed, 0f)
@@ -291,6 +299,7 @@ fun YosLyricView(
                     framePositionFloat.value = rawPos.toFloat()
                 }
 
+                wasPlaying = isPlaying
                 lastFrameTimeMs = frameTimeMs
 
                 // 检查待处理的 seek 是否已完成（使用 rawPos 判断播放器实际位置）
@@ -309,10 +318,15 @@ fun YosLyricView(
                     val entries = lrcEntriesLambda()
                     if (entries.isNotEmpty()) {
                         val nextIdx = entries.indexOfFirst { it.startMs > framePosition.intValue }
-                        MainViewModelObject.syncLyricIndex.intValue = when {
+                        val newIndex = when {
                             nextIdx == 0 -> -1
                             nextIdx != -1 -> (nextIdx - 1).coerceAtLeast(0)
                             else -> (entries.size - 1).coerceAtLeast(0)
+                        }
+                        // 索引只能单向递增，避免 framePosition 在行边界抖动导致
+                        // syncLyricIndex 来回切换、isCurrent 状态反复触发闪烁。
+                        if (newIndex >= MainViewModelObject.syncLyricIndex.intValue || newIndex < 0) {
+                            MainViewModelObject.syncLyricIndex.intValue = newIndex
                         }
                     }
                 }
@@ -1049,22 +1063,24 @@ fun LazyItemScope.LyricItem(
                                         },
                                     viewAlign = viewAlign
                                 ) { _, measureResult, charLayout ->
-                                    // 非逐字歌词:全高亮
-                                    if (isNotOneByOne) {
-                                        return@Line onDrawWithContent {
+                                    // 统一用 onDrawBehind，所有分支判断每帧重新评估，
+                                    // 避免 drawWithCache 缓存了旧的分支选择导致 isCurrent
+                                    // 切换后仍走全亮渲染路径（"当前句整行闪烁"的根因）。
+                                    onDrawBehind {
+                                        // 非逐字歌词:全高亮
+                                        if (isNotOneByOne) {
                                             drawText(textLayoutResult = measureResult, color = focusedColor)
+                                            return@onDrawBehind
                                         }
-                                    }
 
-                                    // 逐字歌词但不是当前行
-                                    if (!isCurrent) {
-                                        if (showHighLight) {
-                                            // 已播放完：使用逐字 mask 渲染（mask 走到末尾），
-                                            // 而非直接全行 focusedColor，避免行切换时从逐字渲染突变到全行高光的视觉跳变
-                                            return@Line onDrawBehind {
-                                                val enableHighlight = SettingsLibrary.DebugLyricEnableHighlight
-                                                val enableUplift = SettingsLibrary.DebugLyricEnableUplift
-                                                if (!enableHighlight) {
+                                        // 逐字歌词但不是当前行
+                                        if (!isCurrent) {
+                                            if (showHighLight) {
+                                                // 已播放完：使用逐字 mask 渲染（mask 走到末尾），
+                                                // 而非直接全行 focusedColor，避免行切换时从逐字渲染突变到全行高光的视觉跳变
+                                                val enableHighlightPast = SettingsLibrary.DebugLyricEnableHighlight
+                                                val enableUpliftPast = SettingsLibrary.DebugLyricEnableUplift
+                                                if (!enableHighlightPast) {
                                                     // 调试：关闭高光后，过往行回退为暗色
                                                     drawText(textLayoutResult = measureResult, color = unfocusedColor)
                                                     return@onDrawBehind
@@ -1077,18 +1093,15 @@ fun LazyItemScope.LyricItem(
                                                     innerFeatherPx = 0f,
                                                     glowWidthPx = 0f,
                                                 )
-                                                drawHighlightCore(measureResult, completedMask, charLayout, liveTimeRef.value, focusedColor, enableUplift)
-                                            }
-                                        } else {
-                                            // 未播放,不高亮
-                                            return@Line onDrawWithContent {
+                                                drawHighlightCore(measureResult, completedMask, charLayout, liveTimeRef.value, focusedColor, enableUpliftPast)
+                                            } else {
+                                                // 未播放,不高亮
                                                 drawText(textLayoutResult = measureResult, color = unfocusedColor)
                                             }
+                                            return@onDrawBehind
                                         }
-                                    }
 
-                                    // 当前行逐字歌词：多 pass 渲染（每 pass 可独立开关）
-                                    onDrawBehind {
+                                        // 当前行逐字歌词：多 pass 渲染（每 pass 可独立开关）
                                         val currentTimeMs = liveTimeRef.value
 
                                         // 一帧读一次 debug 开关，避免每个 pass 重复读
@@ -1101,12 +1114,31 @@ fun LazyItemScope.LyricItem(
                                         // EMA 已删除：feather 输入改成"行内最长字时长"后同行 raw 恒定，
                                         // EMA 反而成了行首启动期的拖尾（每次进入这一行都要 ~12 帧追平到目标），
                                         // 跨次播放时序不同 → 视觉上像偶发闪烁。
-                                        val mask = calculateHighlightMask(
+                                        val rawMask = calculateHighlightMask(
                                             chars = charLayout,
                                             currentTimeMs = currentTimeMs,
                                             smoothVelocity = enableSmooth,
                                             enableGlow = enableGlow,
                                         )
+
+                                        // completed=true 时转为"末行作为 active 行、mask 钉在右缘"
+                                        // 的非 completed mask，避免 drawHighlightCore 进入特殊全亮分支后
+                                        // 与 drawUnplayedChars 的 early-exit 形成亮度突变窗口。
+                                        // 由 syncLyricIndex 自然推进后，past-line 分支接管最终渲染。
+                                        val mask = if (rawMask.completed) {
+                                            val lastVL = charLayout.last().visualLine
+                                            val lastXEnd = charLayout.maxOfOrNull { it.xEndPx } ?: 0f
+                                            HighlightMask(
+                                                completed = false,
+                                                activeVisualLine = lastVL,
+                                                fullyDoneVisualLines = 0..(lastVL - 1),
+                                                maskRightPx = lastXEnd,
+                                                innerFeatherPx = 0f,
+                                                glowWidthPx = 0f,
+                                            )
+                                        } else {
+                                            rawMask
+                                        }
 
                                         // Pass 1: 暗色底图层（整行未播放文本，逐字保留可选上浮）
                                         drawUnplayedChars(measureResult, charLayout, mask, currentTimeMs, unfocusedColor, enableUplift)

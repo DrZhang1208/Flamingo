@@ -50,3 +50,6 @@ Thumbs.db
 # Project docs (not for version control)
 WIKI.md
 CLAUDE.md
+
+# Reasonix AI assistant workspace
+.reasonix/

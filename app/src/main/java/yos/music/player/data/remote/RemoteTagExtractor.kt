@@ -122,9 +122,8 @@ object RemoteTagExtractor {
                     retriever.setDataSource(tmpFile.absolutePath)
                     val coverBytes = retriever.embeddedPicture
                     if (coverBytes != null && coverBytes.isNotEmpty()) {
-                        val ctx = RemoteServerManager.appContext
-                        if (ctx != null) {
-                            val coverDir = java.io.File(ctx.cacheDir, "remote_covers")
+                        val coverDir = yos.music.player.data.remote.RemoteTagDatabase.coverDir()
+                        if (coverDir != null) {
                             coverDir.mkdirs()
                             val coverFile = java.io.File(coverDir, "${cacheKey.hashCode()}.jpg")
                             coverFile.writeBytes(coverBytes)

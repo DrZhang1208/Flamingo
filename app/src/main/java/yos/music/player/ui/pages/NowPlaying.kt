@@ -461,8 +461,9 @@ fun NowPlaying(
                                 ) {
                                     YosWrapper {
                                         Column(Modifier.fillMaxHeight(0.595f)) {
-                                            // 仅在 NowPlaying 对用户可见时才播放封面交叉渐变
-                                            val isVisible = nowPageLambda() == Album && !showMiniPlayer()
+                                            // Shared element 的可见性只跟页内状态走，避免播放页展开动画未完全 settle 时
+                                            // showMiniPlayer() 仍为 true，导致从歌词页快速返回封面页缺少共享元素动画。
+                                            val isVisible = nowPageLambda() == Album
 
                                             Album(
                                                 modifier = Modifier.sharedElementWithCallerManagedVisibility(
@@ -1610,7 +1611,7 @@ private fun PlayingBar(
                     .clickable(MutableInteractionSource(), null) { onAlbumClick() }
             ) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(true).build(),
+                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
                     contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )

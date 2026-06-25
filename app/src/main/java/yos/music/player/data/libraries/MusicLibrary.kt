@@ -488,6 +488,16 @@ object MusicLibrary {
             }
             val keysFromSongs = grouped.keys.toSet()
 
+            // [DEBUG-REMOTE-RESURRECT] 诊断：卸载的文件夹为何复活
+            android.util.Log.w("RemoteResurrect", "rebuild: songSaver remoteSongs=${remoteSongs.size}, " +
+                "songKeys=${grouped.keys}, metaKeys=${metaByKey.keys}")
+            for (s in remoteSongs) {
+                android.util.Log.w("RemoteResurrect", "  song: serverId=${s.serverId} uri=${s.uri} path=${s.uri?.path}")
+            }
+            for ((k, m) in metaByKey) {
+                android.util.Log.w("RemoteResurrect", "  meta: key=$k serverId=${m.serverId} path=${m.path} name=${m.name}")
+            }
+
             for ((key, songs) in grouped) {
                 val (sid, path) = key
                 if (sid != null && path.isNotEmpty()) {
@@ -513,16 +523,24 @@ object MusicLibrary {
 
     fun unmountRemoteFolder(serverId: String, folderPath: String): Boolean {
         val normalizedPath = normalizePath(folderPath)
-        val rf = remoteFolders.find { it.serverId == serverId && normalizePath(it.path) == normalizedPath } ?: return false
+        val rf = remoteFolders.find { it.serverId == serverId && normalizePath(it.path) == normalizedPath } ?: run {
+            android.util.Log.w("RemoteResurrect", "unmount: folder NOT FOUND in remoteFolders! serverId=$serverId path=$folderPath norm=$normalizedPath")
+            android.util.Log.w("RemoteResurrect", "unmount: current remoteFolders=${remoteFolders.map { it.serverId to it.path }}")
+            return false
+        }
         val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
+        android.util.Log.w("RemoteResurrect", "unmount: removing serverId=$serverId path=$folderPath, urisToRemove=${urisToRemove.size}, songSaver size before=${songSaver.size}")
         yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForUris(urisToRemove)
         yos.music.player.data.remote.RemoteRetryManager.clearRetriesForUris(urisToRemove)
         clearRemoteCachedArtifacts(urisToRemove)
         remoteFolders.removeAll { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
         removeLegacyRemoteFolderMirror(serverId, normalizedPath)
         removeHiddenFolderPath(serverId, normalizedPath)
+        val beforeCount = songSaver.size
         songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
+        android.util.Log.w("RemoteResurrect", "unmount: songSaver after=${songSaver.size} (removed ${beforeCount - songSaver.size}), remaining remote=${songSaver.count { it.serverId != null }}")
         saveRemoteFoldersMeta()
+        android.util.Log.w("RemoteResurrect", "unmount: meta after save=${loadRemoteFoldersMeta().map { it.serverId to it.path }}")
         folderListVersion++
         bumpSongsVersion()
         return true
