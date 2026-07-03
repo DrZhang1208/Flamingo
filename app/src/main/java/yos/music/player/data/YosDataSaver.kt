@@ -61,7 +61,7 @@ class YosDataSaver(dataType: DataType = DataType.NORMAL) : DataSaverInterface() 
         val res: Any = when (default) {
             is Long -> decodeLong(key, default)
             is Int -> decodeInt(key, default)
-            is String -> decodeString(key, default)!!
+            is String -> decodeString(key, default) ?: default
             is Boolean -> decodeBool(key, default)
             is Float -> decodeFloat(key, default)
             is Double -> decodeDouble(key, default)

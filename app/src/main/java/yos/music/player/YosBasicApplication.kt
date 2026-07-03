@@ -226,7 +226,7 @@ class ImmutableListTypeAdapter<T> : JsonSerializer<ImmutableList<T>>,
 
 class UriTypeAdapter : TypeAdapter<Uri>() {
     override fun write(out: JsonWriter, value: Uri?) {
-        out.value(value.toString())
+        if (value == null) out.nullValue() else out.value(value.toString())
     }
 
     override fun read(`in`: JsonReader): Uri {

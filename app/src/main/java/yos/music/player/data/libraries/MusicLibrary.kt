@@ -172,11 +172,11 @@ object MusicLibrary {
     }
 
     val songs: List<YosMediaItem>
-        get() {
+        get() = synchronized(this) {
             val currentSongVersion = songsDataVersion
             val currentFolderVersion = folderListVersion
             if (songsCacheVersion == currentSongVersion && folderListVersionForCache == currentFolderVersion) {
-                return songsCache
+                return@synchronized songsCache
             }
 
             val hiddenUris = lazy {
@@ -197,7 +197,7 @@ object MusicLibrary {
             songsCache = result
             songsCacheVersion = currentSongVersion
             folderListVersionForCache = currentFolderVersion
-            return result
+            result
         }
 
     /** 简单自增版本号，替代 O(n) 的 songSaver.hashCode() */
@@ -357,17 +357,25 @@ object MusicLibrary {
     }
 
     private val playCountMap: MutableMap<String, Int> by lazy {
-        (loadData<MutableMap<String, Int>>(playCountKey) ?: mutableMapOf())
+        // Gson deserializes numeric values as Double; convert explicitly
+        @Suppress("UNCHECKED_CAST")
+        val raw = loadData<MutableMap<String, Any>>(playCountKey) ?: mutableMapOf()
+        val converted: MutableMap<String, Int> = raw.mapValues { (_, v) ->
+            (v as? Double)?.toInt() ?: (v as? Int) ?: 0
+        }.toMutableMap()
+        java.util.Collections.synchronizedMap(converted)
     }
 
     fun incrementPlayCount(uri: Uri?) {
         val key = uri?.toString() ?: return
-        playCountMap[key] = (playCountMap[key] ?: 0) + 1
-        updateData(playCountKey, playCountMap)
+        synchronized(playCountMap) {
+            playCountMap[key] = (playCountMap[key] ?: 0) + 1
+            updateData(playCountKey, playCountMap)
+        }
     }
 
     fun getPlayCount(uri: Uri?): Int {
-        return uri?.toString()?.let { playCountMap[it] } ?: 0
+        return uri?.toString()?.let { synchronized(playCountMap) { playCountMap[it] } } ?: 0
     }
 
     // --- 远程服务器配置持久化 ---
@@ -784,7 +792,7 @@ object MusicLibrary {
         yos.music.player.data.remote.RemoteServerManager.loadConfigs(savedConfigs)
 
         val result = mutableListOf<YosMediaItem>()
-        val foldersToRefresh = remoteFolders.toList()
+        val foldersToRefresh = synchronized(this) { remoteFolders.toList() }
         // 汇总所有文件夹的歌曲，统一启动一次后台标签扫描（避免多次 startBackgroundScan 互相取消）
         val allSongsByServer = mutableMapOf<String, MutableList<YosMediaItem>>()
         val folderPathByUri = mutableMapOf<String, Pair<String, String>>()
@@ -811,10 +819,10 @@ object MusicLibrary {
                 result.addAll(retained)
                 allSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(retained)
 
-                // 更新 remoteFolders 中的歌曲列表
-                val idx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizePath(path) }
-                if (idx >= 0) {
-                    remoteFolders[idx] = remoteFolders[idx].copy(songs = retained)
+                // 更新 remoteFolders 中的歌曲列表（synchronized 防止并发挂载/卸载竞态）
+                synchronized(this) {
+                    val idx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizePath(path) }
+                    if (idx >= 0) remoteFolders[idx] = remoteFolders[idx].copy(songs = retained)
                 }
 
                 // 新文件：远程有但本地没有
@@ -829,8 +837,9 @@ object MusicLibrary {
                     }
                     result.addAll(newSongs)
 
-                    if (idx >= 0) {
-                        remoteFolders[idx] = remoteFolders[idx].copy(songs = retained + newSongs)
+                    synchronized(this) {
+                        val idx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizePath(path) }
+                        if (idx >= 0) remoteFolders[idx] = remoteFolders[idx].copy(songs = retained + newSongs)
                     }
 
                     allSongsByServer.getOrPut(serverId) { mutableListOf() }.addAll(newSongs)

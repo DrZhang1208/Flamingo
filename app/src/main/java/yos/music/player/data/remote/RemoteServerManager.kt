@@ -43,8 +43,8 @@ object RemoteServerManager {
 
     private val gson = Gson()
 
-    private val configCache = mutableListOf<ServerConfig>()
-    private var credPrefs: android.content.SharedPreferences? = null
+    private val configCache = java.util.concurrent.CopyOnWriteArrayList<ServerConfig>()
+    @Volatile private var credPrefs: android.content.SharedPreferences? = null
 
     private val webDavClients = java.util.concurrent.ConcurrentHashMap<String, OkHttpClient>()
 
