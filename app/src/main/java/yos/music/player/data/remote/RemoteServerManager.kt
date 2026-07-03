@@ -158,6 +158,8 @@ object RemoteServerManager {
 
     fun isConnected(serverId: String) = webDavClients.containsKey(serverId)
 
+    fun getWebDavClient(serverId: String): OkHttpClient? = webDavClients[serverId]
+
     // --- File listing ---
 
     fun listFolder(serverId: String, remotePath: String): List<RemoteFile> {

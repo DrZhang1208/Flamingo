@@ -3,14 +3,11 @@ package yos.music.player.code.datasource
 import android.net.Uri
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
-import okhttp3.Credentials
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import yos.music.player.data.remote.RemoteServerManager
 import yos.music.player.data.remote.ServerConfig
 import java.io.IOException
 import java.io.InputStream
-import java.util.concurrent.TimeUnit
 
 class WebDavDataSource(
     private val serverConfig: ServerConfig,
@@ -25,30 +22,8 @@ class WebDavDataSource(
     override fun open(dataSpec: DataSpec): Long {
         val serverId = serverConfig.id
 
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor { chain ->
-                val req = chain.request().newBuilder()
-                if (serverConfig.authRequired) {
-                    val user = serverConfig.username ?: ""
-                    val pass = RemoteServerManager.getPassword(serverId) ?: ""
-                    req.header("Authorization", Credentials.basic(user, pass))
-                }
-                chain.proceed(req.build())
-            }
-        if (serverConfig.skipSslVerify) {
-            val trustAll = object : javax.net.ssl.X509TrustManager {
-                override fun checkClientTrusted(c: Array<java.security.cert.X509Certificate>, a: String) {}
-                override fun checkServerTrusted(c: Array<java.security.cert.X509Certificate>, a: String) {}
-                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
-            }
-            val ssl = javax.net.ssl.SSLContext.getInstance("TLS")
-            ssl.init(null, arrayOf(trustAll), java.security.SecureRandom())
-            builder.sslSocketFactory(ssl.socketFactory, trustAll)
-            builder.hostnameVerifier { _, _ -> true }
-        }
-        val client = builder.build()
+        val client = RemoteServerManager.getWebDavClient(serverId)
+            ?: throw IOException("WebDAV client not initialized for server $serverId")
 
         // 对路径中的特殊字符进行编码
         val encodedPath = remotePath.trimStart('/').split('/').joinToString("/") { Uri.encode(it) }
@@ -66,7 +41,10 @@ class WebDavDataSource(
         }
 
         val response = client.newCall(request.build()).execute()
-        if (!response.isSuccessful) throw IOException("WebDAV request failed: HTTP ${response.code}")
+        if (!response.isSuccessful) {
+            response.close()
+            throw IOException("WebDAV request failed: HTTP ${response.code}")
+        }
 
         inputStream = response.body?.byteStream() ?: throw IOException("Empty response body")
 

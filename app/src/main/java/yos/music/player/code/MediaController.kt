@@ -113,15 +113,29 @@ object MediaController {
     /** 原始播放列表（未打乱），用于关闭随机时恢复自然顺序 */
     var sourceMusicList: List<YosMediaItem>? = null
 
+    private var serviceHandler: Handler? = null
+    private var serviceCheckHookRunnable: Runnable? = null
+    private var serviceLyricsRunnable: Runnable? = null
+
+    fun cancelServiceRunnables() {
+        val h = serviceHandler ?: return
+        serviceCheckHookRunnable?.let { h.removeCallbacks(it) }
+        serviceLyricsRunnable?.let { h.removeCallbacks(it) }
+        serviceHandler = null
+        serviceCheckHookRunnable = null
+        serviceLyricsRunnable = null
+    }
+
     fun onServiceRunning() {
-        val handler by lazy { Handler(Looper.getMainLooper()) }
+        cancelServiceRunnables()
+        val handler = Handler(Looper.getMainLooper()).also { serviceHandler = it }
         val lyricAPI by lazy { runCatching { API() }.getOrNull() }
         var lastLyric: YosLyricLine? = null
         val base64 = runCatching { Tools.drawableToBase64(getDrawable(R.drawable.flamingo_icon_notification)!!) }.getOrElse { "" }
         var statusBarLyricEnabled: Boolean
         var hooked = false
 
-        val checkHookStatusRunnable = object : Runnable {
+        serviceCheckHookRunnable = object : Runnable {
             override fun run() {
                 hooked = lyricAPI?.hasEnable ?: false
                 SettingsLibrary.StatusBarLyricHooked = hooked
@@ -129,7 +143,7 @@ object MediaController {
             }
         }
 
-        val updateLyricsRunnable = object : Runnable {
+        serviceLyricsRunnable = object : Runnable {
             override fun run() {
                 runCatching {
                     var currentLyricIndex: Int
@@ -206,8 +220,8 @@ object MediaController {
         }
 
         CoroutineScope(Dispatchers.IO).launch {
-            handler.post(checkHookStatusRunnable)
-            handler.post(updateLyricsRunnable)
+            handler.post(serviceCheckHookRunnable!!)
+            handler.post(serviceLyricsRunnable!!)
         }
     }
 
@@ -273,7 +287,7 @@ object MediaController {
 
             withContext(Dispatchers.Main) {
                 mediaControl?.repeatMode = repeatMode
-                mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
+                mediaControl?.let { YosPlaybackService.instance?.setCustomButtons(it) }
             }
 
             if (play) {
@@ -346,7 +360,7 @@ object MediaController {
             playingMusicList.value = newList
             syncState()
             withContext(Dispatchers.Main) {
-                mediaControl?.let { YosPlaybackService().setCustomButtons(it) }
+                mediaControl?.let { YosPlaybackService.instance?.setCustomButtons(it) }
             }
         }
     }
@@ -469,6 +483,7 @@ class YosPlaybackService : MediaSessionService() {
     companion object {
         private const val FLAG_ALWAYS_SHOW_TICKER = 0x1000000
         private const val FLAG_ONLY_UPDATE_TICKER = 0x2000000
+        @Volatile var instance: YosPlaybackService? = null
 
         @Volatile private var sharedCache: SimpleCache? = null
         private val sharedCacheLock = Any()
@@ -661,6 +676,7 @@ class YosPlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        instance = this
         yos.music.player.code.MediaController.appContext = this
         val audioAttributes: AudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -1328,6 +1344,8 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        yos.music.player.code.MediaController.cancelServiceRunnables()
+        instance = null
         yos.music.player.data.remote.RemoteRetryManager.clearPlaybackRetries()
         saveData()
         mediaSession?.run {
