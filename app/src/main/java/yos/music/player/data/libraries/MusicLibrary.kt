@@ -158,6 +158,9 @@ object MusicLibrary {
     @Volatile private var songsCacheVersion = -1L
     @Volatile private var songsCache: List<YosMediaItem> = emptyList()
     @Volatile private var folderListVersionForCache = -1
+    // 排除 <1 分钟 歌曲的开关会参与过滤，必须纳入缓存 key，
+    // 否则用户在设置里切换后 songs 仍返回旧列表。
+    @Volatile private var excludeShortForCache: Boolean = false
 
     /** 使 songs 缓存失效，在数据变更时调用 */
     private fun invalidateSongsCache() { songsCacheVersion = -1L }
@@ -175,7 +178,11 @@ object MusicLibrary {
         get() = synchronized(this) {
             val currentSongVersion = songsDataVersion
             val currentFolderVersion = folderListVersion
-            if (songsCacheVersion == currentSongVersion && folderListVersionForCache == currentFolderVersion) {
+            val excludeShort = SettingsLibrary.EnableExcludeSongsUnderOneMinute
+            if (songsCacheVersion == currentSongVersion &&
+                folderListVersionForCache == currentFolderVersion &&
+                excludeShortForCache == excludeShort
+            ) {
                 return@synchronized songsCache
             }
 
@@ -186,7 +193,6 @@ object MusicLibrary {
                     .toSet()
             }
             val hideSongSet = lazy { hideSongs.toSet() }
-            val excludeShort = SettingsLibrary.EnableExcludeSongsUnderOneMinute
 
             val result = songSaver.filter {
                 it !in hideSongSet.value &&
@@ -197,6 +203,7 @@ object MusicLibrary {
             songsCache = result
             songsCacheVersion = currentSongVersion
             folderListVersionForCache = currentFolderVersion
+            excludeShortForCache = excludeShort
             result
         }
 
@@ -738,13 +745,10 @@ object MusicLibrary {
 
             // 刷新远程文件夹：逐目录重新列出文件，检测新增和删除
             val existingRemoteSongs = songSaver.filter { it.serverId != null }
-            val updatedRemoteSongs = refreshRemoteFolders()
-            // 安全保护：刷新失败时保留已有的远程歌曲，避免列表突然变空
-            val finalRemoteSongs = if (updatedRemoteSongs.isEmpty() && existingRemoteSongs.isNotEmpty()) {
-                existingRemoteSongs
-            } else {
-                updatedRemoteSongs
-            }
+            val refreshResult = refreshRemoteFolders()
+            // 安全保护：只有在刷新真正失败（抛异常）时才回退到已有远程歌曲；
+            // 若服务器上确实为空，应尊重刷新结果为 empty，不再误触发回退。
+            val finalRemoteSongs = refreshResult.getOrElse { existingRemoteSongs }
 
             songSaver = result.songList.fastMap {
                 it.toYosMediaItem()
@@ -783,12 +787,15 @@ object MusicLibrary {
     /**
      * 刷新所有已挂载的远程文件夹：重新 PROPFIND 列出文件，合并新增/删除。
      * 返回更新后的远程歌曲列表。新文件统一汇总后启动一次后台标签扫描。
+     *
+     * 用 Result 承载结果：成功时返回真实的远程歌曲（可能为空，代表远端无音频），
+     * 失败时由调用方决定是否回退到已有歌曲，避免"empty 视同失败"造成的误清空。
      */
-    private suspend fun refreshRemoteFolders(): List<YosMediaItem> {
+    private suspend fun refreshRemoteFolders(): Result<List<YosMediaItem>> = runCatching {
         // 每次刷新前从持久化数据重建，确保状态干净、去重
         rebuildRemoteFolders()
         val savedConfigs = loadRemoteServers()
-        if (savedConfigs.isNullOrBlank()) return songSaver.filter { it.serverId != null }
+        if (savedConfigs.isNullOrBlank()) return@runCatching songSaver.filter { it.serverId != null }
         yos.music.player.data.remote.RemoteServerManager.loadConfigs(savedConfigs)
 
         val result = mutableListOf<YosMediaItem>()
@@ -866,7 +873,7 @@ object MusicLibrary {
 
         saveRemoteFoldersMeta()
         folderListVersion++
-        return result
+        result
     }
 
     /** 将 RemoteFile 转为 webdav URI 字符串 */

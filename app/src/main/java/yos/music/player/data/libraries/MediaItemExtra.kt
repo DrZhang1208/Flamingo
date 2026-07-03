@@ -64,25 +64,25 @@ val MediaItem.extras: Bundle?
     get() = this.mediaMetadata.extras
 
 val MediaItem.artistId: Long?
-    get() = this.mediaMetadata.extras?.getLong("ArtistId")
+    get() = this.mediaMetadata.extras?.takeIf { it.containsKey("ArtistId") }?.getLong("ArtistId")
 
 val MediaItem.albumId: Long?
-    get() = this.mediaMetadata.extras?.getLong("AlbumId")
+    get() = this.mediaMetadata.extras?.takeIf { it.containsKey("AlbumId") }?.getLong("AlbumId")
 
 val MediaItem.genreId: Long?
-    get() = this.mediaMetadata.extras?.getLong("GenreId")
+    get() = this.mediaMetadata.extras?.takeIf { it.containsKey("GenreId") }?.getLong("GenreId")
 
 val MediaItem.author: String?
     get() = this.mediaMetadata.extras?.getString("Author")
 
 val MediaItem.addDate: Long?
-    get() = this.mediaMetadata.extras?.getLong("AddDate")
+    get() = this.mediaMetadata.extras?.takeIf { it.containsKey("AddDate") }?.getLong("AddDate")
 
 val MediaItem.duration: Long
     get() = this.mediaMetadata.extras?.getLong("Duration") ?: 0
 
 val MediaItem.modifiedDate: Long?
-    get() = this.mediaMetadata.extras?.getLong("ModifiedDate")
+    get() = this.mediaMetadata.extras?.takeIf { it.containsKey("ModifiedDate") }?.getLong("ModifiedDate")
 
 val MediaItem.cdTrackNumber: Int?
     get() = this.mediaMetadata.extras?.getInt("CdTrackNumber")

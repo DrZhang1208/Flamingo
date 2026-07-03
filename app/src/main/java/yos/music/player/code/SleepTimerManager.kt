@@ -108,17 +108,18 @@ object SleepTimerManager {
             it.cancel()
         }
         pendingIntent = null
-        
-        // 停止UI倒计时
-        stopCountdown()
-        
-        // 重置状态
+
+        // 状态必须先重置：stopCountdown() 会触发 UI/回调，
+        // 若晚于此处，观察者会读到仍为 true 的 isActive 并做出误判。
         isActive.value = false
         isExtendToSongEnd.value = false
         shouldShowWarning.value = false
         originalRemainingSeconds.intValue = 0
         remainingSeconds.intValue = 0
-        
+
+        // 停止UI倒计时
+        stopCountdown()
+
         if (!silent) {
             Toast.makeText(context, "定时已取消", Toast.LENGTH_SHORT).show()
         }

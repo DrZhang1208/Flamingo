@@ -346,24 +346,27 @@ object AudioMetadataUtils {
         // Fallback to MediaExtractor for missing fields
         runCatching {
             val extractor = MediaExtractor()
-            extractor.setDataSource(filePath)
-            val format = extractor.getTrackFormat(0)
-            if (bitrate == null && format.containsKey(MediaFormat.KEY_BIT_RATE)) {
-                bitrate = reliableBitrateKbps(format.getInteger(MediaFormat.KEY_BIT_RATE), file.length(), durationMs)
-            }
-            if (sampleRate == null) sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            if (channels == null) channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            // Try to get PCM encoding for bit depth
-            runCatching {
-                val pcmEncoding = format.getInteger(MediaFormat.KEY_PCM_ENCODING)
-                bitsPerSample = when (pcmEncoding) {
-                    2 -> 16  // ENCODING_PCM_16BIT
-                    3 -> 8   // ENCODING_PCM_8BIT
-                    4 -> 32  // ENCODING_PCM_FLOAT
-                    else -> null
+            try {
+                extractor.setDataSource(filePath)
+                val format = extractor.getTrackFormat(0)
+                if (bitrate == null && format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                    bitrate = reliableBitrateKbps(format.getInteger(MediaFormat.KEY_BIT_RATE), file.length(), durationMs)
                 }
+                if (sampleRate == null) sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                if (channels == null) channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                // Try to get PCM encoding for bit depth
+                runCatching {
+                    val pcmEncoding = format.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                    bitsPerSample = when (pcmEncoding) {
+                        2 -> 16  // ENCODING_PCM_16BIT
+                        3 -> 8   // ENCODING_PCM_8BIT
+                        4 -> 32  // ENCODING_PCM_FLOAT
+                        else -> null
+                    }
+                }
+            } finally {
+                extractor.release()
             }
-            extractor.release()
         }
 
         val format = file.extension.uppercase().ifEmpty { "UNKNOWN" }

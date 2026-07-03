@@ -85,12 +85,24 @@ object RemoteTagExtractor {
             try {
                 val meta = runCatching {
                     ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                        TagLib.getMetadata(pfd.dup().detachFd(), false)
+                        val fd = pfd.dup().detachFd()
+                        try {
+                            TagLib.getMetadata(fd, false)
+                        } catch (t: Throwable) {
+                            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+                            throw t
+                        }
                     }
                 }.getOrNull()
                 val props = runCatching {
                     ParcelFileDescriptor.open(tmpFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                        TagLib.getAudioProperties(pfd.dup().detachFd(), AudioPropertiesReadStyle.Fast)
+                        val fd = pfd.dup().detachFd()
+                        try {
+                            TagLib.getAudioProperties(fd, AudioPropertiesReadStyle.Fast)
+                        } catch (t: Throwable) {
+                            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+                            throw t
+                        }
                     }
                 }.getOrNull()
                 val map = meta?.propertyMap ?: emptyMap()

@@ -61,8 +61,10 @@ object PlayListLibrary {
     }
 
     fun create(name: String) {
-        if (!playList.any { it.name == name }) {
-            playList += PlayList(UUID.randomUUID().toString(), name, listOf())
+        synchronized(this) {
+            if (!playList.any { it.name == name }) {
+                playList += PlayList(UUID.randomUUID().toString(), name, listOf())
+            }
         }
     }
 

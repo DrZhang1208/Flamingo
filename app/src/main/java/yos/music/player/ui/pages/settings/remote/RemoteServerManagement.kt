@@ -86,6 +86,8 @@ fun RemoteServerManagement(navController: NavController) {
                 RemoteServerManager.loadConfigs(saved)
             }
         }
+        // 加载完必须触发一次刷新，否则 remember(refreshKey) 无法读取到刚加载好的服务器列表
+        refreshKey++
     }
 
     val servers = remember(refreshKey) { RemoteServerManager.getAllServers() }

@@ -24,27 +24,30 @@ object RemoteRetryManager {
 
     private val lock = Any()
     private val retryMap = mutableMapOf<String, RetryState>()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = mutableMapOf<String, Job>()
 
     private fun key(uri: String): String = uri
 
     /** 播放中提取标签，失败时调度重试 */
     fun onTagExtractFailed(uri: String, serverId: String, remotePath: String) {
-        synchronized(lock) {
+        val (k, delay) = synchronized(lock) {
             val k = key(uri)
             val state = retryMap.getOrPut(k) {
                 RetryState(uri, serverId, remotePath, isPlayback = true)
             }
             state.failCount++
-            val delay = if (state.failCount <= playbackIntervals.size) {
+            val d = if (state.failCount <= playbackIntervals.size) {
                 playbackIntervals[state.failCount - 1]
             } else {
                 PLAYBACK_INTERVAL_DEFAULT
             }
-            state.nextRetryTimeMs = System.currentTimeMillis() + delay
-            scheduleRetry(k, delay)
+            state.nextRetryTimeMs = System.currentTimeMillis() + d
+            k to d
         }
+        // 必须在 synchronized 外调用 scheduleRetry，防止内部协程回调
+        // (onTagExtractSuccess / onTagExtractFailed) 重入 lock 时的死锁。
+        scheduleRetry(k, delay)
     }
 
     /** 播放中提取成功，清除重试状态 */
@@ -174,9 +177,8 @@ object RemoteRetryManager {
     }
 
     private fun scheduleRetry(k: String, delayMs: Long) {
-        // 必须在锁内调用，确保 activeJobs 的一致性
-        activeJobs[k]?.cancel()
-        activeJobs[k] = scope.launch {
+        // 内部自行同步 activeJobs；不要求调用方持锁，以避免协程回调重入 lock 造成死锁。
+        val job = scope.launch {
             delay(delayMs)
             val state = synchronized(lock) { retryMap[k] } ?: return@launch
             if (!state.isPlayback) return@launch
@@ -197,6 +199,12 @@ object RemoteRetryManager {
                 onTagExtractFailed(state.uri, state.serverId, state.remotePath)
             }
         }
+        val previous = synchronized(lock) {
+            val prev = activeJobs[k]
+            activeJobs[k] = job
+            prev
+        }
+        previous?.cancel()
     }
 
     private fun cancelRetry(uri: String) {
