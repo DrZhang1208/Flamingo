@@ -128,4 +128,11 @@ object FadeExo {
         isPlaying.value = targetStatus == 1
     }
 
+    fun cancelAnimator() {
+        fadeVolumeAnimator?.removeAllListeners()
+        fadeVolumeAnimator?.removeAllUpdateListeners()
+        fadeVolumeAnimator?.cancel()
+        fadeVolumeAnimator = null
+    }
+
 }
