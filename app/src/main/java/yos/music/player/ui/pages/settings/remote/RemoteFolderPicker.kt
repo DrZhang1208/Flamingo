@@ -157,13 +157,12 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                                     MusicLibrary.updateFolderSongs(serverId, currentPath, updated)
                                     val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.path.trim('/') == currentPath.trim('/') }
                                     val isPlaying = MediaController.musicPlaying.value?.uri == updated.uri
-                                    // 所有 UI 更新必须在主线程
-                                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    // 所有 UI 更新在主线程，scope 取消后自动跳过（composable 已离屏）
+                                    scope.launch(Dispatchers.Main) {
                                         if (latest != null) LibraryObject.setTargetListWithTitle(folderName, latest.songs)
                                         if (isPlaying) {
                                             MediaController.musicPlaying.value = updated
                                             MediaController.uiRefreshTrigger++
-                                            // 更新歌词
                                             val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
                                             if (!cached?.lyrics.isNullOrBlank()) {
                                                 val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
