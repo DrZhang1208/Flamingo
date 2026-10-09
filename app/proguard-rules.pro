@@ -61,3 +61,6 @@
 
 # Remote server data classes
 -keep class yos.music.player.data.remote.** { *; }
+
+# SuperLyric uses these exact class/method names as an Xposed hook ABI.
+-keep class com.hchen.superlyricapi.** { *; }

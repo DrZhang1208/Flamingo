@@ -1,40 +1,30 @@
 package yos.music.player.code
 
 import android.content.Context
-import android.os.Handler
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.Renderer
-import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.logic.mss.MssAudioProcessor
 
 @OptIn(UnstableApi::class)
 class YosRenderFactory(context: Context) : DefaultRenderersFactory(context) {
-    override fun buildAudioRenderers(
+    private val appContext = context.applicationContext
+
+    override fun buildAudioSink(
         context: Context,
-        extensionRendererMode: Int,
-        mediaCodecSelector: MediaCodecSelector,
-        enableDecoderFallback: Boolean,
-        audioSink: AudioSink,
-        eventHandler: Handler,
-        eventListener: AudioRendererEventListener,
-        out: ArrayList<Renderer>
-    ) {
-        if (extensionRendererMode != EXTENSION_RENDERER_MODE_OFF) {
-            runCatching { out.add(FfmpegAudioRenderer()) }
-        }
-        super.buildAudioRenderers(
-            context,
-            extensionRendererMode,
-            mediaCodecSelector,
-            enableDecoderFallback,
-            audioSink,
-            eventHandler,
-            eventListener,
-            out
+        enableFloatOutput: Boolean,
+        enableAudioTrackPlaybackParams: Boolean
+    ): AudioSink = DefaultAudioSink.Builder(context)
+        // All audio renderers, including Media3's reflected FFmpeg extension,
+        // receive this same sink. The processor converts each supported PCM
+        // representation to PCM16 for MSS and converts the result back afterward.
+        .setEnableFloatOutput(false)
+        .setEnableAudioTrackPlaybackParams(
+            enableAudioTrackPlaybackParams && SettingsLibrary.HardwareAudioTrackPlayBackParams
         )
-    }
+        .setAudioProcessors(arrayOf(MssAudioProcessor(appContext)))
+        .build()
 }

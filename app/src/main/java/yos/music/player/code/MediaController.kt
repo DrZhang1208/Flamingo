@@ -6,8 +6,6 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -34,14 +32,11 @@ import java.io.File
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
+import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
-import cn.lyric.getter.api.API
-import cn.lyric.getter.api.data.ExtraData
-import cn.lyric.getter.api.tools.Tools
-import com.blankj.utilcode.util.ResourceUtils.getDrawable
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -49,8 +44,12 @@ import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -60,12 +59,14 @@ import yos.music.player.code.MediaController.mediaControl
 import yos.music.player.code.MediaController.mediaSession
 import yos.music.player.code.MediaController.uiRefreshTrigger
 import yos.music.player.code.MediaController.musicPlaying
-import yos.music.player.code.MediaController.onServiceRunning
 import yos.music.player.code.MediaController.playingMusicList
 import yos.music.player.code.MediaController.shuffleEnabled
 import yos.music.player.code.MediaController.toggleShuffle
-import yos.music.player.code.utils.lrc.YosLrcFactory
-import yos.music.player.code.utils.lrc.YosLyricLine
+import yos.music.player.code.utils.lrc.LyricSource
+import yos.music.player.code.utils.lrc.LocalLyricsLoader
+import yos.music.player.code.utils.lrc.LyricTrackInfo
+import yos.music.player.code.utils.lrc.LyricsController
+import yos.music.player.code.utils.lrc.StatusBarLyricsPublisher
 import yos.music.player.code.utils.player.FadeExo
 import yos.music.player.code.utils.player.FadeExo.fadePause
 import yos.music.player.code.utils.player.FadeExo.fadePlay
@@ -116,118 +117,6 @@ object MediaController {
     var sourceMusicList: List<YosMediaItem>? = null
 
     private val prepareMutex = Mutex()
-
-    private var serviceHandler: Handler? = null
-    private var serviceCheckHookRunnable: Runnable? = null
-    private var serviceLyricsRunnable: Runnable? = null
-
-    fun cancelServiceRunnables() {
-        val h = serviceHandler ?: return
-        serviceCheckHookRunnable?.let { h.removeCallbacks(it) }
-        serviceLyricsRunnable?.let { h.removeCallbacks(it) }
-        serviceHandler = null
-        serviceCheckHookRunnable = null
-        serviceLyricsRunnable = null
-    }
-
-    fun onServiceRunning() {
-        cancelServiceRunnables()
-        val handler = Handler(Looper.getMainLooper()).also { serviceHandler = it }
-        val lyricAPI by lazy { runCatching { API() }.getOrNull() }
-        var lastLyric: YosLyricLine? = null
-        val base64 = runCatching { Tools.drawableToBase64(getDrawable(R.drawable.flamingo_icon_notification)!!) }.getOrElse { "" }
-        var statusBarLyricEnabled: Boolean
-        var hooked = false
-
-        serviceCheckHookRunnable = object : Runnable {
-            override fun run() {
-                hooked = lyricAPI?.hasEnable ?: false
-                SettingsLibrary.StatusBarLyricHooked = hooked
-                handler.postDelayed(this, 2000)
-            }
-        }
-
-        serviceLyricsRunnable = object : Runnable {
-            override fun run() {
-                runCatching {
-                    var currentLyricIndex: Int
-                    var isPlaying: Boolean?
-                    var liveTime: Long
-
-                    handler.post {
-                        isPlaying = mediaControl?.isPlaying
-
-                        runCatching {
-                            currentLyricIndex = MainViewModelObject.syncLyricIndex.intValue
-
-                            if (isPlaying == true) {
-                                liveTime = mediaControl?.currentPosition ?: 0
-
-                                val lrcEntries = MediaViewModelObject.lrcEntries.value
-
-                                val nextIndex = lrcEntries.indexOfFirst { line ->
-                                    line.startMs > liveTime
-                                }
-
-                                val sendLyric = fun() {
-                                    try {
-                                        MainViewModelObject.syncLyricIndex.intValue =
-                                            currentLyricIndex
-                                        statusBarLyricEnabled =
-                                            SettingsLibrary.StatusBarLyricEnabled
-
-
-                                        val line = lrcEntries[currentLyricIndex]
-                                        if (line == lastLyric) {
-                                            return
-                                        }
-
-                                        val lyricResult = line.text
-
-                                        if (statusBarLyricEnabled && hooked) {
-                                            lyricAPI?.sendLyric(
-                                                lyricResult,
-                                                extra = ExtraData().apply {
-                                                    customIcon = true
-                                                    base64Icon = base64
-                                                }
-                                            )
-                                        }
-
-                                        // YosPlaybackService().sendLyricTicker(lyricResult)
-
-                                        lastLyric = line
-                                    } catch (_: Exception) {
-                                    }
-                                }
-
-                                if (nextIndex != -1) {
-                                    if (nextIndex - 1 != currentLyricIndex) {
-                                        currentLyricIndex = nextIndex - 1
-                                    }
-                                    if (currentLyricIndex != -1) {
-                                        sendLyric()
-                                    }
-                                } else if (currentLyricIndex != lrcEntries.size - 1) {
-                                    currentLyricIndex = lrcEntries.size - 1
-                                    if (currentLyricIndex != -1) {
-                                        sendLyric()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    handler.postDelayed(this, 150)
-                }
-            }
-        }
-
-        CoroutineScope(Dispatchers.IO).launch {
-            handler.post(serviceCheckHookRunnable!!)
-            handler.post(serviceLyricsRunnable!!)
-        }
-    }
 
 
 
@@ -327,46 +216,30 @@ object MediaController {
     }
 
     fun toggleShuffle() {
-        val enabled = !shuffleEnabled.value
-        shuffleEnabled.value = enabled
-
-        val current = musicPlaying.value ?: return
-        val currentList = playingMusicList.value ?: return
-        val srcList = sourceMusicList
-
-        CoroutineScope(Dispatchers.IO).launch {
-            // 不触碰当前曲目（位置0），只重建其后的列表，避免播放中断
-            val mc = mediaControl ?: return@launch
-            val newTail: List<YosMediaItem> = if (enabled) {
-                currentList.filter { it.uri != current.uri }.shuffled()
-            } else {
-                val src = srcList ?: currentList
-                val currentIdxInSrc = src.indexOfFirst { it.uri == current.uri }.coerceAtLeast(0)
-                // 保持自然顺序连续性：先排当前曲目后面的，再排前面的
-                src.drop(currentIdxInSrc + 1) + src.take(currentIdxInSrc)
-            }
-            val newList = listOf(current) + newTail
-
-            withContext(Dispatchers.Main) {
-                // 先把当前曲目移到位置 0（切歌后它可能不在 0 了）
-                val currentIdx = mc.currentMediaItemIndex
-                if (currentIdx > 0) {
-                    mc.moveMediaItem(currentIdx, 0)
-                }
-                // 移除当前曲目之后的所有项
-                val size = mc.mediaItemCount
-                if (size > 1) {
-                    mc.removeMediaItems(1, size)
-                }
-                // 追加新顺序的尾部
-                if (newTail.isNotEmpty()) {
-                    mc.addMediaItems(1, newTail.map { it.toMediaItem() })
-                }
-                playingMusicList.value = newList
-            }
-            syncState()
-            withContext(Dispatchers.Main) {
-                mediaControl?.let { YosPlaybackService.instance?.setCustomButtons(it) }
+        CoroutineScope(Dispatchers.Main.immediate).launch {
+            prepareMutex.withLock {
+                val mc = mediaControl ?: return@withLock
+                if (!mc.isConnected) return@withLock
+                val actual = mc.currentMediaItem ?: return@withLock
+                val uri = actual.localConfiguration?.uri ?: return@withLock
+                val queue = playingMusicList.value ?: return@withLock
+                val current = queue.firstOrNull { it.uri == uri } ?: actual.toYosMediaItem()
+                val enabled = !shuffleEnabled.value
+                val tail = yos.music.player.code.utils.player.playbackTail(
+                    queue, sourceMusicList, uri, enabled
+                ) { it.uri }
+                // Build and commit without suspending, so a transition cannot change the head.
+                val tailItems = tail.map { it.toMediaItem() }
+                val index = mc.currentMediaItemIndex
+                if (index > 0) mc.moveMediaItem(index, 0)
+                if (mc.mediaItemCount > 1) mc.removeMediaItems(1, mc.mediaItemCount)
+                if (tailItems.isNotEmpty()) mc.addMediaItems(1, tailItems)
+                playingMusicList.value = listOf(current) + tail
+                shuffleEnabled.value = enabled
+                YosPlaybackService.instance?.setCustomButtons(mc)
+                yos.music.player.code.utils.player.optionalPlaybackTask(
+                    onFailure = { android.util.Log.e("Flamingo", "随机播放状态保存失败", it) }
+                ) { syncState() }
             }
         }
     }
@@ -426,7 +299,7 @@ object MediaController {
         musicPlaying.value = u
         refreshJob?.cancel()
         if (u.thumb != null && u.thumb != cur.thumb) {
-            MediaViewModelObject.bitmap.value = u.thumb
+            MediaViewModelObject.updateNowPlayingBackgroundIfCurrent(u.uri?.toString(), u.thumb)
         }
         if (u.thumb != cur.thumb || u.title != cur.title || u.artists != cur.artists || u.album != cur.album) {
             val idx = mediaControl?.currentMediaItemIndex
@@ -436,47 +309,59 @@ object MediaController {
         }
         MusicLibrary.updateSongInFullList(u)
         uiRefreshTrigger++
-        val lyrics = result.lyrics
-        if (!lyrics.isNullOrBlank()) {
-            val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
-            val e = lrcF.formatLrcEntries(lyrics)
-            if (e.isNotEmpty()) {
-                MediaViewModelObject.lrcEntries.value = e
-                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
-                yos.music.player.data.objects.MediaViewModelObject.cacheLrc(uri, e)
-            } else {
-                val plain = lrcF.formatPlainLyricEntries(lyrics)
-                if (plain.isNotEmpty()) {
-                    MediaViewModelObject.lrcEntries.value = plain
-                    yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
-                    yos.music.player.data.objects.MediaViewModelObject.cacheLrc(uri, plain)
-                }
-            }
-        }
+        LyricsController.submitRawLyrics(
+            trackKey = uri,
+            rawLyrics = result.lyrics,
+            currentPositionMs = mediaControl?.currentPosition?.toInt() ?: 0,
+            source = LyricSource.REMOTE_SCAN
+        )
     }
 
     private fun refresh(music: YosMediaItem) {
         refreshJob?.cancel()
-        refreshJob = Job()
-
-        val scope = CoroutineScope(Dispatchers.IO + refreshJob!!)
+        val job = Job()
+        refreshJob = job
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
-
-        scope.launch {
-            handler.post { musicPlaying.value = music }
-        }
-
-        scope.launch {
-            handler.post { MediaViewModelObject.bitmap.value = music.thumb }
-        }
-
-        // 切歌时优先从缓存加载歌词，缓存未命中才清空
-        handler.post {
-            val cached = yos.music.player.data.objects.MediaViewModelObject.getCachedLrc(music.uri?.toString())
-            MediaViewModelObject.lrcEntries.value = cached ?: listOf()
-            yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
+        yos.music.player.code.utils.player.postPlaybackUpdate(job, { handler.post(it) }) {
+            val trackKey = music.uri?.toString()
+            val actualKey = mediaControl?.currentMediaItem?.localConfiguration?.uri?.toString()
+            if (actualKey != null && actualKey != trackKey) return@postPlaybackUpdate
+            musicPlaying.value = music
+            MediaViewModelObject.setNowPlayingBackground(trackKey, music.thumb)
+            LyricsController.activateTrack(trackKey, mediaControl?.currentPosition?.toInt() ?: 0)
         }
     }
+
+}
+
+@OptIn(UnstableApi::class)
+private class TickerMediaNotificationProvider(
+    private val delegate: DefaultMediaNotificationProvider,
+    private val tickerProvider: () -> String?
+) : MediaNotification.Provider {
+    override fun createNotification(
+        mediaSession: MediaSession,
+        customLayout: ImmutableList<CommandButton>,
+        actionFactory: MediaNotification.ActionFactory,
+        onNotificationChangedCallback: MediaNotification.Provider.Callback
+    ): MediaNotification {
+        val result = delegate.createNotification(
+            mediaSession,
+            customLayout,
+            actionFactory,
+            onNotificationChangedCallback
+        )
+        val ticker = tickerProvider()
+        result.notification.tickerText = ticker
+        if (!ticker.isNullOrBlank()) {
+            result.notification.extras.putInt("ticker_icon", R.drawable.flamingo_ticker_icon)
+            result.notification.extras.putBoolean("ticker_icon_switch", false)
+        }
+        return result
+    }
+
+    override fun handleCustomCommand(mediaSession: MediaSession, action: String, extras: Bundle): Boolean =
+        delegate.handleCustomCommand(mediaSession, action, extras)
 }
 
 class YosPlaybackService : MediaSessionService() {
@@ -485,10 +370,13 @@ class YosPlaybackService : MediaSessionService() {
 
     private val shuffleMode = "shuffle_mode"
     private val repeatMode = "repeat_mode"
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.Main.immediate + serviceJob)
+    private val localLyricsLoader by lazy { LocalLyricsLoader(this, serviceScope) }
+    private lateinit var statusBarLyricsPublisher: StatusBarLyricsPublisher
+    @Volatile private var tickerLyric: String? = null
 
     companion object {
-        private const val FLAG_ALWAYS_SHOW_TICKER = 0x1000000
-        private const val FLAG_ONLY_UPDATE_TICKER = 0x2000000
         @Volatile var instance: YosPlaybackService? = null
 
         @Volatile private var sharedCache: SimpleCache? = null
@@ -613,27 +501,6 @@ class YosPlaybackService : MediaSessionService() {
         }
     }
 
-    /*fun sendLyricTicker(lyric: String) {
-        val notification = NotificationCompat.Builder(this, channelID).apply {
-            setTicker(lyric)
-            setSmallIcon(R.drawable.flamingo_icon_notification)
-        }.build().also {
-            it.extras.putInt("ticker_icon", R.drawable.flamingo_icon_notification)
-            it.extras.putBoolean("ticker_icon_switch", true)
-            it.flags = it.flags.or(FLAG_ALWAYS_SHOW_TICKER).or(FLAG_ONLY_UPDATE_TICKER)
-        }
-
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-
-        NotificationManagerCompat.from(this).notify(notificationID, notification)
-    }*/
-
     private var saveJob: Job? = null
 
     fun saveDataNow() {
@@ -646,7 +513,7 @@ class YosPlaybackService : MediaSessionService() {
 
     private fun saveDataAsync(delayMs: Long) {
         saveJob?.cancel()
-        saveJob = CoroutineScope(Dispatchers.Main).launch {
+        saveJob = serviceScope.launch {
             // 在主线程读取所有需要的值
             val music = musicPlaying.value ?: return@launch
             val playlist = playingMusicList.value ?: listOf(music)
@@ -658,8 +525,12 @@ class YosPlaybackService : MediaSessionService() {
             if (delayMs > 0) delay(delayMs)
             // 序列化和 MMKV 写入移到 IO 线程
             withContext(Dispatchers.IO) {
-                MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
-                MusicLibrary.updatePlayList(PlayListV1(mainListUris, playlist, srcList))
+                yos.music.player.code.utils.player.optionalPlaybackTask(
+                    onFailure = { android.util.Log.e("Flamingo", "播放状态保存失败，继续播放", it) }
+                ) {
+                    MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
+                    MusicLibrary.updatePlayList(PlayListV1(mainListUris, playlist, srcList))
+                }
             }
         }
     }
@@ -672,11 +543,17 @@ class YosPlaybackService : MediaSessionService() {
         val pos = runCatching { control?.currentPosition ?: 0 }.getOrDefault(0)
         val shuffle = shuffleEnabled.value
         val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
-        MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
-        MusicLibrary.updatePlayList(PlayListV1(
-            yos.music.player.code.MediaController.mainMusicList.toUriStrings(),
-            playlist,
-            yos.music.player.code.MediaController.sourceMusicList))
+        runBlocking(Dispatchers.IO) {
+            yos.music.player.code.utils.player.optionalPlaybackTask(
+                onFailure = { android.util.Log.e("Flamingo", "播放状态保存失败", it) }
+            ) {
+                MusicLibrary.updatePlayStatus(PlayStatus(music, pos, shuffle, repeat))
+                MusicLibrary.updatePlayList(PlayListV1(
+                    yos.music.player.code.MediaController.mainMusicList.toUriStrings(),
+                    playlist,
+                    yos.music.player.code.MediaController.sourceMusicList))
+            }
+        }
     }
 
     @OptIn(UnstableApi::class)
@@ -770,13 +647,14 @@ class YosPlaybackService : MediaSessionService() {
                     val handler = android.os.Handler(android.os.Looper.getMainLooper())
                     val playerDuration = player.duration
                     handler.post {
+                        if (player.currentMediaItem?.uri?.toString() != rawUri) return@post
                         MediaViewModelObject.isDolby.value = haveJOC
                         if (samplingRate > 0) MediaViewModelObject.samplingRate.intValue = samplingRate
                         if (bitrate > 0) MediaViewModelObject.bitrate.intValue = bitrate
                         // 用 ExoPlayer 实际时长修正存储的 duration，合并在同一个 handler post 中避免多次重组
                         if (playerDuration > 0L && !isRemote) {
                             val cur = musicPlaying.value
-                            if (cur != null && cur.serverId == null && cur.duration != playerDuration) {
+                            if (cur != null && cur.uri?.toString() == rawUri && cur.serverId == null && cur.duration != playerDuration) {
                                 val corrected = cur.copy(duration = playerDuration)
                                 musicPlaying.value = corrected
                                 MusicLibrary.updateSongInFullList(corrected)
@@ -786,29 +664,15 @@ class YosPlaybackService : MediaSessionService() {
 
                     // 将文件 I/O 移到后台线程，避免阻塞 UI
                     if (!isRemote && thisPath != null) {
-                        val context = this@YosPlaybackService
                         val capturedUri = rawUri // 捕获当前曲目 URI，用于回调时校验
+                        localLyricsLoader.load(
+                            trackKey = capturedUri,
+                            audioPath = thisPath,
+                            durationMs = playerDuration.coerceAtLeast(0L),
+                            currentPositionMs = player.currentPosition.toInt()
+                        )
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                             runCatching {
-                                var lrcContent: String? = AudioMetadataUtils.extractEmbeddedLyrics(thisPath)
-                                if (lrcContent.isNullOrBlank()) {
-                                    val lrcPath = "${thisPath.substringBeforeLast(".")}.lrc"
-                                    lrcContent = AudioMetadataUtils.loadLrcFile(context, lrcPath)
-                                }
-                                if (!lrcContent.isNullOrBlank()) {
-                                    val lrcFactory = YosLrcFactory()
-                                    val parsedEntries = lrcFactory.formatLrcEntries(lrcContent)
-                                    if (parsedEntries.isNotEmpty()) {
-                                        handler.post {
-                                            // 仅当曲目未变时才更新 UI，避免在已 deactivated 节点上触发重组
-                                            if (player.currentMediaItem?.uri?.toString() == capturedUri) {
-                                                MediaViewModelObject.lrcEntries.value = parsedEntries
-                                                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
-                                                yos.music.player.data.objects.MediaViewModelObject.cacheLrc(capturedUri, parsedEntries)
-                                            }
-                                        }
-                                    }
-                                }
                                 if (samplingRate == 0 || bitrate == 0) {
                                     val audioInfo = AudioMetadataUtils.getQualityInfos(thisPath)
                                     handler.post {
@@ -881,6 +745,7 @@ class YosPlaybackService : MediaSessionService() {
                     channels: Int? = null
                 ) {
                     val cur = musicPlaying.value ?: return
+                    if (item.uri != null && cur.uri != item.uri) return
                     val overwrite = source != "EXOPLAYER"
                     val u = cur.copy(
                         title = if (overwrite && title != null) title else cur.title,
@@ -900,10 +765,13 @@ class YosPlaybackService : MediaSessionService() {
                         duration = if (overwrite && duration != null && duration > 0 && duration != cur.duration) duration else cur.duration
                     )
                     musicPlaying.value = u
-                    // EXOPLAYER 源不覆盖 thumb，跳过 bitmap 更新避免 handler.post 时序覆盖问题
-                    if (u.thumb != null && source != "EXOPLAYER") {
+                    // EXOPLAYER 源不覆盖 thumb，跳过背景更新避免晚到元数据覆写当前曲目背景。
+                    if (source != "EXOPLAYER") {
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            MediaViewModelObject.bitmap.value = u.thumb
+                            MediaViewModelObject.updateNowPlayingBackgroundIfCurrent(
+                                trackKey = u.uri?.toString(),
+                                artworkUri = u.thumb
+                            )
                         }
                     }
                     // 标签变更后同步更新 Media3 通知栏 Metadata
@@ -915,22 +783,16 @@ class YosPlaybackService : MediaSessionService() {
                     }
                     MusicLibrary.updateSongInFullList(u)
                     uiRefreshTrigger++
-                    if (!lyrics.isNullOrBlank()) {
-                        val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
-                        val e = lrcF.formatLrcEntries(lyrics)
-                        if (e.isNotEmpty()) {
-                            MediaViewModelObject.lrcEntries.value = e
-                            yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
-                            yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), e)
-                        } else {
-                            val plain = lrcF.formatPlainLyricEntries(lyrics)
-                            if (plain.isNotEmpty()) {
-                                MediaViewModelObject.lrcEntries.value = plain
-                                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
-                                yos.music.player.data.objects.MediaViewModelObject.cacheLrc(item.uri?.toString(), plain)
-                            }
+                    LyricsController.submitRawLyrics(
+                        item.uri?.toString(),
+                        lyrics,
+                        mediaControl?.currentPosition?.toInt() ?: 0,
+                        when (source) {
+                            "DB_CACHE" -> LyricSource.REMOTE_CACHE
+                            "REMOTE_SCAN" -> LyricSource.REMOTE_SCAN
+                            else -> LyricSource.EMBEDDED_TAG
                         }
-                    }
+                    )
                     if (item.serverId != null) {
                         val tagUri = item.uri?.toString() ?: ""
                         val cachedForMerge = yos.music.player.data.remote.RemoteTagDatabase.get(tagUri)
@@ -985,10 +847,17 @@ class YosPlaybackService : MediaSessionService() {
                             val hasTags = cached != null && (cached.artist != null || cached.album != null || cached.lyrics != null)
                             // 投递到主线程消息队列，避免在组合帧内触发重组导致 deactivated node
                             handler.post {
-                                val memCached = yos.music.player.data.objects.MediaViewModelObject.getCachedLrc(yosItem.uri?.toString())
-                                MediaViewModelObject.lrcEntries.value = memCached ?: listOf()
-                                yos.music.player.data.objects.MainViewModelObject.syncLyricIndex.intValue = -1
+                                if (mediaControl?.currentMediaItem?.localConfiguration?.uri != yosItem.uri) return@post
+                                val trackKey = yosItem.uri?.toString()
+                                LyricsController.activateTrack(
+                                    trackKey,
+                                    mediaControl?.currentPosition?.toInt() ?: 0
+                                )
                                 musicPlaying.value = yosItem
+                                MediaViewModelObject.setNowPlayingBackground(
+                                    trackKey = yosItem.uri?.toString(),
+                                    artworkUri = coverUri ?: yosItem.thumb
+                                )
                                 if (hasTags) {
                                     applyTags(
                                         yosItem,
@@ -1026,7 +895,7 @@ class YosPlaybackService : MediaSessionService() {
                                 }
                             }
                             // 始终后台提取最新标签（远程文件标签可能已更新），缓存先展示
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { extractAndApplyTags(yosItem) }
+                            serviceScope.launch(Dispatchers.IO) { extractAndApplyTags(yosItem) }
                         } else {
                             yos.music.player.code.MediaController.onCase(yosItem)
                         }
@@ -1043,6 +912,7 @@ class YosPlaybackService : MediaSessionService() {
                             yos.music.player.data.remote.RemoteServerManager.connect(serverId)
                         }
                         val result = yos.music.player.data.remote.RemoteTagExtractor.extract(serverId, path, uri)
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         yos.music.player.data.remote.RemoteTagDatabase.put(uri, yos.music.player.data.remote.CachedTags(
                             uri = uri,
                             title = result.title ?: item.title,
@@ -1092,7 +962,10 @@ class YosPlaybackService : MediaSessionService() {
                             musicPlaying.value?.let { MusicLibrary.updateSongInFullList(it) }
                             uiRefreshTrigger++
                         }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
                     } catch (_: Exception) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         yos.music.player.data.remote.RemoteRetryManager.onTagExtractFailed(uri, serverId, path)
                     }
                 }
@@ -1154,7 +1027,11 @@ class YosPlaybackService : MediaSessionService() {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     super.onIsPlayingChanged(isPlaying)
                     // 只在主动暂停时（playWhenReady=false）同步 UI，避免切歌/缓冲/拖进度条误触发
-                    if (!isPlaying && player.playWhenReady) return
+                    // Buffering may finish during fade-out after an explicit pause.
+                    // Do not replace that requested pause with a transient playing event.
+                    if (!yos.music.player.code.utils.player.shouldPublishPlaybackState(
+                            isPlaying, player.playWhenReady, FadeExo.isPausePending
+                        )) return
                     MediaViewModelObject.isPlaying.value = isPlaying
                     
                     // 定时关闭: 手动暂停时检测
@@ -1169,6 +1046,8 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 override fun onEvents(player: Player, events: Player.Events) {
+                    MediaViewModelObject.isBuffering.value =
+                        player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
                     super.onEvents(player, events)
 
                     // 定时关闭: 检测歌曲播放完毕(STATE_ENDED)
@@ -1342,16 +1221,80 @@ class YosPlaybackService : MediaSessionService() {
 
         notificationProvider.setSmallIcon(R.drawable.flamingo_icon_notification)
 
-        this.setMediaNotificationProvider(notificationProvider)
+        this.setMediaNotificationProvider(
+            TickerMediaNotificationProvider(notificationProvider) { tickerLyric }
+        )
 
         setCustomButtons(forwardingPlayer)
 
-        onServiceRunning()
+        statusBarLyricsPublisher = StatusBarLyricsPublisher(
+            context = this,
+            scope = serviceScope,
+            trackKeyProvider = { musicPlaying.value?.uri?.toString() },
+            positionProvider = { mediaControl?.currentPosition ?: 0L },
+            playingProvider = { mediaControl?.isPlaying == true },
+            trackInfoProvider = {
+                musicPlaying.value?.let { music ->
+                    LyricTrackInfo(
+                        title = music.title.orEmpty(),
+                        artist = music.artists.orEmpty(),
+                        mediaId = music.mediaId ?: music.uri?.toString().orEmpty(),
+                        mediaUri = music.uri?.toString().orEmpty(),
+                        durationMs = music.duration
+                    )
+                }
+            },
+            mediaSessionPublisher = { line, subtitle, lyricInfo ->
+                publishMediaSessionLyrics(forwardingPlayer, line, subtitle, lyricInfo)
+            },
+            tickerPublisher = { line ->
+                if (tickerLyric != line) {
+                    tickerLyric = line
+                    mediaSession?.let { onUpdateNotification(it, false) }
+                }
+            }
+        ).also { it.start() }
+    }
+
+    private fun publishMediaSessionLyrics(
+        player: Player,
+        line: String?,
+        subtitle: String?,
+        lyricInfo: String?
+    ) {
+        val index = player.currentMediaItemIndex.takeIf { it >= 0 } ?: return
+        val current = player.currentMediaItem ?: return
+        val music = musicPlaying.value
+        val title = line ?: music?.title ?: current.mediaMetadata.title
+        val artist = subtitle ?: music?.artists ?: current.mediaMetadata.artist
+        val oldExtras = current.mediaMetadata.extras
+        val extras = Bundle(oldExtras ?: Bundle.EMPTY).apply {
+            if (SettingsLibrary.ColorOsLockScreenLyricEnabled && !lyricInfo.isNullOrBlank()) {
+                putString("lyricInfo", lyricInfo)
+            } else {
+                remove("lyricInfo")
+            }
+        }
+        if (
+            current.mediaMetadata.title == title &&
+            current.mediaMetadata.artist == artist &&
+            oldExtras?.getString("lyricInfo") == extras.getString("lyricInfo")
+        ) return
+
+        val metadata = current.mediaMetadata.buildUpon()
+            .setTitle(title)
+            .setArtist(artist)
+            .setExtras(extras)
+            .build()
+        player.replaceMediaItem(index, current.buildUpon().setMediaMetadata(metadata).build())
     }
 
     override fun onDestroy() {
-        yos.music.player.code.MediaController.cancelServiceRunnables()
+        if (::statusBarLyricsPublisher.isInitialized) statusBarLyricsPublisher.stop()
+        localLyricsLoader.cancel()
+        yos.music.player.code.MediaController.refreshJob?.cancel()
         instance = null
+        MediaViewModelObject.isBuffering.value = false
         yos.music.player.data.remote.RemoteRetryManager.clearPlaybackRetries()
         saveData()
         mediaSession?.run {
@@ -1361,6 +1304,7 @@ class YosPlaybackService : MediaSessionService() {
         }
         releaseSharedCache()
         FadeExo.cancelAnimator()
+        serviceScope.cancel()
         super.onDestroy()
     }
 

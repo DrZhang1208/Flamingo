@@ -1,5 +1,8 @@
 package yos.music.player.ui.pages.settings.performance
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,6 +45,7 @@ import androidx.navigation.NavController
 import io.github.alexzhirkevich.cupertino.CupertinoSlider
 import yos.music.player.R
 import yos.music.player.code.utils.others.Vibrator
+import yos.music.player.code.utils.lrc.LyricsController
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.pages.settings.GroupSpacer
 import yos.music.player.ui.pages.settings.GroupSpacerMedium
@@ -51,6 +55,7 @@ import yos.music.player.ui.pages.settings.SwitchItem
 import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
+import java.io.File
 
 private val weightOptions = listOf("Thin", "ExtraLight", "Light", "Regular", "Medium", "SemiBold", "Bold", "ExtraBold", "Black")
 
@@ -66,13 +71,48 @@ fun LyricSetting(navController: NavController) =
                 item("settings") {
                     Column(Modifier.fillMaxSize()) {
                         val weightSlider = remember { mutableFloatStateOf(weightValue(SettingsLibrary.LyricFontWeight)) }
+                        val fontScaleSlider = remember {
+                            mutableFloatStateOf(SettingsLibrary.LyricFontScale.coerceIn(0.8f, 1.2f))
+                        }
                         val mainSizeSlider = remember { mutableFloatStateOf(SettingsLibrary.LyricFontSize.toFloat()) }
                         val transSizeSlider = remember { mutableFloatStateOf(SettingsLibrary.TranslationFontSize.toFloat()) }
+                        val timingOffsetSlider = remember {
+                            mutableFloatStateOf(SettingsLibrary.LyricTimingOffsetMs.coerceIn(-1_000, 1_000).toFloat())
+                        }
+                        val context = LocalContext.current
+                        val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                            if (uri == null) return@rememberLauncherForActivityResult
+                            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "lyrics-font"
+                            val validExtension = name.endsWith(".ttf", true) || name.endsWith(".otf", true)
+                            val length = runCatching {
+                                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+                            }.getOrNull() ?: -1L
+                            if (!validExtension || length > 64L * 1024L * 1024L) {
+                                Toast.makeText(context, R.string.settings_performance_lyric_custom_font_invalid, Toast.LENGTH_SHORT).show()
+                                return@rememberLauncherForActivityResult
+                            }
+                            runCatching {
+                                val target = File(context.filesDir, "lyrics/custom.${name.substringAfterLast('.', "ttf").lowercase()}")
+                                target.parentFile?.mkdirs()
+                                context.contentResolver.openInputStream(uri)?.use { input ->
+                                    target.outputStream().use(input::copyTo)
+                                } ?: error("font stream unavailable")
+                                if (target.length() > 64L * 1024L * 1024L) {
+                                    target.delete()
+                                    error("font exceeds size limit")
+                                }
+                                SettingsLibrary.LyricCustomFontPath = target.absolutePath
+                                SettingsLibrary.LyricCustomFontName = name
+                                SettingsLibrary.LyricCustomFontEnabled = true
+                            }.onFailure {
+                                Toast.makeText(context, R.string.settings_performance_lyric_custom_font_invalid, Toast.LENGTH_SHORT).show()
+                            }
+                        }
 
                         ListHeader(content = "预览")
                         LyricPreview(
-                            mainSize = mainSizeSlider.floatValue,
-                            transSize = transSizeSlider.floatValue,
+                            mainSize = mainSizeSlider.floatValue * fontScaleSlider.floatValue,
+                            transSize = transSizeSlider.floatValue * fontScaleSlider.floatValue,
                             weightName = weightName(weightSlider.floatValue)
                         )
                         GroupSpacer()
@@ -84,9 +124,38 @@ fun LyricSetting(navController: NavController) =
 
                         GroupSpacer()
 
+                        ListHeader(content = "歌词缩放 — ${"%.2f".format(fontScaleSlider.floatValue)}×")
+                        RoundColumn {
+                            SliderRow(
+                                fontScaleSlider.floatValue,
+                                {
+                                    val scale = it.coerceIn(0.8f, 1.2f)
+                                    fontScaleSlider.floatValue = scale
+                                    SettingsLibrary.LyricFontScale = scale
+                                },
+                                0.8f..1.2f,
+                                0.05f
+                            )
+                        }
+
+                        GroupSpacer()
+
                         ListHeader(content = "主歌词字号 — ${mainSizeSlider.floatValue.toInt()}sp")
                         RoundColumn {
                             SliderRow(mainSizeSlider.floatValue, { mainSizeSlider.floatValue = it; SettingsLibrary.LyricFontSize = it.toInt() }, 24f..44f, 1f)
+                        }
+
+                        GroupSpacer()
+
+                        RoundColumn {
+                            SwitchItem(
+                                title = stringResource(R.string.settings_performance_lyric_show_translation),
+                                desc = stringResource(R.string.settings_performance_lyric_show_translation_desc),
+                                onClick = {
+                                    SettingsLibrary.NowPlayingTranslation = !SettingsLibrary.NowPlayingTranslation
+                                },
+                                checkedLambda = { SettingsLibrary.NowPlayingTranslation }
+                            )
                         }
 
                         GroupSpacer()
@@ -97,6 +166,37 @@ fun LyricSetting(navController: NavController) =
                         }
 
                         GroupSpacerMedium()
+
+                        ListHeader(content = stringResource(id = R.string.settings_performance_lyric_custom_font_select))
+                        RoundColumn {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable {
+                                    fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/x-font-opentype"))
+                                }.padding(horizontal = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = SettingsLibrary.LyricCustomFontName.ifBlank {
+                                        stringResource(R.string.settings_performance_lyric_custom_font_select)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (SettingsLibrary.LyricCustomFontEnabled) {
+                                Row(
+                                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                                        SettingsLibrary.LyricCustomFontEnabled = false
+                                        SettingsLibrary.LyricCustomFontPath = ""
+                                        SettingsLibrary.LyricCustomFontName = ""
+                                    }.padding(horizontal = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(stringResource(R.string.settings_performance_lyric_custom_font_reset))
+                                }
+                            }
+                        }
+
+                        GroupSpacer()
 
                         RoundColumn {
                             SwitchItem(
@@ -113,15 +213,37 @@ fun LyricSetting(navController: NavController) =
                         GroupSpacer()
                         RoundColumn {
                             SwitchItem(
-                                title = "逐字歌词",
-                                desc = "关闭后将逐字歌词解析为逐行歌词",
+                                title = stringResource(R.string.settings_performance_lyric_smart_wbw_lyric),
+                                desc = stringResource(R.string.settings_performance_lyric_smart_wbw_lyric_desc),
                                 onClick = {
-                                    SettingsLibrary.EnableWordByWordLyric = !SettingsLibrary.EnableWordByWordLyric
-                                    // 清空内存歌词缓存：缓存 key 仅为 URI，不含逐字开关，
-                                    // 切换开关后若不清缓存，已加载的歌不会重新解析，逐字效果异常。
-                                    yos.music.player.data.objects.MediaViewModelObject.clearLrcCache()
+                                    SettingsLibrary.SmartWordByWordLyric = !SettingsLibrary.SmartWordByWordLyric
                                 },
-                                checkedLambda = { SettingsLibrary.EnableWordByWordLyric }
+                                checkedLambda = { SettingsLibrary.SmartWordByWordLyric }
+                            )
+                        }
+                        GroupSpacer()
+                        ListHeader(content = "${stringResource(R.string.settings_performance_lyric_timing_offset)} — ${timingOffsetSlider.floatValue.toInt()} ms")
+                        RoundColumn {
+                            SliderRow(
+                                timingOffsetSlider.floatValue,
+                                {
+                                    timingOffsetSlider.floatValue = it
+                                    SettingsLibrary.LyricTimingOffsetMs = it.toInt()
+                                },
+                                -1000f..1000f,
+                                100f
+                            )
+                        }
+                        ListHeader(content = stringResource(R.string.settings_performance_lyric_timing_offset_desc))
+                        GroupSpacer()
+                        RoundColumn {
+                            SwitchItem(
+                                title = stringResource(R.string.settings_performance_lyric_prefer_embedded),
+                                onClick = {
+                                    SettingsLibrary.LyricPreferEmbedded = !SettingsLibrary.LyricPreferEmbedded
+                                    LyricsController.clearCache()
+                                },
+                                checkedLambda = { SettingsLibrary.LyricPreferEmbedded }
                             )
                         }
                         GroupSpacer()
@@ -133,6 +255,19 @@ fun LyricSetting(navController: NavController) =
                             )
                         }
                         ListHeader(content = stringResource(id = R.string.settings_performance_lyric_blur_effect_desc))
+                        GroupSpacer()
+
+                        ListHeader(content = stringResource(R.string.settings_mss_title))
+                        RoundColumn {
+                            SwitchItem(
+                                title = stringResource(R.string.settings_mss_gpu_acceleration),
+                                desc = stringResource(R.string.settings_mss_gpu_acceleration_desc),
+                                onClick = {
+                                    SettingsLibrary.MssGpuAccelerationEnabled = !SettingsLibrary.MssGpuAccelerationEnabled
+                                },
+                                checkedLambda = { SettingsLibrary.MssGpuAccelerationEnabled }
+                            )
+                        }
                         GroupSpacer()
 
 

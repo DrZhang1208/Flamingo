@@ -1,5 +1,6 @@
 package yos.music.player.ui.widgets.effects
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
@@ -20,11 +21,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -44,6 +47,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.data.libraries.SettingsLibrary.NowplayingBackgroundEffect
+import yos.music.player.data.objects.NowPlayingBackgroundState
 
 /**
  * 播放页背景组件。
@@ -53,7 +57,7 @@ import yos.music.player.data.libraries.SettingsLibrary.NowplayingBackgroundEffec
 @Composable
 fun YosFloatingLight(
     modifier: Modifier,
-    album: () -> Uri?,
+    backgroundState: () -> NowPlayingBackgroundState,
     isPlaying: () -> Boolean,
     nowPage: () -> String,
     showMiniPlayer: () -> Boolean
@@ -61,50 +65,73 @@ fun YosFloatingLight(
     val context = LocalContext.current
     val dynamicEnabled = NowplayingBackgroundEffect
 
-    // 原始饱和度增强图（供动态模式 GPU 模糊用）
-    val rawBg = remember { mutableStateOf<ImageBitmap?>(null) }
-    // 静态预模糊图
-    val blurredBg = remember { mutableStateOf<ImageBitmap?>(null) }
+    val assetCache = remember { mutableStateMapOf<String, BackgroundAssets>() }
+    val settledFrame = remember { mutableStateOf(BackgroundRenderFrame.fallback(trackKey = null)) }
     val imageLoader = remember { ImageLoader.Builder(context).crossfade(true).build() }
 
-    val albumKey = album()?.toString()
-    LaunchedEffect(albumKey) {
-        val uri = album() ?: return@LaunchedEffect
-        withContext(Dispatchers.Default) {
-            val request = ImageRequest.Builder(context).data(uri).size(256)
-                .allowHardware(false).build()
-            val source = imageLoader.execute(request).drawable?.toBitmap()
-                ?.let { toSoftware(it) } ?: return@withContext
+    val background = backgroundState()
+    val trackKey = background.trackKey
+    val requestKey = background.requestKey
 
-            val scale = 256f / maxOf(source.width, source.height)
-            val scaled = Bitmap.createScaledBitmap(
-                source,
-                (source.width * scale).toInt().coerceAtLeast(1),
-                (source.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
-            val saturated = applySaturation(scaled)
-            // 动态模式用饱和度图（不模糊，留给 GPU）
-            rawBg.value = saturated.asImageBitmap()
-            // 静态模式预模糊（CPU 一次，缓存复用）
-            blurredBg.value = Toolkit.blur(saturated.copy(Bitmap.Config.ARGB_8888, true), 25).asImageBitmap()
+    LaunchedEffect(trackKey, requestKey) {
+        if (background.artworkUri == null || requestKey == null) {
+            settledFrame.value = BackgroundRenderFrame.fallback(trackKey)
+            return@LaunchedEffect
+        }
+
+        assetCache[requestKey]?.let { cached ->
+            settledFrame.value = BackgroundRenderFrame.asset(trackKey, requestKey, cached)
+            return@LaunchedEffect
+        }
+
+        val result = loadBackgroundAssets(
+            context = context,
+            imageLoader = imageLoader,
+            uri = background.artworkUri,
+            key = requestKey
+        )
+
+        if (result != null) {
+            assetCache[requestKey] = result
+            settledFrame.value = BackgroundRenderFrame.asset(trackKey, requestKey, result)
+        } else {
+            settledFrame.value = BackgroundRenderFrame.fallback(trackKey)
         }
     }
 
+    val displayFrame = settledFrame.value
+    val renderTarget = BackgroundRenderTarget(
+        key = displayFrame.frameKey,
+        dynamic = dynamicEnabled,
+        raw = displayFrame.raw,
+        blurred = displayFrame.blurred
+    )
+
     Box(modifier = modifier) {
-        if (dynamicEnabled) {
-            Crossfade(
-                targetState = rawBg.value,
-                animationSpec = tween(1200, easing = FastOutSlowInEasing)
-            ) { bg ->
-                if (bg != null) DynamicBlurLayer(bg, showMiniPlayer) else FallbackLayer()
-            }
-        } else {
-            Crossfade(
-                targetState = blurredBg.value,
-                animationSpec = tween(1200, easing = FastOutSlowInEasing)
-            ) { bg ->
-                if (bg != null) StaticBlurLayer(bg) else FallbackLayer()
+        Crossfade(
+            targetState = renderTarget,
+            animationSpec = tween(700, easing = FastOutSlowInEasing)
+        ) { target ->
+            when {
+                target.dynamic && target.raw != null -> {
+                    DynamicBlurLayer(target.raw, showMiniPlayer)
+                }
+                !target.dynamic && target.blurred != null -> {
+                    StaticBlurLayer(target.blurred)
+                }
+                !target.dynamic && target.raw != null -> {
+                    // 静态模糊图尚未准备好时，先用原图做一次轻量 GPU blur 过渡，避免整屏黑掉。
+                    StaticBlurLayer(target.raw, runtimeBlur = true)
+                }
+                target.blurred != null -> {
+                    StaticBlurLayer(target.blurred)
+                }
+                target.raw != null -> {
+                    DynamicBlurLayer(target.raw, showMiniPlayer)
+                }
+                else -> {
+                    FallbackLayer()
+                }
             }
         }
     }
@@ -112,13 +139,15 @@ fun YosFloatingLight(
 
 /** 静态模式：预模糊图居中裁剪 + 遮罩 */
 @Composable
-private fun StaticBlurLayer(bitmap: ImageBitmap) {
+private fun StaticBlurLayer(bitmap: ImageBitmap, runtimeBlur: Boolean = false) {
     Box(modifier = Modifier.fillMaxSize()) {
         Image(
             bitmap = bitmap,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (runtimeBlur) Modifier.blur(72.dp) else Modifier)
         )
         Box(
             modifier = Modifier
@@ -193,8 +222,85 @@ private fun FallbackLayer() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .drawBehind { drawRect(Color(0x66000000)) }
+            .drawBehind {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF18181B),
+                            Color(0xFF111827),
+                            Color(0xFF09090B)
+                        )
+                    )
+                )
+                drawRect(Color(0x66000000))
+            }
     )
+}
+
+private data class BackgroundAssets(
+    val key: String? = null,
+    val raw: ImageBitmap,
+    val blurred: ImageBitmap
+)
+
+private data class BackgroundRenderFrame(
+    val frameKey: String,
+    val trackKey: String?,
+    val raw: ImageBitmap? = null,
+    val blurred: ImageBitmap? = null
+) {
+    companion object {
+        fun fallback(trackKey: String?) = BackgroundRenderFrame(
+            frameKey = "fallback:${trackKey ?: "none"}",
+            trackKey = trackKey
+        )
+
+        fun asset(trackKey: String?, requestKey: String, assets: BackgroundAssets) = BackgroundRenderFrame(
+            frameKey = "asset:$requestKey",
+            trackKey = trackKey,
+            raw = assets.raw,
+            blurred = assets.blurred
+        )
+    }
+}
+
+private data class BackgroundRenderTarget(
+    val key: String?,
+    val dynamic: Boolean,
+    val raw: ImageBitmap?,
+    val blurred: ImageBitmap?
+)
+
+private suspend fun loadBackgroundAssets(
+    context: Context,
+    imageLoader: ImageLoader,
+    uri: Uri,
+    key: String?
+): BackgroundAssets? {
+    val targetSize = 224
+    return withContext(Dispatchers.Default) {
+        val request = ImageRequest.Builder(context)
+            .data(uri)
+            .size(targetSize)
+            .allowHardware(false)
+            .build()
+        val source = imageLoader.execute(request).drawable?.toBitmap()
+            ?.let { toSoftware(it) } ?: return@withContext null
+
+        val scale = targetSize.toFloat() / maxOf(source.width, source.height)
+        val scaled = Bitmap.createScaledBitmap(
+            source,
+            (source.width * scale).toInt().coerceAtLeast(1),
+            (source.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        val saturated = applySaturation(scaled)
+        BackgroundAssets(
+            key = key,
+            raw = saturated.asImageBitmap(),
+            blurred = Toolkit.blur(saturated.copy(Bitmap.Config.ARGB_8888, true), 20).asImageBitmap()
+        )
+    }
 }
 
 private fun applySaturation(source: Bitmap): Bitmap {

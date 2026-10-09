@@ -132,6 +132,7 @@ object AudioMetadataUtils {
     }
 
     fun extractEmbeddedLyrics(filePath: String): String? {
+        val candidates = mutableListOf<String>()
         // Method 1: MediaMetadataRetriever (API 33+)
         runCatching {
             val retriever = MediaMetadataRetriever()
@@ -139,9 +140,7 @@ object AudioMetadataUtils {
             @Suppress("NewApi")
             val lyrics = retriever.extractMetadata(24)
             retriever.release()
-            if (!lyrics.isNullOrBlank()) {
-                return lyrics
-            }
+            if (!lyrics.isNullOrBlank()) candidates += lyrics
         }.onFailure {
         }
 
@@ -151,17 +150,19 @@ object AudioMetadataUtils {
             if (!file.exists()) return@runCatching null
             val metadata = runWithDetachedFd(file) { fd -> TagLib.getMetadata(fd, false) } ?: return@runCatching null
             val propertyMap = metadata.propertyMap ?: return@runCatching null
-            val lyricEntry = propertyMap.entries.firstOrNull { (key, _) ->
-                key.uppercase().let { it.contains("USLT") || it.contains("UNSYNCEDLYRICS") || it.contains("LYRICS") }
-            }
-            if (lyricEntry != null) {
-                val lyricText = lyricEntry.value.lastOrNull()
-                if (!lyricText.isNullOrBlank()) {
-                    return lyricText
+            propertyMap.entries.forEach { (key, values) ->
+                val normalizedKey = key.uppercase().filter(Char::isLetterOrDigit)
+                if (
+                    normalizedKey == "LYRICS" || normalizedKey == "LYRICS1" ||
+                    normalizedKey.contains("USLT") || normalizedKey.contains("UNSYNCEDLYRICS")
+                ) {
+                    candidates += values.filter { it.isNotBlank() }
                 }
             }
         }.onFailure {
         }
+
+        candidates.maxByOrNull(String::length)?.let { return it }
 
         // Method 3: Scan file for LRC content (fallback)
         return runCatching {

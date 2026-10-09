@@ -65,7 +65,100 @@ fun LyricGetter(navController: NavController) =
                                     onClick = null,
                                     desc = stringResource(id = if (SettingsLibrary.StatusBarLyricHooked) R.string.settings_others_statusbarlyric_basic_status_enabled else R.string.settings_others_statusbarlyric_basic_status_disabled)
                                 )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_ticker),
+                                    onClick = {
+                                        SettingsLibrary.TickerLyricEnabled =
+                                            !SettingsLibrary.TickerLyricEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.TickerLyricEnabled }
+                                )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_lyricon),
+                                    onClick = {
+                                        SettingsLibrary.LyriconEnabled = !SettingsLibrary.LyriconEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.LyriconEnabled }
+                                )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_superlyric),
+                                    onClick = {
+                                        SettingsLibrary.SuperLyricAPIEnabled =
+                                            !SettingsLibrary.SuperLyricAPIEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.SuperLyricAPIEnabled }
+                                )
+
+                                Divider()
+
+                                DefaultItem(
+                                    title = stringResource(R.string.settings_lyric_superlyric_status),
+                                    onClick = null,
+                                    desc = stringResource(
+                                        if (SettingsLibrary.SuperLyricAPIHooked) {
+                                            R.string.settings_others_statusbarlyric_basic_status_enabled
+                                        } else {
+                                            R.string.settings_others_statusbarlyric_basic_status_disabled
+                                        }
+                                    )
+                                )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_media_session),
+                                    onClick = {
+                                        SettingsLibrary.MediaSessionLyricEnabled =
+                                            !SettingsLibrary.MediaSessionLyricEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.MediaSessionLyricEnabled }
+                                )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_media_session_translation),
+                                    onClick = {
+                                        SettingsLibrary.MediaSessionLyricTranslationEnabled =
+                                            !SettingsLibrary.MediaSessionLyricTranslationEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.MediaSessionLyricTranslationEnabled }
+                                )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_coloros_lock_screen),
+                                    onClick = {
+                                        SettingsLibrary.ColorOsLockScreenLyricEnabled =
+                                            !SettingsLibrary.ColorOsLockScreenLyricEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.ColorOsLockScreenLyricEnabled }
+                                )
+
+                                Divider()
+
+                                SwitchItem(
+                                    title = stringResource(R.string.settings_lyric_coloros_provider),
+                                    onClick = {
+                                        SettingsLibrary.ColorOsLockScreenLyricProviderEnabled =
+                                            !SettingsLibrary.ColorOsLockScreenLyricProviderEnabled
+                                    },
+                                    checkedLambda = { SettingsLibrary.ColorOsLockScreenLyricProviderEnabled }
+                                )
                             }
+
+                            ListHeader(stringResource(R.string.settings_lyric_coloros_desc))
+                            ListHeader(stringResource(R.string.settings_lyric_coloros_provider_desc))
 
                             GroupSpacer()
 

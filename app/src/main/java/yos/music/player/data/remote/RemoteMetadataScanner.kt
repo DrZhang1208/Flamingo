@@ -2,6 +2,7 @@ package yos.music.player.data.remote
 
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,9 +29,8 @@ data class ScanProgress(
 object RemoteMetadataScanner {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    @Volatile private var scanJob: Job? = null
-    @Volatile private var activeScanServerId: String? = null
-    @Volatile private var activeScanUris: Set<String> = emptySet()
+    private val scanJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val activeScanUrisByServer = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
 
     private val _scanProgress = MutableStateFlow(ScanProgress())
     val scanProgress: StateFlow<ScanProgress> = _scanProgress
@@ -91,8 +91,7 @@ object RemoteMetadataScanner {
         forceRescan: Boolean = false,
         onItemUpdated: (YosMediaItem) -> Unit
     ) {
-        scanJob?.cancel()
-        scanJob = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             val pending = items.filter {
                 it.tagScanStatus == "PENDING" || RemoteRetryManager.isRecoverable(it.tagScanStatus)
             }
@@ -102,8 +101,7 @@ object RemoteMetadataScanner {
             val toProcess = (pending + completeRetry).distinctBy { it.uri?.toString() }
             if (toProcess.isEmpty()) return@launch
 
-            activeScanServerId = serverId
-            activeScanUris = toProcess.mapNotNull { it.uri?.toString() }.toSet()
+            activeScanUrisByServer[serverId] = toProcess.mapNotNull { it.uri?.toString() }.toSet()
             _scanProgress.value = ScanProgress(serverId, toProcess.size, 0, "", true)
 
             try {
@@ -178,29 +176,43 @@ object RemoteMetadataScanner {
 
                 _scanProgress.value = ScanProgress(serverId, toProcess.size, toProcess.size, "", false)
             } finally {
-                activeScanServerId = null
-                activeScanUris = emptySet()
+                activeScanUrisByServer.remove(serverId)
+                if (scanJobs[serverId] == coroutineContext[Job]) {
+                    scanJobs.remove(serverId)
+                }
+                if (scanJobs.isEmpty()) {
+                    _scanProgress.value = ScanProgress()
+                }
             }
         }
+        scanJobs.put(serverId, job)?.cancel()
+        job.start()
     }
 
     fun cancelScan() {
-        scanJob?.cancel()
-        activeScanServerId = null
-        activeScanUris = emptySet()
+        scanJobs.values.forEach { it.cancel() }
+        scanJobs.clear()
+        activeScanUrisByServer.clear()
         _scanProgress.value = ScanProgress()
     }
 
     fun cancelScanForUris(uris: Collection<String>) {
         val keys = uris.toSet()
-        if (keys.isNotEmpty() && activeScanUris.any { it in keys }) {
-            cancelScan()
+        if (keys.isEmpty()) return
+        val serversToCancel = activeScanUrisByServer.entries
+            .filter { (_, activeUris) -> activeUris.any { it in keys } }
+            .map { it.key }
+        serversToCancel.forEach(::cancelScanForServer)
+        if (scanJobs.isEmpty()) {
+            _scanProgress.value = ScanProgress()
         }
     }
 
     fun cancelScanForServer(serverId: String) {
-        if (activeScanServerId == serverId) {
-            cancelScan()
+        scanJobs.remove(serverId)?.cancel()
+        activeScanUrisByServer.remove(serverId)
+        if (scanJobs.isEmpty()) {
+            _scanProgress.value = ScanProgress()
         }
     }
 

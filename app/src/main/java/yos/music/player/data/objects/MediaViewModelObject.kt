@@ -5,44 +5,73 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import yos.music.player.code.utils.lrc.YosLyricLine
+import yos.music.player.code.utils.lrc.LyricDocumentIdentity
+import yos.music.player.code.utils.lrc.LyricSource
+
+@Immutable
+data class NowPlayingBackgroundState(
+    val trackKey: String? = null,
+    val artworkUri: Uri? = null,
+    val status: BackgroundStateStatus = BackgroundStateStatus.IDLE
+) {
+    val requestKey: String?
+        get() = artworkUri?.toString()?.let { uri ->
+            buildString {
+                append(trackKey ?: "no-track")
+                append('|')
+                append(uri)
+            }
+        }
+}
+
+enum class BackgroundStateStatus {
+    IDLE,
+    AVAILABLE,
+    UNAVAILABLE
+}
+
+@Immutable
+data class NowPlayingLyricState(
+    val trackKey: String? = null,
+    val entries: List<YosLyricLine> = emptyList(),
+    val currentLineIndex: Int = -1,
+    val activeLineIndexes: Set<Int> = emptySet(),
+    val effectivePositionMs: Long = 0L,
+    val nextBoundaryMs: Long = Long.MAX_VALUE,
+    val documentIdentity: LyricDocumentIdentity? = null,
+    val source: LyricSource? = null,
+    val generation: Int = 0,
+    val isLoading: Boolean = false
+)
 
 @Stable
 object MediaViewModelObject {
-    val lrcEntries: MutableState<List<YosLyricLine>> = mutableStateOf(listOf())
-    val otherSideForLines = mutableStateListOf<Boolean>()
-
-    // var mainLyricLines = mutableStateListOf<AnnotatedString>()
-
-    val bitmap: MutableState<Uri?> = mutableStateOf(null)
+    val nowPlayingBackground: MutableState<NowPlayingBackgroundState> =
+        mutableStateOf(NowPlayingBackgroundState())
+    val nowPlayingLyrics: MutableState<NowPlayingLyricState> =
+        mutableStateOf(NowPlayingLyricState())
 
     val isPlaying: MutableState<Boolean> = mutableStateOf(false)
+    val isBuffering: MutableState<Boolean> = mutableStateOf(false)
 
     val bitrate = mutableIntStateOf(0)
     val samplingRate = mutableIntStateOf(0)
     val isDolby = mutableStateOf(false)
 
-    // 内存歌词缓存，key 为 URI 字符串
-    private val lrcCache = LinkedHashMap<String, List<YosLyricLine>>(50, 0.75f, true)
-
-    fun getCachedLrc(uri: String?): List<YosLyricLine>? {
-        return uri?.let { lrcCache[it] }
+    fun setNowPlayingBackground(trackKey: String?, artworkUri: Uri?) {
+        nowPlayingBackground.value = NowPlayingBackgroundState(
+            trackKey = trackKey,
+            artworkUri = artworkUri,
+            status = if (artworkUri != null) BackgroundStateStatus.AVAILABLE else BackgroundStateStatus.UNAVAILABLE
+        )
     }
 
-    fun cacheLrc(uri: String?, entries: List<YosLyricLine>) {
-        if (uri != null && entries.isNotEmpty()) {
-            lrcCache[uri] = entries
+    fun updateNowPlayingBackgroundIfCurrent(trackKey: String?, artworkUri: Uri?) {
+        if (nowPlayingBackground.value.trackKey == trackKey) {
+            setNowPlayingBackground(trackKey, artworkUri)
         }
-    }
-
-    /**
-     * 清空内存歌词缓存。当影响解析结果的设置（如「逐字歌词」开关）变化时调用，
-     * 否则已解析并缓存的歌词（key 仅为 URI）不会重新解析，导致切换开关后旧歌词异常。
-     */
-    fun clearLrcCache() {
-        lrcCache.clear()
     }
 
     // val songSort = mutableStateOf(SettingData.getString("yos_player_song_sort", "MUSIC_TITLE"))

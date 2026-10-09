@@ -1,5 +1,7 @@
 package yos.music.player.data.remote
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -52,8 +54,10 @@ object RemoteTagExtractor {
      */
     suspend fun extract(serverId: String, remotePath: String, cacheKey: String): ExtractedResult {
         for (size in stepSizes) {
+            currentCoroutineContext().ensureActive()
             val header = RemoteServerManager.readFileBytes(serverId, remotePath, 0, size)
             if (header.isEmpty()) throw java.io.IOException("无法读取远程文件: $remotePath")
+            currentCoroutineContext().ensureActive()
             val result = extractFromBytes(header, cacheKey)
             if (hasUsefulData(result)) return result
         }

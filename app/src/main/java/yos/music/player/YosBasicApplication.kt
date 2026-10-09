@@ -40,7 +40,6 @@ class YosBasicApplication : Application() {
 
         // 初始化 MMKV
         MMKV.initialize(this)
-        MediaViewModelObject.isPlaying.value = false
 
         // 初始化远程服务器管理器（加密凭据存储）
         yos.music.player.data.remote.RemoteServerManager.init(this)
@@ -88,6 +87,13 @@ class YosBasicApplication : Application() {
             save = { bean -> gson.toJson(bean) },
             restore = { str -> gson.fromJson(str, YosStringWrapper::class.java) }
         )
+
+        // MusicLibrary creates ComposeDataSaver list delegates during object
+        // initialization. Existing list data can only be restored after all
+        // element converters above have been registered; accessing the object
+        // earlier makes the second launch crash on values such as `[]`.
+        MusicLibrary.initPlaybackPersistence(this)
+        MediaViewModelObject.isPlaying.value = false
 
         // 初始化媒体控制器
         val sessionToken = SessionToken(this, ComponentName(this, YosPlaybackService::class.java))

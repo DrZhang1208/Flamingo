@@ -5,16 +5,21 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 enum class ServerType { WEBDAV }
+enum class RemoteConnectionState { UNKNOWN, CHECKING, CONNECTED, DISCONNECTED }
 
 data class ServerConfig(
     val id: String = UUID.randomUUID().toString(),
@@ -42,11 +47,15 @@ object RemoteServerManager {
     private const val CRED_PREFS_NAME = "remote_servers_creds"
 
     private val gson = Gson()
+    private val credLock = Any()
 
     private val configCache = java.util.concurrent.CopyOnWriteArrayList<ServerConfig>()
     @Volatile private var credPrefs: android.content.SharedPreferences? = null
 
     private val webDavClients = java.util.concurrent.ConcurrentHashMap<String, OkHttpClient>()
+    private val _connectionStates = MutableStateFlow<Map<String, RemoteConnectionState>>(emptyMap())
+    val connectionStates: StateFlow<Map<String, RemoteConnectionState>> = _connectionStates
+    private val serverErrors = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     var lastListBody: String = ""
         private set
@@ -64,19 +73,29 @@ object RemoteServerManager {
             val appCtx = context.applicationContext
             Thread {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
-                try {
-                    val masterKey = MasterKey.Builder(appCtx)
-                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                        .build()
-                    credPrefs = EncryptedSharedPreferences.create(
-                        appCtx, CRED_PREFS_NAME, masterKey,
-                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                    )
-                } catch (e: Exception) {
-                    credPrefs = appCtx.getSharedPreferences(CRED_PREFS_NAME, Context.MODE_PRIVATE)
-                }
+                ensureCredPrefs(appCtx)
             }.start()
+        }
+    }
+
+    private fun ensureCredPrefs(context: Context? = appContext): android.content.SharedPreferences? {
+        credPrefs?.let { return it }
+        val appCtx = context ?: return null
+        synchronized(credLock) {
+            credPrefs?.let { return it }
+            credPrefs = try {
+                val masterKey = MasterKey.Builder(appCtx)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    appCtx, CRED_PREFS_NAME, masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (_: Exception) {
+                appCtx.getSharedPreferences(CRED_PREFS_NAME, Context.MODE_PRIVATE)
+            }
+            return credPrefs
         }
     }
 
@@ -85,32 +104,39 @@ object RemoteServerManager {
     fun addServer(config: ServerConfig, password: String?): ServerConfig {
         val finalConfig = config.copy(id = config.id.ifEmpty { UUID.randomUUID().toString() })
         configCache.add(finalConfig)
-        if (password != null) credPrefs?.edit()?.putString("pwd_${finalConfig.id}", password)?.commit()
+        if (password != null) ensureCredPrefs()?.edit()?.putString("pwd_${finalConfig.id}", password)?.commit()
+        updateConnectionState(finalConfig.id, RemoteConnectionState.UNKNOWN)
+        serverErrors.remove(finalConfig.id)
         return finalConfig
     }
 
     fun updateServer(config: ServerConfig, password: String?) {
         configCache.removeAll { it.id == config.id }; configCache.add(config)
-        if (password != null) credPrefs?.edit()?.putString("pwd_${config.id}", password)?.apply()
-        else if (!config.authRequired) credPrefs?.edit()?.remove("pwd_${config.id}")?.apply()
+        if (password != null) ensureCredPrefs()?.edit()?.putString("pwd_${config.id}", password)?.apply()
+        else if (!config.authRequired) ensureCredPrefs()?.edit()?.remove("pwd_${config.id}")?.apply()
         disconnect(config.id)
+        updateConnectionState(config.id, RemoteConnectionState.UNKNOWN)
+        serverErrors.remove(config.id)
     }
 
     fun removeServer(serverId: String) {
         configCache.removeAll { it.id == serverId }
-        credPrefs?.edit()?.remove("pwd_$serverId")?.apply()
+        ensureCredPrefs()?.edit()?.remove("pwd_$serverId")?.apply()
         disconnect(serverId)
+        _connectionStates.update { it - serverId }
+        serverErrors.remove(serverId)
     }
 
     fun getServer(serverId: String) = configCache.find { it.id == serverId }
     fun getAllServers() = configCache.toList()
-    fun getPassword(serverId: String) = credPrefs?.getString("pwd_$serverId", null)
+    fun getPassword(serverId: String) = ensureCredPrefs()?.getString("pwd_$serverId", null)
 
     fun loadConfigs(json: String?) {
         configCache.clear()
         if (!json.isNullOrBlank()) {
             configCache.addAll(gson.fromJson(json, object : TypeToken<List<ServerConfig>>() {}.type))
         }
+        syncConnectionStates()
     }
 
     fun saveConfigs(): String = gson.toJson(configCache)
@@ -138,10 +164,21 @@ object RemoteServerManager {
     }
 
     fun connect(serverId: String, password: String? = null): Boolean {
+        val cfg = getServer(serverId) ?: return false
+        updateConnectionState(serverId, RemoteConnectionState.CHECKING)
+        serverErrors.remove(serverId)
+        lastParseError = ""
         return runCatching {
-            val cfg = getServer(serverId) ?: return false
-            connectWebDav(cfg, password)
-        }.isSuccess
+            val client = buildWebDavClient(cfg, password ?: getPassword(serverId))
+            verifyWebDavClient(cfg, client)
+            webDavClients[serverId] = client
+            updateConnectionState(serverId, RemoteConnectionState.CONNECTED)
+            true
+        }.getOrElse { e ->
+            webDavClients.remove(serverId)
+            markServerFailure(serverId, cfg, e)
+            false
+        }
     }
 
     private fun connectWebDav(config: ServerConfig, password: String? = null): Boolean {
@@ -152,11 +189,26 @@ object RemoteServerManager {
 
     fun disconnect(serverId: String) {
         webDavClients.remove(serverId)
+        updateConnectionState(serverId, RemoteConnectionState.DISCONNECTED)
     }
 
     fun disconnectAll() = webDavClients.keys.toList().forEach { disconnect(it) }
 
-    fun isConnected(serverId: String) = webDavClients.containsKey(serverId)
+    fun isConnected(serverId: String) = getConnectionState(serverId) == RemoteConnectionState.CONNECTED
+
+    fun getConnectionState(serverId: String): RemoteConnectionState {
+        return _connectionStates.value[serverId] ?: RemoteConnectionState.UNKNOWN
+    }
+
+    fun getConnectionError(serverId: String): String? = serverErrors[serverId]
+
+    fun refreshConnectionState(serverId: String): Boolean = connect(serverId)
+
+    fun refreshAllConnectionStates() {
+        configCache.forEach { config ->
+            connect(config.id)
+        }
+    }
 
     fun getWebDavClient(serverId: String): OkHttpClient? = webDavClients[serverId]
 
@@ -165,9 +217,9 @@ object RemoteServerManager {
     fun listFolder(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
         return runCatching {
-            listWebDav(serverId, remotePath)
+            listFolderOrThrow(serverId, remotePath)
         }.getOrElse { e ->
-            lastParseError = connectionErrorMessage(cfg, e)
+            markServerFailure(serverId, cfg, e)
             emptyList()
         }
     }
@@ -176,12 +228,30 @@ object RemoteServerManager {
         return listFolder(serverId, remotePath).filter { !it.isDirectory && isAudioFile(it.name) }
     }
 
+    fun listFolderOrThrow(serverId: String, remotePath: String): List<RemoteFile> {
+        val cfg = getServer(serverId) ?: return emptyList()
+        return try {
+            val result = listWebDavOrThrow(serverId, remotePath)
+            lastParseError = ""
+            serverErrors.remove(serverId)
+            updateConnectionState(serverId, RemoteConnectionState.CONNECTED)
+            result
+        } catch (e: Exception) {
+            markServerFailure(serverId, cfg, e)
+            throw e
+        }
+    }
+
+    fun listAudioFilesOrThrow(serverId: String, remotePath: String): List<RemoteFile> {
+        return listFolderOrThrow(serverId, remotePath).filter { !it.isDirectory && isAudioFile(it.name) }
+    }
+
     private fun isAudioFile(name: String) = name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
 
     // --- File reading ---
 
     fun readFileBytes(serverId: String, remotePath: String, offset: Long, length: Int): ByteArray {
-        val cfg = getServer(serverId) ?: return ByteArray(0)
+        require(offset >= 0 && length > 0)
         return readWebDavBytes(serverId, remotePath, offset, length)
     }
 
@@ -191,12 +261,16 @@ object RemoteServerManager {
     }
 
     fun getFileSize(serverId: String, remotePath: String): Long {
+        val cfg = getServer(serverId) ?: return 0L
         return runCatching {
-            val cfg = getServer(serverId) ?: return 0L
             val url = buildWebDavUrl(cfg, remotePath)
             val resp = webDavClients[serverId]?.newCall(Request.Builder().url(url).head().build())?.execute()
+            updateConnectionState(serverId, RemoteConnectionState.CONNECTED)
             resp?.body?.contentLength()?.coerceAtLeast(0) ?: 0L
-        }.getOrDefault(0L)
+        }.getOrElse {
+            markServerFailure(serverId, cfg, it)
+            0L
+        }
     }
 
     private fun readWebDavBytes(serverId: String, path: String, offset: Long, length: Int): ByteArray {
@@ -207,10 +281,12 @@ object RemoteServerManager {
         if (length > 0) req.header("Range", "bytes=$offset-${offset + length - 1}")
         val resp = client.newCall(req.build()).execute()
         return try {
-            if (!resp.isSuccessful) throw java.io.IOException("WebDAV read failed: HTTP ${resp.code}")
-            val body = resp.body ?: throw java.io.IOException("WebDAV empty body")
-            val full = body.bytes()
-            if (length > 0 && full.size > length) full.copyOf(length) else full
+            val bytes = readHttpRange(resp, offset, length)
+            updateConnectionState(serverId, RemoteConnectionState.CONNECTED)
+            bytes
+        } catch (e: Exception) {
+            markServerFailure(serverId, cfg, e)
+            throw e
         } finally {
             resp.close()
         }
@@ -220,8 +296,26 @@ object RemoteServerManager {
         val cfg = getServer(serverId) ?: throw IllegalStateException("Server not found")
         val client = webDavClients[serverId] ?: throw IllegalStateException("Not connected")
         val url = buildWebDavUrl(cfg, path)
-        val resp = client.newCall(Request.Builder().url(url).build()).execute()
-        return resp.body?.byteStream() ?: throw IllegalStateException("No body for $path")
+        try {
+            val resp = client.newCall(Request.Builder().url(url).build()).execute()
+            // 未成功或无 body 必须显式关闭响应，否则连接会被卡住直到 GC；
+            // 之前直接返回 byteStream 可能把 4xx/5xx 的错误正文当音频流播放。
+            if (!resp.isSuccessful) {
+                val code = resp.code
+                resp.close()
+                throw java.io.IOException("WebDAV open failed: HTTP $code for $path")
+            }
+            val body = resp.body
+            if (body == null) {
+                resp.close()
+                throw java.io.IOException("WebDAV empty body for $path")
+            }
+            updateConnectionState(serverId, RemoteConnectionState.CONNECTED)
+            return body.byteStream()
+        } catch (e: Exception) {
+            markServerFailure(serverId, cfg, e)
+            throw e
+        }
     }
 
     // --- WebDAV helpers ---
@@ -257,7 +351,7 @@ object RemoteServerManager {
         return if (clean.isEmpty()) base else "$base/$clean"
     }
 
-    private fun listWebDav(serverId: String, remotePath: String): List<RemoteFile> {
+    private fun listWebDavOrThrow(serverId: String, remotePath: String): List<RemoteFile> {
         val cfg = getServer(serverId) ?: return emptyList()
         val client = webDavClients[serverId] ?: run {
             connectWebDav(cfg)
@@ -265,36 +359,36 @@ object RemoteServerManager {
         }
         val url = buildWebDavUrl(cfg, remotePath).trimEnd('/') + "/"
 
-        return runCatching {
-            val body = client.newCall(
-                Request.Builder().url(url)
-                    .method("PROPFIND", propfindBody)
-                    .header("Depth", "1")
-                    .header("User-Agent", "Flamingo/1.0")
-                    .build()
-            ).execute().use { resp ->
-                resp.body?.string() ?: ""
+        val body = client.newCall(
+            Request.Builder().url(url)
+                .method("PROPFIND", propfindBody)
+                .header("Depth", "1")
+                .header("User-Agent", "Flamingo/1.0")
+                .build()
+        ).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                throw java.io.IOException("WebDAV PROPFIND failed: HTTP ${resp.code}")
             }
-
-            lastListBody = body
-
-            if (body.isNotBlank()) {
-                val selfPath = android.net.Uri.parse(url).path?.trimEnd('/') ?: ""
-                val result = parsePropfind(body, remotePath, selfPath)
-                if (result.isNotEmpty()) return@runCatching result
-            }
-
-            val getBody = client.newCall(
-                Request.Builder().url(url).header("User-Agent", "Flamingo/1.0").build()
-            ).execute().use { resp ->
-                if (!resp.isSuccessful) return@runCatching emptyList()
-                resp.body?.string() ?: ""
-            }
-            if (getBody.isNotBlank()) parseHtmlDirectory(getBody, remotePath, url) else emptyList()
-        }.getOrElse { e ->
-            lastParseError = connectionErrorMessage(cfg, e)
-            emptyList()
+            resp.body?.string() ?: ""
         }
+
+        lastListBody = body
+
+        if (body.isNotBlank()) {
+            val selfPath = android.net.Uri.parse(url).path?.trimEnd('/') ?: ""
+            val result = parsePropfind(body, remotePath, selfPath)
+            if (result.isNotEmpty()) return result
+        }
+
+        val getBody = client.newCall(
+            Request.Builder().url(url).header("User-Agent", "Flamingo/1.0").build()
+        ).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                throw java.io.IOException("WebDAV list fallback failed: HTTP ${resp.code}")
+            }
+            resp.body?.string() ?: ""
+        }
+        return if (getBody.isNotBlank()) parseHtmlDirectory(getBody, remotePath, url) else emptyList()
     }
 
     private fun parseHtmlDirectory(html: String, parentPath: String, baseUrl: String): List<RemoteFile> {
@@ -387,5 +481,40 @@ object RemoteServerManager {
             is java.net.SocketTimeoutException -> "连接失败：超时（请检查网络、端口、服务器在线状态）"
             else -> "连接失败：$msg"
         }
+    }
+
+    private fun verifyWebDavClient(config: ServerConfig, client: OkHttpClient) {
+        client.newCall(
+            Request.Builder()
+                .url(config.host)
+                .method("PROPFIND", propfindBody)
+                .header("Depth", "0")
+                .build()
+        ).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                throw IOException("HTTP ${resp.code}")
+            }
+        }
+    }
+
+    private fun updateConnectionState(serverId: String, state: RemoteConnectionState) {
+        _connectionStates.update { states -> states + (serverId to state) }
+    }
+
+    private fun syncConnectionStates() {
+        val activeIds = configCache.map { it.id }.toSet()
+        webDavClients.keys.removeIf { it !in activeIds }
+        serverErrors.keys.removeIf { it !in activeIds }
+        _connectionStates.update { old ->
+            activeIds.associateWith { id -> old[id] ?: RemoteConnectionState.UNKNOWN }
+        }
+    }
+
+    private fun markServerFailure(serverId: String, cfg: ServerConfig, e: Throwable) {
+        val message = connectionErrorMessage(cfg, e)
+        lastParseError = message
+        serverErrors[serverId] = message
+        webDavClients.remove(serverId)
+        updateConnectionState(serverId, RemoteConnectionState.DISCONNECTED)
     }
 }

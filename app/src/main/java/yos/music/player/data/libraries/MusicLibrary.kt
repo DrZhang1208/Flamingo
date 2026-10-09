@@ -28,6 +28,8 @@ import yos.music.player.UriTypeAdapter
 import yos.music.player.code.MediaController
 import yos.music.player.data.NormalSaver
 import yos.music.player.data.SongListSaver
+import yos.music.player.data.playback.PlaybackPersistence
+import yos.music.player.data.playback.RoomPlaybackPersistence
 
 /*@Parcelize
 @Stable
@@ -123,11 +125,24 @@ object MusicLibrary {
     // yos_player_core 负责歌曲列表 V1、播放状态记录
 
     private const val mmkvID = "yos_player_core"
-    private const val playListKey = "yos_play_list_v1"
-    private const val playStatusKey = "yos_player_play_status"
     private const val playCountKey = "yos_play_count"
     private const val remoteServersKey = "yos_remote_servers"
     private const val remoteFoldersMetaKey = "yos_remote_folders_meta"
+
+    @Volatile private var playbackPersistence: PlaybackPersistence? = null
+
+    fun initPlaybackPersistence(context: Context) {
+        if (playbackPersistence == null) {
+            synchronized(this) {
+                if (playbackPersistence == null) {
+                    playbackPersistence = RoomPlaybackPersistence(context)
+                }
+            }
+        }
+    }
+
+    private fun requirePlaybackPersistence(): PlaybackPersistence =
+        playbackPersistence ?: error("MusicLibrary.initPlaybackPersistence(context) must be called first")
 
     var hideSongs by mutableDataSaverListStateOf(
         dataSaverInterface = SongListSaver,
@@ -248,18 +263,11 @@ object MusicLibrary {
             songs.filter { (it.artistsList ?: defaultArtists).contains(artistName) }
     }
 
-    fun updatePlayList(playListV1: PlayListV1) {
-        updateData(playListKey, playListV1)
-    }
+    suspend fun updatePlayList(playListV1: PlayListV1) =
+        requirePlaybackPersistence().savePlayList(playListV1)
 
-    fun loadPlayList(): PlayListV1 {
-        return try {
-            loadData(playListKey) ?: PlayListV1(null, null)
-        } catch (_: Exception) {
-            // 旧格式（完整 YosMediaItem 对象）反序列化失败，返回空
-            PlayListV1(null, null)
-        }
-    }
+    suspend fun loadPlayList(): PlayListV1 =
+        requirePlaybackPersistence().loadPlayList()
 
     fun MediaItem.toYosMediaItem(): YosMediaItem {
         // 从 URI 提取远程 serverId
@@ -355,13 +363,11 @@ object MusicLibrary {
             .build()
     }
 
-    fun updatePlayStatus(playStatus: PlayStatus) {
-        updateData(playStatusKey, playStatus)
-    }
+    suspend fun updatePlayStatus(playStatus: PlayStatus) =
+        requirePlaybackPersistence().savePlayStatus(playStatus)
 
-    fun loadPlayStatus(): PlayStatus {
-        return loadData(playStatusKey) ?: PlayStatus(null, 0L, false, 0)
-    }
+    suspend fun loadPlayStatus(): PlayStatus =
+        requirePlaybackPersistence().loadPlayStatus()
 
     private val playCountMap: MutableMap<String, Int> by lazy {
         // Gson deserializes numeric values as Double; convert explicitly
@@ -399,21 +405,27 @@ object MusicLibrary {
 
     /** 直接更新 songSaver 中某首歌，绕过 hideSongs/hideFolders 过滤 */
     fun updateSongInFullList(updated: YosMediaItem) {
-        val all = songSaver.toMutableList()
-        val i = all.indexOfFirst { it.uri == updated.uri }
-        if (i >= 0) { all[i] = updated; songSaver = all; bumpSongsVersion() }
+        // 后台标签扫描回调会高频调用此方法；必须与 mountRemoteFolder / rebuildRemoteFolders
+        // 共用同一把锁，否则 songSaver 的读改写会与挂载/重建竞态。
+        synchronized(this) {
+            val all = songSaver.toMutableList()
+            val i = all.indexOfFirst { it.uri == updated.uri }
+            if (i >= 0) { all[i] = updated; songSaver = all; bumpSongsVersion() }
+        }
     }
 
     fun updateFolderSongs(serverId: String, folderPath: String, updatedSong: YosMediaItem) {
-        val normalizedPath = normalizePath(folderPath)
-        val rIdx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
-        if (rIdx >= 0) {
-            val songs = remoteFolders[rIdx].songs.toMutableList()
-            val sIdx = songs.indexOfFirst { it.uri == updatedSong.uri }
-            if (sIdx >= 0) {
-                songs[sIdx] = updatedSong
-                remoteFolders[rIdx] = remoteFolders[rIdx].copy(songs = songs)
-                folderListVersion++
+        synchronized(this) {
+            val normalizedPath = normalizePath(folderPath)
+            val rIdx = remoteFolders.indexOfFirst { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
+            if (rIdx >= 0) {
+                val songs = remoteFolders[rIdx].songs.toMutableList()
+                val sIdx = songs.indexOfFirst { it.uri == updatedSong.uri }
+                if (sIdx >= 0) {
+                    songs[sIdx] = updatedSong
+                    remoteFolders[rIdx] = remoteFolders[rIdx].copy(songs = songs)
+                    folderListVersion++
+                }
             }
         }
     }
@@ -537,51 +549,57 @@ object MusicLibrary {
     }
 
     fun unmountRemoteFolder(serverId: String, folderPath: String): Boolean {
-        val normalizedPath = normalizePath(folderPath)
-        val rf = remoteFolders.find { it.serverId == serverId && normalizePath(it.path) == normalizedPath } ?: run {
-            android.util.Log.w("RemoteResurrect", "unmount: folder NOT FOUND in remoteFolders! serverId=$serverId path=$folderPath norm=$normalizedPath")
-            android.util.Log.w("RemoteResurrect", "unmount: current remoteFolders=${remoteFolders.map { it.serverId to it.path }}")
-            return false
+        // remoteFolders 的读改写必须与 mount/rebuild/refresh 共用同一把锁，否则
+        // 卸载与刷新并发时会出现"卸载完又立即被后台扫描回调复活"等竞态。
+        synchronized(this) {
+            val normalizedPath = normalizePath(folderPath)
+            val rf = remoteFolders.find { it.serverId == serverId && normalizePath(it.path) == normalizedPath } ?: run {
+                android.util.Log.w("RemoteResurrect", "unmount: folder NOT FOUND in remoteFolders! serverId=$serverId path=$folderPath norm=$normalizedPath")
+                android.util.Log.w("RemoteResurrect", "unmount: current remoteFolders=${remoteFolders.map { it.serverId to it.path }}")
+                return false
+            }
+            val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
+            android.util.Log.w("RemoteResurrect", "unmount: removing serverId=$serverId path=$folderPath, urisToRemove=${urisToRemove.size}, songSaver size before=${songSaver.size}")
+            yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForUris(urisToRemove)
+            yos.music.player.data.remote.RemoteRetryManager.clearRetriesForUris(urisToRemove)
+            clearRemoteCachedArtifacts(urisToRemove)
+            remoteFolders.removeAll { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
+            removeLegacyRemoteFolderMirror(serverId, normalizedPath)
+            removeHiddenFolderPath(serverId, normalizedPath)
+            val beforeCount = songSaver.size
+            songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
+            android.util.Log.w("RemoteResurrect", "unmount: songSaver after=${songSaver.size} (removed ${beforeCount - songSaver.size}), remaining remote=${songSaver.count { it.serverId != null }}")
+            saveRemoteFoldersMeta()
+            android.util.Log.w("RemoteResurrect", "unmount: meta after save=${loadRemoteFoldersMeta().map { it.serverId to it.path }}")
+            folderListVersion++
+            bumpSongsVersion()
+            return true
         }
-        val urisToRemove = rf.songs.mapNotNull { it.uri?.toString() }
-        android.util.Log.w("RemoteResurrect", "unmount: removing serverId=$serverId path=$folderPath, urisToRemove=${urisToRemove.size}, songSaver size before=${songSaver.size}")
-        yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForUris(urisToRemove)
-        yos.music.player.data.remote.RemoteRetryManager.clearRetriesForUris(urisToRemove)
-        clearRemoteCachedArtifacts(urisToRemove)
-        remoteFolders.removeAll { it.serverId == serverId && normalizePath(it.path) == normalizedPath }
-        removeLegacyRemoteFolderMirror(serverId, normalizedPath)
-        removeHiddenFolderPath(serverId, normalizedPath)
-        val beforeCount = songSaver.size
-        songSaver = songSaver.filter { it.uri?.toString() !in urisToRemove }
-        android.util.Log.w("RemoteResurrect", "unmount: songSaver after=${songSaver.size} (removed ${beforeCount - songSaver.size}), remaining remote=${songSaver.count { it.serverId != null }}")
-        saveRemoteFoldersMeta()
-        android.util.Log.w("RemoteResurrect", "unmount: meta after save=${loadRemoteFoldersMeta().map { it.serverId to it.path }}")
-        folderListVersion++
-        bumpSongsVersion()
-        return true
     }
 
     fun unmountRemoteServer(serverId: String): Int {
-        val foldersToRemove = remoteFolders.filter { it.serverId == serverId }
-        val urisToRemove = songSaver
-            .filter { it.serverId == serverId }
-            .mapNotNull { it.uri?.toString() }
-            .toSet()
-        if (foldersToRemove.isEmpty() && urisToRemove.isEmpty()) return 0
+        synchronized(this) {
+            val foldersToRemove = remoteFolders.filter { it.serverId == serverId }
+            val urisToRemove = songSaver
+                .filter { it.serverId == serverId }
+                .mapNotNull { it.uri?.toString() }
+                .toSet()
+            if (foldersToRemove.isEmpty() && urisToRemove.isEmpty()) return 0
 
-        yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForServer(serverId)
-        yos.music.player.data.remote.RemoteRetryManager.clearRetriesForServer(serverId)
-        clearRemoteCachedArtifacts(urisToRemove)
-        remoteFolders.removeAll { it.serverId == serverId }
-        foldersToRemove.forEach { removeHiddenFolderPath(serverId, normalizePath(it.path)) }
-        folders = folders.filterNot { folder ->
-            folder.songs.any { it.serverId == serverId || it.uri?.toString() in urisToRemove }
+            yos.music.player.data.remote.RemoteMetadataScanner.cancelScanForServer(serverId)
+            yos.music.player.data.remote.RemoteRetryManager.clearRetriesForServer(serverId)
+            clearRemoteCachedArtifacts(urisToRemove)
+            remoteFolders.removeAll { it.serverId == serverId }
+            foldersToRemove.forEach { removeHiddenFolderPath(serverId, normalizePath(it.path)) }
+            folders = folders.filterNot { folder ->
+                folder.songs.any { it.serverId == serverId || it.uri?.toString() in urisToRemove }
+            }
+            songSaver = songSaver.filter { it.serverId != serverId && it.uri?.toString() !in urisToRemove }
+            saveRemoteFoldersMeta()
+            folderListVersion++
+            bumpSongsVersion()
+            return foldersToRemove.size
         }
-        songSaver = songSaver.filter { it.serverId != serverId && it.uri?.toString() !in urisToRemove }
-        saveRemoteFoldersMeta()
-        folderListVersion++
-        bumpSongsVersion()
-        return foldersToRemove.size
     }
 
     private fun clearRemoteCachedArtifacts(resourceKeys: Collection<String>) {
@@ -814,7 +832,7 @@ object MusicLibrary {
 
             runCatching {
                 yos.music.player.data.remote.RemoteServerManager.connect(serverId)
-                val remoteFiles = yos.music.player.data.remote.RemoteServerManager.listAudioFiles(serverId, path)
+                val remoteFiles = yos.music.player.data.remote.RemoteServerManager.listAudioFilesOrThrow(serverId, path)
                 val currentUris = folder.songs.mapNotNull { it.uri?.toString() }.toSet()
                 val remoteUris = remoteFiles.map { it.toWebDavUri(serverId) }.toSet()
 
@@ -879,6 +897,10 @@ object MusicLibrary {
     /** 将 RemoteFile 转为 webdav URI 字符串 */
     private fun yos.music.player.data.remote.RemoteFile.toWebDavUri(serverId: String): String {
         return "webdav://$serverId/${path.trimStart('/')}"
+    }
+
+    fun findSongByUri(uri: String): YosMediaItem? = synchronized(this) {
+        songSaver.firstOrNull { it.uri?.toString() == uri }
     }
 }
 

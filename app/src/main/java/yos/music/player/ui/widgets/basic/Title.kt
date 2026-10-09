@@ -457,15 +457,13 @@ private fun TitleBar(
             .statusBarsHeight(54.dp)
             .clickable(enabled = false, onClick = {})
     ) {
-        AnimatedVisibility(
-            visible = showSmallTitle.value,
-            modifier = Modifier.fillMaxWidth(),
-            enter = fadeIn(animationSpec = tween(120)),
-            exit = fadeOut(animationSpec = tween(120))
-        ) {
+        // Occlusion must be present in the first scrolled frame. Only the title
+        // content animates; fading this surface exposes moving list rows.
+        if (showSmallTitle.value) {
             Spacer(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(Color.White withNight Color.Black)
                     .then(
                         if (SettingsLibrary.BarBlurEffect)
                             Modifier.hazeChild(

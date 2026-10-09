@@ -181,6 +181,19 @@ class MainActivity : androidx.activity.ComponentActivity() {
         enableEdgeToEdge()
         enableHighRefreshRate()
         setContent {
+            // ARR frame-rate votes belong to the actual drawing View; setting
+            // only the Window preference does not set the Compose View's vote.
+            val drawingView = androidx.compose.ui.platform.LocalView.current
+            DisposableEffect(drawingView) {
+                val previousRate = if (Build.VERSION.SDK_INT >= 35) drawingView.requestedFrameRate else 0f
+                if (Build.VERSION.SDK_INT >= 35) {
+                    drawingView.requestedFrameRate = drawingView.display?.supportedModes
+                        ?.maxOfOrNull { it.refreshRate } ?: android.view.View.REQUESTED_FRAME_RATE_CATEGORY_HIGH
+                }
+                onDispose {
+                    if (Build.VERSION.SDK_INT >= 35) drawingView.requestedFrameRate = previousRate
+                }
+            }
             YosMusicTheme {
                 ProvideWindowInsets {
                     val context = LocalContext.current
@@ -873,7 +886,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 ) {
                                                                     YosWrapper {
                                                                         ShadowImageWithCache(
-                                                                            dataLambda = { MediaViewModelObject.bitmap.value },
+                                                                                dataLambda = { MediaViewModelObject.nowPlayingBackground.value.artworkUri },
                                                                             contentDescription = null,
                                                                             modifier = Modifier
                                                                                 .size(rememberAdaptive(47)),

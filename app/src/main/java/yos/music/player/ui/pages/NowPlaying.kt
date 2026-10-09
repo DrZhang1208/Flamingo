@@ -18,6 +18,7 @@ import android.widget.Toast
 import android.media.MediaRouter2
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.draw.shadow
 import androidx.compose.animation.AnimatedContent
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.BitmapDrawable
@@ -31,7 +32,6 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.EaseOutQuart
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -60,10 +60,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,6 +78,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -101,8 +104,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ProgressIndicatorDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderPositions
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -121,6 +122,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -129,6 +131,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -186,6 +189,7 @@ import yos.music.player.code.YosPlaybackService
 import yos.music.player.code.utils.lrc.YosMediaEvent
 import yos.music.player.code.utils.lrc.YosLyricLine
 import yos.music.player.code.utils.lrc.YosUIConfig
+import yos.music.player.code.utils.lrc.LyricCardExporter
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.code.utils.player.FadeExo.fadePause
 import yos.music.player.code.utils.player.FadeExo.fadePlay
@@ -208,12 +212,16 @@ import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.models.MainViewModel
 import yos.music.player.data.models.MediaViewModel
 import yos.music.player.data.objects.MediaViewModelObject
+import yos.music.player.data.objects.NowPlayingBackgroundState
+import yos.music.player.data.objects.NowPlayingLyricState
 import yos.music.player.ui.pages.NowPlayingPage.Album
 import yos.music.player.ui.pages.NowPlayingPage.Lyric
 import yos.music.player.ui.pages.NowPlayingPage.PlayingList
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.widgets.YosLyricView
+import yos.music.player.ui.widgets.rememberArtworkPauseProgress
+import yos.music.player.ui.widgets.artworkSharedFrame
 import yos.music.player.ui.widgets.effects.YosFloatingLight
 import yos.music.player.ui.widgets.audio.MusicQualityIndicator
 import yos.music.player.ui.widgets.basic.ImageQuality
@@ -222,7 +230,10 @@ import yos.music.player.ui.UI
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.YosWrapper
 import yos.music.player.ui.widgets.effects.ShadowType
+import yos.music.player.ui.widgets.effects.dropShadow
 import yos.music.player.ui.widgets.effects.overlayEffect
+import yos.music.player.logic.mss.VocalSeparationController
+import yos.music.player.logic.mss.VocalSeparationStatus
 
 
 @Stable
@@ -276,17 +287,23 @@ fun NowPlaying(
     ) {
         val context = LocalContext.current
 
-        val lrcEntries: MutableState<List<YosLyricLine>> =
-            MediaViewModelObject.lrcEntries
-        val bitmap: MutableState<Uri?> = MediaViewModelObject.bitmap
+        val lyricState: MutableState<NowPlayingLyricState> =
+            MediaViewModelObject.nowPlayingLyrics
+        val backgroundState: MutableState<NowPlayingBackgroundState> =
+            MediaViewModelObject.nowPlayingBackground
 
         val lastClickTime = rememberSaveable(key = "NowPlaying_lastClickTime") {
             mutableLongStateOf(0L)
         }
 
         val showArtistPickerFromAlbum = remember { mutableStateOf(false) }
+        val showLyricShare = remember { mutableStateOf(false) }
+        val lyricShareInitialIndex = remember { mutableIntStateOf(0) }
         val showControl = rememberSaveable(key = "NowPlaying_showControl") {
             mutableStateOf(true)
+        }
+        val lyricContentReady = rememberSaveable(key = "NowPlaying_lyricContentReady") {
+            mutableStateOf(!showMiniPlayer())
         }
         
         // 监听 shouldShowWarning 状态变化(定时关闭警告)
@@ -333,6 +350,21 @@ fun NowPlaying(
             }
         }
 
+        YosWrapper {
+            LaunchedEffect(showMiniPlayer(), nowPageLambda()) {
+                if (nowPageLambda() == Lyric) {
+                    lyricContentReady.value = true
+                    return@LaunchedEffect
+                }
+                if (!showMiniPlayer() && !lyricContentReady.value) {
+                    delay(AnimDurationMillis.toLong() + 120L)
+                    if (!showMiniPlayer()) {
+                        lyricContentReady.value = true
+                    }
+                }
+            }
+        }
+
 
         // 背景流光
         YosWrapper {
@@ -343,7 +375,7 @@ fun NowPlaying(
     )*/
 
             YosFloatingLight(
-                album = { bitmap.value },
+                  backgroundState = { backgroundState.value },
                 isPlaying = isPlayingStatusLambda,
                 modifier = Modifier.fillMaxSize(),
                 nowPage = { nowPageLambda() },
@@ -368,19 +400,31 @@ fun NowPlaying(
             derivedStateOf { buttonEnabled.value && alpha.value != 0f }
         }*/
 
-            val scope = rememberCoroutineScope()
+            val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
+            // Snapshot actual cover bounds at a page transition. Playback motion
+            // between transitions remains layer-only; shared bounds now include
+            // the paused size instead of snapping to it after the overlay ends.
+            val artworkLayoutProgress = remember(nowPageLambda()) { artworkPauseProgress.value }
+            // This key identifies the artwork position across pages, not the song.
+            // Changing songs mid-transition must not destroy the shared animation.
+            val sharedAlbumKey = ShareAlbumKey
+
+            fun requestNowPage(targetPage: String) {
+                if (nowPageLambda() != targetPage) nowPageOnChanged(targetPage)
+            }
 
             val alphaAnim = remember { Animatable(0f) }
 
             YosWrapper {
                 LaunchedEffect(nowPageLambda()) {
                     val targetAlpha = if (nowPageLambda() == Lyric) 1f else 0f
-                    scope.launch {
-                        alphaAnim.animateTo(targetAlpha)
-                    }
+                    alphaAnim.animateTo(targetAlpha)
                 }
             }
 
+            val lyricRenderActive = remember {
+                derivedStateOf { nowPageLambda() == Lyric || alphaAnim.value > 0f }
+            }
             val translationButtonEnabled = remember("NowPlaying_translationButtonEnabled") {
                 derivedStateOf { showControl.value && alphaAnim.value != 0f }
             }
@@ -400,12 +444,18 @@ fun NowPlaying(
                 ) {
 
                     Lyric(
-                        lrcEntries = { lrcEntries.value },
+                          lyricState = { lyricState.value },
                         weightLambda = { showControl.value },
                         controlsHeightPxLambda = { controlsHeightPx.intValue },
-                        translationLambda = { true },
+                        translationLambda = { SettingsLibrary.NowPlayingTranslation },
+                          shouldRenderContent = lyricContentReady.value || nowPageLambda() == Lyric,
                         showMiniPlayer = showMiniPlayer,
                         userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric,
+                        renderActive = lyricRenderActive.value,
+                        onLineLongPress = { index ->
+                            lyricShareInitialIndex.intValue = index
+                            showLyricShare.value = true
+                        },
                         onBackClick = {
                             showControl.value = true
                             lastClickTime.longValue =
@@ -468,13 +518,13 @@ fun NowPlaying(
                                             Album(
                                                 modifier = Modifier.sharedElementWithCallerManagedVisibility(
                                                     sharedContentState = rememberSharedContentState(
-                                                        key = ShareAlbumKey
+                                                          key = sharedAlbumKey
                                                     ),
                                                     visible = isVisible
                                                 ),
                                                 albumUrl = { thisMusicPlaying.value?.thumb },
-                                                isPlaying = isPlayingStatusLambda,
-                                                isVisible = { isVisible }
+                                                pauseProgress = { artworkPauseProgress.value },
+                                                layoutProgress = artworkLayoutProgress
                                             )
                                             AnimatedContent(
                                                 targetState = thisMusicPlaying.value,
@@ -565,7 +615,7 @@ fun NowPlaying(
                                         PlayingBar(
                                             modifier = Modifier.sharedElementWithCallerManagedVisibility(
                                                 sharedContentState = rememberSharedContentState(
-                                                    key = ShareAlbumKey
+                                                      key = sharedAlbumKey
                                                 ),
                                                 visible = isVisible
                                             ),
@@ -573,7 +623,7 @@ fun NowPlaying(
                                                 thisMusicPlaying.value?.thumb
                                             },
                                             musicPlayingLambda = { thisMusicPlaying.value }) {
-                                            nowPageOnChanged(Album)
+                                              requestNowPage(Album)
                                         }
                                     }
                                 }
@@ -589,7 +639,7 @@ fun NowPlaying(
                                         PlayingBar(
                                             modifier = Modifier.sharedElementWithCallerManagedVisibility(
                                                 sharedContentState = rememberSharedContentState(
-                                                    key = ShareAlbumKey
+                                                      key = sharedAlbumKey
                                                 ),
                                                 visible = isVisible
                                             ),
@@ -597,7 +647,7 @@ fun NowPlaying(
                                                 thisMusicPlaying.value?.thumb
                                             },
                                             musicPlayingLambda = { thisMusicPlaying.value }) {
-                                            nowPageOnChanged(Album)
+                                              requestNowPage(Album)
                                         }
                                         YosWrapper {
                                             PlayingList(
@@ -632,7 +682,7 @@ fun NowPlaying(
                             /*.fillMaxHeight(0.385f)*/
                             .fillMaxHeight(0.437f)
                             .fillMaxWidth()
-                    ) {
+                    ) playerOverlayBox@ {
 
                         YosWrapper {
                             if (showControl.value) {
@@ -690,18 +740,10 @@ fun NowPlaying(
                                             mediaControl?.seekTo(position.toLong())
                                         },
                                         onLyrics = {
-                                            if (nowPageLambda() == Lyric) {
-                                                nowPageOnChanged(Album)
-                                            } else {
-                                                nowPageOnChanged(Lyric)
-                                            }
+                                              requestNowPage(if (nowPageLambda() == Lyric) Album else Lyric)
                                         },
                                         onPlaylist = {
-                                            if (nowPageLambda() == PlayingList) {
-                                                nowPageOnChanged(Album)
-                                            } else {
-                                                nowPageOnChanged(PlayingList)
-                                            }
+                                              requestNowPage(if (nowPageLambda() == PlayingList) Album else PlayingList)
                                         },
                                         nowPage = {
                                             nowPageLambda()
@@ -726,6 +768,27 @@ fun NowPlaying(
                                         })
                                 }
                             }
+                        }
+
+                        // The APK places MSS as a sibling overlay of the whole
+                        // control panel. Its expansion therefore grows upward
+                        // without participating in PlayerControl measurement.
+                        if (showControl.value && nowPageLambda() == Lyric) {
+                            val vocalBottomOffset =
+                                if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
+                            VocalSeparationControl(
+                                context = context,
+                                onSlider = {
+                                    showControl.value = true
+                                    lastClickTime.longValue = TimeUtils.getNowMills()
+                                },
+                                modifier = with(this@playerOverlayBox) {
+                                    Modifier.align(Alignment.BottomEnd)
+                                }.offset(
+                                    x = -rememberAdaptive(25),
+                                    y = -vocalBottomOffset
+                                )
+                            )
                         }
                     }
                 }
@@ -774,6 +837,15 @@ fun NowPlaying(
             )
         }
 
+        if (showLyricShare.value) {
+            LyricShareSheet(
+                entries = lyricState.value.entries,
+                initialIndex = lyricShareInitialIndex.intValue,
+                music = thisMusicPlaying.value,
+                onDismiss = { showLyricShare.value = false }
+            )
+        }
+
     }
 }
 
@@ -781,9 +853,8 @@ fun NowPlaying(
 private fun ColumnScope.Album(
     modifier: Modifier,
     albumUrl: () -> Uri?,
-    isPlaying: () -> Boolean,
-    isSwitching: () -> Boolean = { false },
-    isVisible: () -> Boolean = { true }
+    pauseProgress: () -> Float,
+    layoutProgress: Float
 ) = Box(
     Modifier
         .weight(1f)
@@ -792,72 +863,36 @@ private fun ColumnScope.Album(
         .padding(bottom = 33.dp),
     contentAlignment = Alignment.BottomCenter
 ) {
-    val springSpec: AnimationSpec<Float> = remember("Album_springSpec") {
-        SpringSpec(stiffness = 300f, dampingRatio = 1f, visibilityThreshold = 0.001f)
-    }
-    val tweenSpec: AnimationSpec<Float> = remember("Album_tweenSpec") {
-        TweenSpec(durationMillis = 420, easing = EaseOutQuart)
-    }
-    val targetScale = if (isSwitching()) null else if (isPlaying()) 0f else 1f
-    val scale = remember("Album_scale") { Animatable(targetScale ?: 0f) }
-
-    LaunchedEffect(targetScale) {
-        targetScale?.let {
-            scale.animateTo(it, animationSpec = if (it == 0f) springSpec else tweenSpec)
-        }
-    }
-
     val albumShape = YosRoundedCornerShape(8)
-    val currentUrl = remember { mutableStateOf(albumUrl()) }
-
-    LaunchedEffect(albumUrl()) {
-        val newUrl = albumUrl() ?: return@LaunchedEffect
-        if (newUrl != currentUrl.value) {
-            currentUrl.value = newUrl
-        }
-    }
 
     YosWrapper {
-        val dp = (7 + (37 * scale.value)).dp
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(start = dp, end = dp, bottom = dp)
-                .then(modifier)
-                .drawBehind {
-                    val blur = size.width * 0.1f
-                    val cr = size.minDimension * 0.04f
-                    val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
-                    val p = android.graphics.Path().apply { addRoundRect(rect, cr, cr, android.graphics.Path.Direction.CW) }
-                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.argb((0.36f * 255).toInt(), 0, 0, 0)
-                        maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
-                    }
-                    drawContext.canvas.nativeCanvas.drawPath(p, paint)
-                }
+                .artworkSharedFrame(modifier, pauseProgress, layoutProgress)
+                .shadow(
+                    elevation = 24.dp, shape = albumShape, clip = false,
+                    ambientColor = Color.Black.copy(alpha = 0.36f),
+                    spotColor = Color.Black.copy(alpha = 0.36f)
+                )
         ) {
-            // 使用 AnimatedContent 实现封面交叉渐变
-            AnimatedContent(
-                targetState = currentUrl.value,
-                transitionSpec = {
-                    // 新图片淡入,旧图片淡出,同时进行
-                    fadeIn(animationSpec = tween(600)) togetherWith 
-                    fadeOut(animationSpec = tween(600))
-                },
+            Crossfade(
+                targetState = albumUrl(),
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                animationSpec = tween(250),
                 label = "AlbumCoverCrossfade"
             ) { url ->
-                url?.let {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current).data(it).crossfade(false).build(),
-                        contentDescription = null, 
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
-                    )
-                } ?: AsyncImage(
-                    model = R.drawable.placeholder_music_default_artwork,
+                val context = LocalContext.current
+                val request = remember(context, url) {
+                    ImageRequest.Builder(context)
+                        .data(url ?: R.drawable.placeholder_music_default_artwork)
+                        .crossfade(false).build()
+                }
+                AsyncImage(
+                    model = request,
                     contentDescription = null, 
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
+                    modifier = Modifier.fillMaxSize().clip(albumShape)
                 )
             }
         }
@@ -1206,14 +1241,17 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, navController:
 
 @Composable
 private fun Lyric(
-    lrcEntries: () -> List<YosLyricLine>,
+    lyricState: () -> NowPlayingLyricState,
     weightLambda: () -> Boolean,
     controlsHeightPxLambda: () -> Int,
     translationLambda: () -> Boolean,
+    shouldRenderContent: Boolean,
     mainViewModel: MainViewModel,
     mediaViewModel: MediaViewModel,
     showMiniPlayer: () -> Boolean,
     userScrollEnabled: Boolean = true,
+    renderActive: Boolean = true,
+    onLineLongPress: (Int) -> Unit,
     onBackClick: () -> Unit
 ) = YosWrapper {
 
@@ -1232,85 +1270,216 @@ private fun Lyric(
 
             Spacer(modifier = Modifier.statusBarsHeight(110.dp))
 
-            // 冷启动时不渲染歌词控件，等用户展开播放页面后再渲染，避免主线程卡死
-            val hasEverExpanded = remember { mutableStateOf(!showMiniPlayer()) }
-            if (!showMiniPlayer()) hasEverExpanded.value = true
+              // 歌词控件较重，首次打开播放页时延后到展开动画结束后再初始化；
+              // 若用户直接切到歌词页，则立即渲染，避免和页面展开动画争主线程。
+              if (shouldRenderContent) {
+                  YosLyricView(
+                      //mediaViewModel = mediaViewModel,
+                      lyricStateLambda = lyricState,
+                      liveTimeLambda = {
+                          (mediaControl?.currentPosition ?: 0).toInt()
+                      },
+                      userScrollEnabled = userScrollEnabled,
+                      renderActive = renderActive,
+                      mediaEvent = object : YosMediaEvent {
+                          override fun onSeek(position: Int) {
+                              mediaControl?.seekTo(position.toLong())
+                          }
+                      },
+                      translationLambda = translationLambda,
+                      blurLambda = {
+                          SettingsLibrary.LyricBlurEffect
+                      },
+                      uiConfig = YosUIConfig(
+                          noLrcText = stringResource(id = R.string.tip_no_lyrics),
+                          mainTextSize = SettingsLibrary.LyricFontSize,
+                          subTextSize = SettingsLibrary.TranslationFontSize
+                      ),
+                      weightLambda = weightLambda,
+                      modifier = Modifier.drawWithCache {
+                              val overlayPaint = Paint().apply {
+                                  blendMode = BlendMode.Plus
+                              }
+                              val rect = Rect(0f, 0f, size.width, size.height)
+                              val p = controlsProgress.value.coerceIn(0f, 1f)
+                              val fallbackMaskHeightPx = size.height * 0.38f
+                              val measuredMaskHeightPx = controlsHeightPxLambda().toFloat()
+                              val maskHeightPx = ((if (measuredMaskHeightPx > 0f) measuredMaskHeightPx else fallbackMaskHeightPx) * p)
+                                  .coerceIn(0f, size.height)
+                              val extraPx = 80.dp.toPx()
+                              val fadePx = 70.dp.toPx()
 
-            if (hasEverExpanded.value) {
-            YosLyricView(
-                //mediaViewModel = mediaViewModel,
-                lrcEntriesLambda = lrcEntries,
-                liveTimeLambda = {
-                    (mediaControl?.currentPosition ?: 0).toInt()
-                },
-                userScrollEnabled = userScrollEnabled,
-                mediaEvent = object : YosMediaEvent {
-                    override fun onSeek(position: Int) {
-                        mediaControl?.seekTo(position.toLong())
-                    }
-                },
-                translationLambda = translationLambda,
-                blurLambda = {
-                    SettingsLibrary.LyricBlurEffect
-                },
-                uiConfig = YosUIConfig(
-                    noLrcText = stringResource(id = R.string.tip_no_lyrics),
-                    mainTextSize = SettingsLibrary.LyricFontSize,
-                    subTextSize = SettingsLibrary.TranslationFontSize
-                ),
-                weightLambda = weightLambda,
-                modifier = Modifier.drawWithCache {
-                    onDrawWithContent {
-                        val overlayPaint = Paint().apply {
-                            blendMode = BlendMode.Plus
-                        }
-                        val rect = Rect(0f, 0f, size.width, size.height)
-                        val canvas = this.drawContext.canvas
+                              val cutStart = (1f - ((maskHeightPx + extraPx) / size.height)).coerceIn(0f, 1f)
+                              val fadeLen = (fadePx / size.height).coerceIn(0.001f, 0.15f)
+                              val cutFadeEnd = (cutStart + fadeLen).coerceIn(cutStart, 1f)
 
-                        canvas.saveLayer(rect, overlayPaint)
+                              val colors = if (p == 0f) {
+                                  arrayOf(
+                                      0f to Color.Transparent,
+                                      0.025f to Color(0x59000000),
+                                      0.05f to Color.Black,
+                                      1f to Color.Black
+                                  )
+                              } else {
+                                  arrayOf(
+                                      0f to Color.Transparent,
+                                      0.025f to Color(0x59000000),
+                                      0.05f to Color.Black,
+                                      cutStart to Color.Black,
+                                      cutFadeEnd to Color.Transparent,
+                                      1f to Color.Transparent
+                                  )
+                              }
 
-                        val p = controlsProgress.value.coerceIn(0f, 1f)
-                        val fallbackMaskHeightPx = size.height * 0.38f
-                        val measuredMaskHeightPx = controlsHeightPxLambda().toFloat()
-                        val maskHeightPx = ((if (measuredMaskHeightPx > 0f) measuredMaskHeightPx else fallbackMaskHeightPx) * p)
-                            .coerceIn(0f, size.height)
-                        val extraPx = 80.dp.toPx()
-                        val fadePx = 70.dp.toPx()
+                              val maskBrush = Brush.verticalGradient(colorStops = colors)
+                          onDrawWithContent {
+                              val canvas = this.drawContext.canvas
+                              canvas.saveLayer(rect, overlayPaint)
+                              drawContent()
 
-                        val cutStart = (1f - ((maskHeightPx + extraPx) / size.height)).coerceIn(0f, 1f)
-                        val fadeLen = (fadePx / size.height).coerceIn(0.001f, 0.15f)
-                        val cutFadeEnd = (cutStart + fadeLen).coerceIn(cutStart, 1f)
+                              drawRect(
+                                  brush = maskBrush,
+                                  blendMode = BlendMode.DstIn
+                              )
 
-                        val colors = if (p == 0f) {
-                            arrayOf(
-                                0f to Color.Transparent,
-                                0.025f to Color(0x59000000),
-                                0.05f to Color.Black,
-                                1f to Color.Black
-                            )
-                        } else {
-                            arrayOf(
-                                0f to Color.Transparent,
-                                0.025f to Color(0x59000000),
-                                0.05f to Color.Black,
-                                cutStart to Color.Black,
-                                cutFadeEnd to Color.Transparent,
-                                1f to Color.Transparent
-                            )
-                        }
+                              canvas.restore()
+                          }
+                      },
+                      onLineLongPress = onLineLongPress,
+                      onBackClick = onBackClick
+                  )
+              } else {
+                  Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
 
-                        drawContent()
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LyricShareSheet(
+    entries: List<YosLyricLine>,
+    initialIndex: Int,
+    music: YosMediaItem?,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val shareEntries = remember(entries) { entries.filter { it.text.isNotBlank() && !it.isCountdown } }
+    val initialTime = entries.getOrNull(initialIndex)?.startMs
+    val initialShareIndex = remember(shareEntries, initialTime) {
+        shareEntries.indexOfFirst { it.startMs == initialTime }
+            .takeIf { it >= 0 }
+            ?: shareEntries.indices.firstOrNull()
+            ?: -1
+    }
+    val selected = remember(shareEntries, initialShareIndex) {
+        mutableStateOf(if (initialShareIndex >= 0) setOf(initialShareIndex) else emptySet())
+    }
+    val selectedLines = selected.value.sorted().mapNotNull(shareEntries::getOrNull)
+    val saveSuccess = stringResource(R.string.tip_lyric_share_save_success)
+    val saveFailed = stringResource(R.string.tip_lyric_share_save_fail)
+    val shareFailed = stringResource(R.string.tip_lyric_share_to_fail_desc)
+    val working = remember { mutableStateOf(false) }
 
-                        drawRect(
-                            brush = Brush.verticalGradient(colorStops = colors),
-                            blendMode = BlendMode.DstIn
-                        )
+    suspend fun renderCard() = withContext(Dispatchers.IO) {
+        LyricCardExporter.render(
+            context = context,
+            lines = selectedLines,
+            title = music?.title,
+            artist = music?.artists,
+            artworkUri = music?.thumb,
+            includeTranslation = SettingsLibrary.NowPlayingTranslation
+        )
+    }
 
-                        canvas.restore()
-                    }
-                },
-                onBackClick = onBackClick
+    fun share() {
+        if (selectedLines.isEmpty() || working.value) return
+        scope.launch {
+            working.value = true
+            runCatching {
+                val bitmap = renderCard()
+                val intent = withContext(Dispatchers.IO) { LyricCardExporter.createShareIntent(context, bitmap) }
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.lyric_share_to)))
+            }.onFailure { Toast.makeText(context, shareFailed, Toast.LENGTH_SHORT).show() }
+            working.value = false
+        }
+    }
+
+    fun save() {
+        if (selectedLines.isEmpty() || working.value) return
+        scope.launch {
+            working.value = true
+            runCatching {
+                val bitmap = renderCard()
+                withContext(Dispatchers.IO) { LyricCardExporter.saveToPictures(context, bitmap) }
+            }.onSuccess {
+                Toast.makeText(context, saveSuccess, Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, saveFailed, Toast.LENGTH_SHORT).show()
+            }
+            working.value = false
+        }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+            Text(
+                stringResource(R.string.lyric_share_title, selected.value.size),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
             )
+            Text(
+                stringResource(R.string.lyric_share_subtitle, selected.value.size),
+                modifier = Modifier.alpha(0.55f).padding(top = 4.dp, bottom = 12.dp)
+            )
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 430.dp)) {
+                itemsIndexed(shareEntries) { index, line ->
+                    val checked = index in selected.value
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .clip(YosRoundedCornerShape(12.dp))
+                            .background(
+                                if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
+                            )
+                            .clickable {
+                                selected.value = if (checked) {
+                                    selected.value - index
+                                } else if (selected.value.size < 14) {
+                                    selected.value + index
+                                } else selected.value
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp)
+                    ) {
+                        Text(line.text, fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal)
+                        if (SettingsLibrary.NowPlayingTranslation && line.translation.isNotBlank()) {
+                            Text(line.translation, fontSize = 13.sp, modifier = Modifier.alpha(0.55f).padding(top = 3.dp))
+                        }
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.weight(1f).clickable(enabled = selected.value.isNotEmpty() && !working.value, onClick = ::save),
+                    shape = YosRoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                ) {
+                    Text(stringResource(R.string.lyric_share_save), Modifier.padding(15.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                Surface(
+                    modifier = Modifier.weight(1f).clickable(enabled = selected.value.isNotEmpty() && !working.value, onClick = ::share),
+                    shape = YosRoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primary
+                ) {
+                    Text(stringResource(R.string.lyric_share_to), Modifier.padding(15.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
             }
         }
     }
@@ -1596,17 +1765,11 @@ private fun PlayingBar(
             val smallShape = YosRoundedCornerShape(8)
             Box(
                 modifier = modifier.size(69.dp)
-                    .drawBehind {
-                        val blur = size.width * 0.1f
-                        val cr = size.minDimension * 0.04f
-                        val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
-                        val p = android.graphics.Path().apply { addRoundRect(rect, cr, cr, android.graphics.Path.Direction.CW) }
-                        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                            color = android.graphics.Color.argb((0.36f * 255).toInt(), 0, 0, 0)
-                            maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
-                        }
-                        drawContext.canvas.nativeCanvas.drawPath(p, paint)
-                    }
+                      .dropShadow(
+                          shape = smallShape,
+                          shadowAlpha = 0.36f,
+                          shadowType = ShadowType.Small
+                      )
                     .clip(smallShape)
                     .clickable(MutableInteractionSource(), null) { onAlbumClick() }
             ) {
@@ -1818,15 +1981,17 @@ private fun PlayerControl(
     }
 
     YosWrapper {
-        Column(
+        Box(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = rememberAdaptive(25))
-                .padding(bottom = 15.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(bottom = 15.dp)
         ) {
-
-            YosWrapper {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                YosWrapper {
                 // 启动作用
                 YosWrapper {
                     val lifecycleState =
@@ -1918,7 +2083,7 @@ private fun PlayerControl(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(trackHeight.value)
-                                .clip(YosRoundedCornerShape(100))
+                                .clip(RoundedCornerShape(percent = 50))
                                 .background(Color.White.copy(alpha = 0.5f))
                         ) {
                             Box(
@@ -2015,31 +2180,10 @@ private fun PlayerControl(
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                AnimatedContent(targetState = isPlayingLambda(), transitionSpec = {
-                                    (scaleIn(initialScale = 0.3f) + fadeIn()).togetherWith(
-                                        scaleOut(
-                                            targetScale = 0.3f
-                                        ) + fadeOut()
-                                    )
-                                }) {
-                                    if (it) {
-                                        Icon(
-                                            painterResource(id = R.drawable.ic_nowplaying_pause),
-                                            contentDescription = "Pause",
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(10.dp)
-                                        )
-                                    } else {
-                                        Icon(
-                                            painterResource(id = R.drawable.ic_nowplaying_play),
-                                            contentDescription = "Play",
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(9.dp)
-                                        )
-                                    }
-                                }
+                                yos.music.player.ui.widgets.PlaybackTransportIcon(
+                                    playing = isPlayingLambda(),
+                                    buffering = MediaViewModelObject.isBuffering.value
+                                )
                             }
                             Spacer(modifier = Modifier.width(rememberAdaptive(43)))
                             Box(
@@ -2065,107 +2209,245 @@ private fun PlayerControl(
                         }
                     }
                 }
-            }
 
-            // 音量调节
-            YosWrapper {
-                if (SettingsLibrary.NowPlayingShowVolumeBar) {
-                    VolumeSlider(context = context, onSlider)
+                // 音量调节
+                YosWrapper {
+                    if (SettingsLibrary.NowPlayingShowVolumeBar) {
+                        VolumeSlider(context = context, onSlider)
+                    }
                 }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // 底部 歌词&播放列表
-            YosWrapper {
-                //println("重组：控制区域内部 - 底部栏")
-                Row(
-                    modifier = Modifier
-                        .overlayEffect()
-                        .fillMaxWidth()
-                        .alpha(0.4f),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    val dp = 32.dp
-                    Box(
+                // 底部 歌词&播放列表
+                YosWrapper {
+                    //println("重组：控制区域内部 - 底部栏")
+                    Row(
                         modifier = Modifier
-                            .height(36.dp)
-                            .weight(1f)
-                            .clickable(
-                                onClick = { onLyrics() },
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }),
-                        contentAlignment = Alignment.Center
+                            .overlayEffect()
+                            .fillMaxWidth()
+                            .alpha(0.4f),
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        AnimatedContent(
-                            targetState = nowPage() == Lyric,
-                            transitionSpec = {
-                                fadeIn() togetherWith fadeOut()
-                            }) {
-                            if (it) {
-                                Icon(
-                                    painterResource(id = R.drawable.ic_nowplaying_lyricson),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(dp)
-                                )
-                            } else {
-                                Icon(
-                                    painterResource(id = R.drawable.ic_nowplaying_lyrics),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(dp)
-                                )
+                        val dp = 32.dp
+                        Box(
+                            modifier = Modifier
+                                .height(36.dp)
+                                .weight(1f)
+                                .clickable(
+                                    onClick = { onLyrics() },
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AnimatedContent(
+                                targetState = nowPage() == Lyric,
+                                transitionSpec = {
+                                    fadeIn() togetherWith fadeOut()
+                                }) {
+                                if (it) {
+                                    Icon(
+                                        painterResource(id = R.drawable.ic_nowplaying_lyricson),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        painterResource(id = R.drawable.ic_nowplaying_lyrics),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.weight(0.1f))
+
+                        AirPlay()
+
+                        Spacer(modifier = Modifier.weight(0.1f))
+
+                        Box(
+                            modifier = Modifier
+                                .height(36.dp)
+                                .weight(1f)
+                                .clickable(
+                                    onClick = { onPlaylist() },
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AnimatedContent(
+                                targetState = nowPage() == PlayingList,
+                                transitionSpec = {
+                                    fadeIn() togetherWith fadeOut()
+                                }) {
+                                if (it) {
+                                    Icon(
+                                        painterResource(id = R.drawable.ic_nowplaying_queueon),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        painterResource(id = R.drawable.ic_nowplaying_queue),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(dp)
+                                    )
+                                }
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.weight(0.1f))
-
-                    AirPlay()
-
-                    Spacer(modifier = Modifier.weight(0.1f))
-
-                    Box(
-                        modifier = Modifier
-                            .height(36.dp)
-                            .weight(1f)
-                            .clickable(
-                                onClick = { onPlaylist() },
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AnimatedContent(
-                            targetState = nowPage() == PlayingList,
-                            transitionSpec = {
-                                fadeIn() togetherWith fadeOut()
-                            }) {
-                            if (it) {
-                                Icon(
-                                    painterResource(id = R.drawable.ic_nowplaying_queueon),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(dp)
-                                )
-                            } else {
-                                Icon(
-                                    painterResource(id = R.drawable.ic_nowplaying_queue),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(dp)
-                                )
-                            }
-                        }
-                    }
                 }
+
+                // 边距填充
+                /*YosWrapper {
+                    Spacer(modifier = Modifier.navigationBarsHeight(5.dp))
+                }*/
+                // 为显示设备名称，迁移到 AirPlay 底部处理
             }
 
-            // 边距填充
-            /*YosWrapper {
-                Spacer(modifier = Modifier.navigationBarsHeight(5.dp))
-            }*/
-            // 为显示设备名称，迁移到 AirPlay 底部处理
         }
+    }
+}
+}
+
+@Composable
+private fun VocalSeparationControl(
+    context: Context,
+    onSlider: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val state by VocalSeparationController.state.collectAsState()
+    val failureText = stringResource(R.string.now_playing_mss_failed)
+    val unavailableText = stringResource(R.string.now_playing_mss_unavailable)
+
+    LaunchedEffect(state.status) {
+        if (state.status == VocalSeparationStatus.FAILED) {
+            Toast.makeText(context, failureText, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val density = LocalDensity.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val expansion = remember { Animatable(if (state.enabled) 1f else 0f) }
+    val liquidFraction = remember {
+        Animatable(if (state.enabled) state.selectedGain else 1f)
+    }
+    val liquidAlpha = remember { Animatable(if (state.enabled) 1f else 0f) }
+    val selectedGainState = rememberUpdatedState(state.selectedGain)
+
+    // H1 in the APK deliberately sequences these three values. Opening first
+    // grows the control and only then lowers the liquid; closing fills it,
+    // fades it out, and only then collapses the control.
+    LaunchedEffect(state.enabled) {
+        if (state.enabled) {
+            liquidFraction.snapTo(1f)
+            liquidAlpha.snapTo(1f)
+            expansion.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.72f, stiffness = 250f)
+            )
+            liquidFraction.animateTo(
+                targetValue = selectedGainState.value,
+                animationSpec = tween(durationMillis = 520)
+            )
+        } else {
+            liquidFraction.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 520)
+            )
+            liquidAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 240)
+            )
+            expansion.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(dampingRatio = 0.72f, stiffness = 250f)
+            )
+        }
+    }
+    LaunchedEffect(state.enabled, state.selectedGain) {
+        if (state.enabled && expansion.value >= 0.999f) {
+            liquidFraction.snapTo(state.selectedGain)
+        }
+    }
+    val controlScale by animateFloatAsState(
+        targetValue = if (pressed && !state.enabled) 1.35f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 200f),
+        label = "MssControlScale"
+    )
+    val controlElevation by animateDpAsState(
+        targetValue = if (pressed && !state.enabled) 24.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 220f),
+        label = "MssControlElevation"
+    )
+    val controlAlpha by animateFloatAsState(
+        targetValue = if (state.available) 1f else 0f,
+        animationSpec = spring(dampingRatio = 1f, stiffness = 405f),
+        label = "MssControlVisibility"
+    )
+    val adjustmentRangePx = with(density) { 50.dp.toPx() }
+
+    Box(
+        modifier = modifier
+            .width(27.dp)
+            .height((27f + 50f * expansion.value).dp)
+            .graphicsLayer {
+                scaleX = controlScale
+                scaleY = controlScale
+                alpha = controlAlpha
+            }
+            .shadow(controlElevation, RoundedCornerShape(7.dp), clip = false)
+            .clip(RoundedCornerShape(7.dp))
+            .background(Color.White.copy(alpha = 0.10f))
+            .pointerInput(state.available, state.enabled) {
+                if (!state.available || !state.enabled) return@pointerInput
+                var dragGain = selectedGainState.value
+                detectVerticalDragGestures(
+                    onDragStart = { dragGain = selectedGainState.value },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragGain = (dragGain - dragAmount / adjustmentRangePx).coerceIn(0f, 1f)
+                        VocalSeparationController.setSelectedGain(dragGain)
+                        onSlider()
+                    }
+                )
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
+                if (state.available) {
+                    VocalSeparationController.toggle()
+                    onSlider()
+                    Vibrator.click(context)
+                } else {
+                    Toast.makeText(context, unavailableText, Toast.LENGTH_SHORT).show()
+                }
+            },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(liquidFraction.value.coerceIn(0f, 1f))
+                .align(Alignment.BottomCenter)
+                .graphicsLayer { alpha = liquidAlpha.value }
+                .background(Color.White.copy(alpha = 0.92f))
+        )
+        Icon(
+            painter = painterResource(R.drawable.ic_nowplaying_vocal),
+            contentDescription = stringResource(R.string.now_playing_mss_toggle),
+            tint = Color.White,
+            modifier = Modifier
+                .padding(bottom = 2.5.dp)
+                .size(22.dp)
+        )
     }
 }
 
@@ -2275,7 +2557,7 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(trackHeight.value)
-                        .clip(YosRoundedCornerShape(100))
+                        .clip(RoundedCornerShape(percent = 50))
                         .background(Color.White.copy(alpha = 0.5f))
                 ) {
                     Box(

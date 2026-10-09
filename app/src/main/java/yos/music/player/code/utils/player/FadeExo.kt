@@ -14,6 +14,9 @@ object FadeExo {
     private var fadeAnimationDuration: Long = 200L
     @Volatile var targetStatus: Int = 0
 
+    val isPausePending: Boolean
+        get() = targetStatus == 0 && fadeVolumeAnimator?.isRunning == true
+
     private fun fadeVolume(
         player: ExoPlayer,
         from: Float,
@@ -136,3 +139,9 @@ object FadeExo {
     }
 
 }
+
+internal fun shouldPublishPlaybackState(
+    isPlaying: Boolean,
+    playWhenReady: Boolean,
+    pausePending: Boolean
+): Boolean = !pausePending && (isPlaying || !playWhenReady)

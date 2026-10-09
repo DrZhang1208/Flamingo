@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -56,6 +57,7 @@ import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.code.YosPlaybackService
 import yos.music.player.data.remote.RemoteMetadataScanner
+import yos.music.player.data.remote.RemoteConnectionState
 import yos.music.player.data.remote.RemoteServerManager
 import yos.music.player.data.remote.RemoteTagDatabase
 import yos.music.player.data.remote.ServerConfig
@@ -71,6 +73,7 @@ import yos.music.player.ui.widgets.basic.Title
 @Composable
 fun RemoteServerManagement(navController: NavController) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var refreshKey by remember { mutableStateOf(0) }
     var showWebDAVDialog by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<ServerConfig?>(null) }
@@ -85,12 +88,14 @@ fun RemoteServerManagement(navController: NavController) {
             if (!saved.isNullOrBlank()) {
                 RemoteServerManager.loadConfigs(saved)
             }
+            RemoteServerManager.refreshAllConnectionStates()
         }
         // 加载完必须触发一次刷新，否则 remember(refreshKey) 无法读取到刚加载好的服务器列表
         refreshKey++
     }
 
     val servers = remember(refreshKey) { RemoteServerManager.getAllServers() }
+    val connectionStates by RemoteServerManager.connectionStates.collectAsState()
 
     SettingBackground {
         Title(title = "远程服务器", onBack = { navController.popBackStack() }, content = {
@@ -104,19 +109,24 @@ fun RemoteServerManagement(navController: NavController) {
 
             for (server in servers) {
                 val sid = server.id
-                val connected = RemoteServerManager.isConnected(sid)
+                val connectionState = connectionStates[sid] ?: RemoteConnectionState.UNKNOWN
+                val connected = connectionState == RemoteConnectionState.CONNECTED
                 val menuOpen = openMenuId == sid
                 item("server_$sid") {
                     RoundColumn {
                         Row(
                             Modifier.fillMaxWidth()
                                 .clickable {
-                                    if (connected) {
-                                        navController.navigate("RemoteFolderPicker/$sid")
-                                    } else {
-                                        scope.launch(Dispatchers.IO) {
-                                            RemoteServerManager.connect(sid)
-                                            withContext(Dispatchers.Main) { refreshKey++ }
+                                    if (connectionState == RemoteConnectionState.CHECKING) return@clickable
+                                    scope.launch(Dispatchers.IO) {
+                                        val ok = if (connected) true else RemoteServerManager.connect(sid)
+                                        withContext(Dispatchers.Main) {
+                                            if (ok) {
+                                                navController.navigate("RemoteFolderPicker/$sid")
+                                            } else {
+                                                val msg = RemoteServerManager.getConnectionError(sid) ?: "连接失败"
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                     }
                                 }
@@ -124,7 +134,16 @@ fun RemoteServerManagement(navController: NavController) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.Cloud, null, Modifier.size(24.dp), tint = if (connected) Color(0xFF34C759) else Color(0xFF8E8E93))
+                                Icon(
+                                    Icons.Filled.Cloud,
+                                    null,
+                                    Modifier.size(24.dp),
+                                    tint = when (connectionState) {
+                                        RemoteConnectionState.CONNECTED -> Color(0xFF34C759)
+                                        RemoteConnectionState.CHECKING -> Color(0xFF007AFF)
+                                        else -> Color(0xFF8E8E93)
+                                    }
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -132,7 +151,7 @@ fun RemoteServerManagement(navController: NavController) {
                                         Spacer(Modifier.width(6.dp))
                                         Text("WebDAV", fontSize = 11.sp, color = Color(0xFF007AFF), modifier = Modifier.alpha(0.7f))
                                     }
-                                    Text(buildSubTitle(server), fontSize = 13.sp, modifier = Modifier.alpha(0.5f))
+                                    Text(buildSubTitle(server, connectionState), fontSize = 13.sp, modifier = Modifier.alpha(0.5f))
                                 }
                             }
                             Box(
@@ -151,6 +170,41 @@ fun RemoteServerManagement(navController: NavController) {
                             exit = shrinkVertically() + fadeOut()
                         ) {
                             Column(Modifier.fillMaxWidth()) {
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        openMenuId = null
+                                        scope.launch(Dispatchers.IO) {
+                                            val ok = RemoteServerManager.refreshConnectionState(sid)
+                                            if (!ok) {
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        RemoteServerManager.getConnectionError(sid) ?: "连接失败",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                            }
+                                        }
+                                    }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Filled.Cloud, null, Modifier.size(20.dp), tint = Color(0xFF34C759))
+                                    Spacer(Modifier.width(14.dp))
+                                    Text("检测连接", fontSize = 15.sp, color = Color(0xFF34C759))
+                                }
+                                if (connected) {
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable {
+                                            openMenuId = null
+                                            RemoteServerManager.disconnect(sid)
+                                        }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Filled.Cloud, null, Modifier.size(20.dp), tint = Color(0xFF8E8E93))
+                                        Spacer(Modifier.width(14.dp))
+                                        Text("断开连接", fontSize = 15.sp, color = Color(0xFF8E8E93))
+                                    }
+                                }
                                 Row(
                                     Modifier.fillMaxWidth().clickable {
                                         openMenuId = null; showEditDialog = server
@@ -370,8 +424,13 @@ private fun isMedia3CacheMetadataFile(file: java.io.File): Boolean {
     return name == "cache.uid" || name.endsWith(".uid") || name == "index" || name.endsWith(".index")
 }
 
-private fun buildSubTitle(config: ServerConfig): String {
-    val status = if (RemoteServerManager.isConnected(config.id)) "已连接" else "未连接"
+private fun buildSubTitle(config: ServerConfig, state: RemoteConnectionState): String {
+    val status = when (state) {
+        RemoteConnectionState.CONNECTED -> "已连接"
+        RemoteConnectionState.CHECKING -> "检测中"
+        RemoteConnectionState.DISCONNECTED -> "未连接"
+        RemoteConnectionState.UNKNOWN -> "待检测"
+    }
     return "${config.host} · $status"
 }
 

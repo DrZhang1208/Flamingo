@@ -37,6 +37,10 @@
         android:preserveLegacyExternalStorage="true"
         android:appCategory="audio"
         android:largeHeap="true">
+        <meta-data android:name="lyricon_module" android:value="true" />
+        <meta-data android:name="lyricon_module_author" android:value="Yos-X" />
+        <meta-data android:name="lyricon_module_description" android:value="Flamingo 侧词幕插件支持" />
+        <meta-data android:name="lyricon_module_tags" android:resource="@array/lyricon_module_tags" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -76,6 +80,16 @@
         <receiver
             android:name=".code.SleepTimerReceiver"
             android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

@@ -127,59 +127,65 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
                             mounting = true
                             scope.launch(Dispatchers.IO) {
                                 try {
-                                // 防重复：用 allFolders（包含 serverId）确保检测到已挂载的远程文件夹
-                                val already = MusicLibrary.allFolders.any {
-                                    it.serverId == serverId && (it.path == currentPath || it.path == currentPath.trimStart('/'))
-                                }
-                                if (already) {
-                                    withContext(Dispatchers.Main) { Toast.makeText(context, "已挂载", Toast.LENGTH_SHORT).show() }
-                                    return@launch
-                                }
-                                val audioFiles = RemoteServerManager.listAudioFiles(serverId, currentPath)
-                                if (audioFiles.isEmpty()) {
-                                    withContext(Dispatchers.Main) { Toast.makeText(context, "该文件夹没有音频文件", Toast.LENGTH_SHORT).show() }
-                                    return@launch
-                                }
-                                val songs = RemoteMetadataScanner.quickListAudioFiles(serverId, currentPath, config)
-                                val folder = Folder(
-                                    name = folderName, path = currentPath, songs = songs,
-                                    source = sourceLabel, serverId = serverId
-                                )
-                                MusicLibrary.mountRemoteFolder(folder)
-                                // 播放中的歌曲优先扫描
-                                val playingUri = MediaController.musicPlaying.value?.uri
-                                val scanQueue = if (playingUri != null) {
-                                    val p = songs.indexOfFirst { it.uri == playingUri }
-                                    if (p > 0) listOf(songs[p]) + songs.filterIndexed { i, _ -> i != p } else songs
-                                } else songs
-                                RemoteMetadataScanner.startBackgroundScan(scanQueue, serverId) { updated ->
-                                    MusicLibrary.updateSongInFullList(updated)
-                                    MusicLibrary.updateFolderSongs(serverId, currentPath, updated)
-                                    val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.path.trim('/') == currentPath.trim('/') }
-                                    val isPlaying = MediaController.musicPlaying.value?.uri == updated.uri
-                                    // 所有 UI 更新在主线程，scope 取消后自动跳过（composable 已离屏）
-                                    scope.launch(Dispatchers.Main) {
-                                        if (latest != null) LibraryObject.setTargetListWithTitle(folderName, latest.songs)
-                                        if (isPlaying) {
-                                            MediaController.musicPlaying.value = updated
-                                            MediaController.uiRefreshTrigger++
-                                            val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
-                                            if (!cached?.lyrics.isNullOrBlank()) {
-                                                val lrcF = yos.music.player.code.utils.lrc.YosLrcFactory()
-                                                val lrc = lrcF.formatLrcEntries(cached!!.lyrics)
-                                                if (lrc.isNotEmpty()) {
-                                                    MediaViewModelObject.lrcEntries.value = lrc
-                                                } else {
-                                                    val plain = lrcF.formatPlainLyricEntries(cached.lyrics)
-                                                    if (plain.isNotEmpty()) MediaViewModelObject.lrcEntries.value = plain
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                withContext(Dispatchers.Main) {
-                                    Toast.makeText(context, "已挂载「${folderName}」到资料库 (${songs.size} 首)", Toast.LENGTH_SHORT).show()
-                                }
+                                      // 防重复：用 allFolders（包含 serverId）确保检测到已挂载的远程文件夹
+                                      val already = MusicLibrary.allFolders.any {
+                                          it.serverId == serverId && (it.path == currentPath || it.path == currentPath.trimStart('/'))
+                                      }
+                                      if (already) {
+                                          withContext(Dispatchers.Main) { Toast.makeText(context, "已挂载", Toast.LENGTH_SHORT).show() }
+                                          return@launch
+                                      }
+                                      val audioFiles = try {
+                                      RemoteServerManager.listAudioFilesOrThrow(serverId, currentPath)
+                                      } catch (e: Exception) {
+                                          val msg = RemoteServerManager.lastParseError.ifBlank {
+                                              e.message ?: "读取远程目录失败"
+                                          }
+                                          withContext(Dispatchers.Main) {
+                                              Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                          }
+                                          return@launch
+                                      }
+                                      if (audioFiles.isEmpty()) {
+                                          withContext(Dispatchers.Main) { Toast.makeText(context, "该文件夹没有音频文件", Toast.LENGTH_SHORT).show() }
+                                          return@launch
+                                      }
+                                      val songs = RemoteMetadataScanner.quickListAudioFiles(serverId, currentPath, config)
+                                      val folder = Folder(
+                                          name = folderName, path = currentPath, songs = songs,
+                                          source = sourceLabel, serverId = serverId
+                                      )
+                                      MusicLibrary.mountRemoteFolder(folder)
+                                      // 播放中的歌曲优先扫描
+                                      val playingUri = MediaController.musicPlaying.value?.uri
+                                      val scanQueue = if (playingUri != null) {
+                                          val p = songs.indexOfFirst { it.uri == playingUri }
+                                          if (p > 0) listOf(songs[p]) + songs.filterIndexed { i, _ -> i != p } else songs
+                                      } else songs
+                                      RemoteMetadataScanner.startBackgroundScan(scanQueue, serverId) { updated ->
+                                          MusicLibrary.updateSongInFullList(updated)
+                                          MusicLibrary.updateFolderSongs(serverId, currentPath, updated)
+                                          val latest = MusicLibrary.allFolders.find { it.serverId == serverId && it.path.trim('/') == currentPath.trim('/') }
+                                          val isPlaying = MediaController.musicPlaying.value?.uri == updated.uri
+                                          // 所有 UI 更新在主线程，scope 取消后自动跳过（composable 已离屏）
+                                          scope.launch(Dispatchers.Main) {
+                                              if (latest != null) LibraryObject.setTargetListWithTitle(folderName, latest.songs)
+                                              if (isPlaying) {
+                                                  MediaController.musicPlaying.value = updated
+                                                  MediaController.uiRefreshTrigger++
+                                                  val cached = yos.music.player.data.remote.RemoteTagDatabase.get(updated.uri?.toString() ?: "")
+                                                  yos.music.player.code.utils.lrc.LyricsController.submitRawLyrics(
+                                                      trackKey = updated.uri?.toString(),
+                                                      rawLyrics = cached?.lyrics,
+                                                      currentPositionMs = MediaController.mediaControl?.currentPosition?.toInt() ?: 0,
+                                                      source = yos.music.player.code.utils.lrc.LyricSource.REMOTE_SCAN
+                                                  )
+                                              }
+                                          }
+                                      }
+                                      withContext(Dispatchers.Main) {
+                                          Toast.makeText(context, "已挂载「${folderName}」到资料库 (${songs.size} 首)", Toast.LENGTH_SHORT).show()
+                                      }
                                 } finally {
                                     withContext(Dispatchers.Main) {
                                         mounting = false

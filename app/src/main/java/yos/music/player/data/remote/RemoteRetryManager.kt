@@ -1,7 +1,10 @@
 package yos.music.player.data.remote
 
 import kotlinx.coroutines.*
+import yos.music.player.code.utils.player.optionalPlaybackTask
 import yos.music.player.code.MediaController
+import yos.music.player.code.AudioMetadataUtils
+import yos.music.player.data.libraries.MusicLibrary
 
 object RemoteRetryManager {
 
@@ -111,23 +114,32 @@ object RemoteRetryManager {
 
     /** 后台扫描失败，记录重试状态。返回当前失败次数 */
     fun onBackgroundScanFailed(uri: String, serverId: String, remotePath: String): Int {
-        synchronized(lock) {
+        val (failCount, delay) = synchronized(lock) {
             val k = key(uri)
             val state = retryMap.getOrPut(k) {
                 RetryState(uri, serverId, remotePath, isPlayback = false)
             }
             state.failCount++
+            val delay = if (state.failCount < MAX_BACKGROUND_RETRIES) {
+                backgroundDelays[state.failCount.coerceAtMost(backgroundDelays.size) - 1]
+            } else {
+                -1L
+            }
             if (state.failCount < MAX_BACKGROUND_RETRIES) {
-                val delay = backgroundDelays[state.failCount.coerceAtMost(backgroundDelays.size) - 1]
                 state.nextRetryTimeMs = System.currentTimeMillis() + delay
             }
-            return state.failCount
+            state.failCount to delay
         }
+        if (delay > 0L) {
+            scheduleBackgroundRetry(key(uri), delay)
+        }
+        return failCount
     }
 
     /** 后台扫描成功 */
     fun onBackgroundScanSuccess(uri: String) {
         synchronized(lock) {
+            cancelRetry(uri)
             retryMap.remove(key(uri))
         }
     }
@@ -178,16 +190,21 @@ object RemoteRetryManager {
 
     private fun scheduleRetry(k: String, delayMs: Long) {
         // 内部自行同步 activeJobs；不要求调用方持锁，以避免协程回调重入 lock 造成死锁。
-        val job = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             delay(delayMs)
             val state = synchronized(lock) { retryMap[k] } ?: return@launch
             if (!state.isPlayback) return@launch
             if (MediaController.musicPlaying.value?.uri?.toString() != state.uri) return@launch
-            try {
+            val context = currentCoroutineContext()
+            optionalPlaybackTask(onFailure = {
+                context.ensureActive()
+                onTagExtractFailed(state.uri, state.serverId, state.remotePath)
+            }) {
                 if (!RemoteServerManager.isConnected(state.serverId)) {
                     RemoteServerManager.connect(state.serverId)
                 }
                 val result = RemoteTagExtractor.extract(state.serverId, state.remotePath, state.uri)
+                currentCoroutineContext().ensureActive()
                 withContext(Dispatchers.Main) {
                     if (MediaController.musicPlaying.value?.uri?.toString() != state.uri) return@withContext
                     MediaController.applyExtractedTags(
@@ -195,8 +212,6 @@ object RemoteRetryManager {
                     )
                 }
                 onTagExtractSuccess(state.uri)
-            } catch (_: Exception) {
-                onTagExtractFailed(state.uri, state.serverId, state.remotePath)
             }
         }
         val previous = synchronized(lock) {
@@ -205,6 +220,93 @@ object RemoteRetryManager {
             prev
         }
         previous?.cancel()
+        job.start()
+    }
+
+    private fun scheduleBackgroundRetry(k: String, delayMs: Long) {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            delay(delayMs)
+            val state = synchronized(lock) { retryMap[k] } ?: return@launch
+            if (state.isPlayback) return@launch
+
+            val current = MusicLibrary.findSongByUri(state.uri) ?: run {
+                synchronized(lock) {
+                    activeJobs.remove(k)
+                    retryMap.remove(k)
+                }
+                return@launch
+            }
+
+            val context = currentCoroutineContext()
+            optionalPlaybackTask(onFailure = {
+                context.ensureActive()
+                onBackgroundScanFailed(state.uri, state.serverId, state.remotePath)
+            }) {
+                if (!RemoteServerManager.isConnected(state.serverId)) {
+                    RemoteServerManager.connect(state.serverId)
+                }
+                val result = RemoteTagExtractor.extract(state.serverId, state.remotePath, state.uri)
+                currentCoroutineContext().ensureActive()
+                val duration = result.duration ?: current.duration
+                val updated = current.copy(
+                    duration = duration,
+                    title = result.title ?: current.title,
+                    artists = result.artist ?: current.artists,
+                    albumArtists = result.albumArtist ?: current.albumArtists,
+                    album = result.album ?: current.album,
+                    genre = result.genre ?: current.genre,
+                    releaseYear = result.year ?: current.releaseYear,
+                    recordingYear = result.year ?: current.recordingYear,
+                    trackNumber = result.trackNumber ?: current.trackNumber,
+                    discNumber = result.discNumber ?: current.discNumber,
+                    composer = result.composer ?: current.composer,
+                    thumb = result.coverUri ?: current.thumb,
+                    bitrate = AudioMetadataUtils.reliableBitrateKbps(
+                        result.bitrate ?: current.bitrate,
+                        current.fileSize,
+                        duration.takeIf { it > 0L }
+                    ) ?: result.bitrate ?: current.bitrate,
+                    sampleRate = result.sampleRate ?: current.sampleRate,
+                    channels = result.channels ?: current.channels,
+                    tagScanStatus = "COMPLETE"
+                )
+                RemoteTagDatabase.put(state.uri, CachedTags(
+                    uri = state.uri,
+                    title = updated.title,
+                    artist = updated.artists,
+                    album = updated.album,
+                    albumArtist = updated.albumArtists,
+                    genre = updated.genre,
+                    year = updated.releaseYear ?: updated.recordingYear,
+                    duration = if (updated.duration > 0) updated.duration else null,
+                    trackNumber = updated.trackNumber,
+                    discNumber = updated.discNumber,
+                    composer = updated.composer,
+                    coverPath = updated.thumb?.toString(),
+                    lyrics = result.lyrics,
+                    bitrate = updated.bitrate,
+                    sampleRate = updated.sampleRate,
+                    channels = updated.channels,
+                    fileSize = updated.fileSize
+                ))
+                withContext(Dispatchers.Main) {
+                    MusicLibrary.updateSongInFullList(updated)
+                    MusicLibrary.updateFolderSongs(
+                        state.serverId,
+                        state.remotePath.substringBeforeLast('/', ""),
+                        updated
+                    )
+                }
+                onBackgroundScanSuccess(state.uri)
+            }
+        }
+        val previous = synchronized(lock) {
+            val prev = activeJobs[k]
+            activeJobs[k] = job
+            prev
+        }
+        previous?.cancel()
+        job.start()
     }
 
     private fun cancelRetry(uri: String) {

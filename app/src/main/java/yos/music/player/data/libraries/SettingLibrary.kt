@@ -23,10 +23,18 @@ object SettingsLibrary {
             NowPlayingTranslation
             RefreshEveryTime
             LyricFontWeight
+            LyricFontScale
             LyricFontSize
             TranslationFontSize
             LyricLineBalance
             LyricBlurEffect
+            SmartWordByWordLyric
+            LyricTimingOffsetMs
+            LyricPreferEmbedded
+            LyricCustomFontEnabled
+            LyricCustomFontPath
+            LyricCustomFontName
+            MssGpuAccelerationEnabled
             NowplayingBackgroundEffect
             BarBlurEffect
             LyricsHideControls
@@ -36,6 +44,14 @@ object SettingsLibrary {
             ListenHistory
             StatusBarLyricEnabled
             StatusBarLyricHooked
+            SuperLyricAPIEnabled
+            SuperLyricAPIHooked
+            TickerLyricEnabled
+            LyriconEnabled
+            MediaSessionLyricEnabled
+            MediaSessionLyricTranslationEnabled
+            ColorOsLockScreenLyricEnabled
+            ColorOsLockScreenLyricProviderEnabled
             AudioAttributes
             Codec
             HardwareAudioTrackPlayBackParams
@@ -155,6 +171,14 @@ object SettingsLibrary {
         initialValue = "Bold"
     )
 
+    /** APK-compatible lyric font multiplier. Renderers clamp it to 0.8..1.2. */
+    @Stable
+    var LyricFontScale by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_font_scale",
+        initialValue = 1f
+    )
+
     /**
      * 歌词字体大小
      */
@@ -193,6 +217,57 @@ object SettingsLibrary {
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_lyric_blur_effect",
         initialValue = false
+    )
+
+    /** 为只有逐行时间戳的歌词生成平滑的逐字渐变。 */
+    @Stable
+    var SmartWordByWordLyric by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_smart_wbw_lyric",
+        initialValue = true
+    )
+
+    /** 全局歌词校时，正值提前、负值延后，单位毫秒。 */
+    @Stable
+    var LyricTimingOffsetMs by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_gradient_timing_offset_ms",
+        initialValue = 0
+    )
+
+    @Stable
+    var LyricPreferEmbedded by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_prefer_embedded",
+        initialValue = true
+    )
+
+    @Stable
+    var LyricCustomFontEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_custom_font_enabled",
+        initialValue = false
+    )
+
+    @Stable
+    var LyricCustomFontPath by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_custom_font_path",
+        initialValue = ""
+    )
+
+    @Stable
+    var LyricCustomFontName by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_performance_lyric_custom_font_name",
+        initialValue = ""
+    )
+
+    @Stable
+    var MssGpuAccelerationEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "settings_mss_gpu_acceleration_enabled",
+        initialValue = true
     )
 
     /**
@@ -271,7 +346,7 @@ object SettingsLibrary {
     @Stable
     var StatusBarLyricEnabled by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
-        key = "statusBarLyricEnabled",
+        key = "lyricGetterAPIEnabled",
         initialValue = false
     )
 
@@ -281,7 +356,63 @@ object SettingsLibrary {
     @Stable
     var StatusBarLyricHooked by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
-        key = "statusBarLyricHooked",
+        key = "lyricGetterAPIHooked",
+        initialValue = false
+    )
+
+    @Stable
+    var SuperLyricAPIEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "superLyricAPIEnabled",
+        initialValue = false
+    )
+
+    @Stable
+    var SuperLyricAPIHooked by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "superLyricAPIHooked",
+        initialValue = false
+    )
+
+    @Stable
+    var TickerLyricEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "ticker_lyric_enabled",
+        initialValue = false
+    )
+
+    @Stable
+    var LyriconEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "lyriconEnabled",
+        initialValue = false
+    )
+
+    @Stable
+    var MediaSessionLyricEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "media_session_lyric_enabled",
+        initialValue = false
+    )
+
+    @Stable
+    var MediaSessionLyricTranslationEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "media_session_lyric_trans_enabled",
+        initialValue = false
+    )
+
+    @Stable
+    var ColorOsLockScreenLyricEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "coloros_lock_screen_lyric_enabled",
+        initialValue = false
+    )
+
+    @Stable
+    var ColorOsLockScreenLyricProviderEnabled by mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "coloros_lock_screen_lyric_provider_enabled",
         initialValue = false
     )
 
