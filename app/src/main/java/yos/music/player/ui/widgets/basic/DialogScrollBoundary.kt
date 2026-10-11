@@ -16,9 +16,11 @@ import androidx.compose.ui.unit.Velocity
 /** A gesture that scrolled content cannot turn into a sheet drag at its edge. */
 internal class DialogScrollBoundary(private val elastic: DialogElasticMotion? = null) : NestedScrollConnection {
     private var scrolledContent = false
+    private var pulledSheet = false
 
     fun startGesture() {
         scrolledContent = false
+        pulledSheet = false
         elastic?.startGesture()
     }
 
@@ -35,6 +37,7 @@ internal class DialogScrollBoundary(private val elastic: DialogElasticMotion? = 
         if (consumed.y != 0f) scrolledContent = true
         if (scrolledContent) return Offset(0f, available.y)
         if (source == NestedScrollSource.UserInput && available.y < 0f && elastic != null) {
+            pulledSheet = true
             elastic.drag(available.y)
             return Offset(0f, available.y)
         }
@@ -42,7 +45,9 @@ internal class DialogScrollBoundary(private val elastic: DialogElasticMotion? = 
     }
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-        if (scrolledContent) Velocity(0f, available.y) else Velocity.Zero
+        // Material must not start a second settle animation after our elastic
+        // gesture; only a fresh downward drag at the top may dismiss the sheet.
+        if (scrolledContent || pulledSheet) Velocity(0f, available.y) else Velocity.Zero
 }
 
 internal fun Modifier.containDialogScroll(elastic: DialogElasticMotion? = null): Modifier = composed {

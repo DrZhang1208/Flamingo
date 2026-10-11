@@ -237,7 +237,7 @@ private fun LazyItemScope.PlayListItem(playList: PlayList, itemClick: () -> Unit
                         Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
                     ) {
                         Row(Modifier.fillMaxWidth().height(48.dp).clickable {
-                            dismiss(); renameText = playList.name; showRename = true
+                            dismiss.after { renameText = playList.name; showRename = true }
                         }.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("重命名", fontSize = 16.sp, modifier = Modifier.weight(1f))
                             Icon(Icons.Outlined.Edit, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)

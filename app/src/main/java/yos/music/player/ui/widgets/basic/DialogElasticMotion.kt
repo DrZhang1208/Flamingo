@@ -8,12 +8,15 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlin.math.exp
-import kotlin.math.ln
 
 /** Continuous resistance: no hard stop, and no layout work during a drag. */
-internal fun dialogElasticOffset(pull: Float, limit: Float): Float =
-    -limit * (1f - exp(-pull.coerceAtLeast(0f) * 0.32f / limit.coerceAtLeast(1f)))
+internal fun dialogElasticOffset(pull: Float, limit: Float): Float {
+    val distance = pull.coerceAtLeast(0f)
+    val range = limit.coerceAtLeast(1f)
+    // A responsive start, with resistance that increases gradually instead of
+    // saturating after a short pull. The inverse below preserves interruptions.
+    return -range * distance / (distance + range / 0.5f)
+}
 
 internal class DialogElasticMotion(private val scope: CoroutineScope, private val limit: Float) {
     var offset by mutableFloatStateOf(0f)
@@ -24,7 +27,7 @@ internal class DialogElasticMotion(private val scope: CoroutineScope, private va
     fun startGesture() {
         settling?.cancel()
         // An interrupted return starts exactly at its current visual position.
-        pull = -limit / 0.32f * ln((1f + offset / limit).coerceAtLeast(0.0001f))
+        pull = -offset * (limit / 0.5f) / (limit + offset).coerceAtLeast(0.0001f)
     }
 
     fun drag(delta: Float): Float {

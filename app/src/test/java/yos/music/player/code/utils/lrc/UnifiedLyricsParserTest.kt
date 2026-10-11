@@ -8,6 +8,45 @@ class UnifiedLyricsParserTest {
     private val parser = YosLrcFactory()
 
     @Test
+    fun `preserves standalone zero duration space from bracket timed lyrics`() {
+        val source = "[00:34.463]嘿[00:35.406] [00:35.406]你[00:38.087]是[00:38.247]否[00:38.494]也[00:38.870]感[00:38.991]到[00:40.000]彷[00:40.671]徨[00:41.167]"
+        val line = parser.formatLrcEntries(source).single { !it.isCountdown }
+
+        assertEquals("嘿 你是否也感到彷徨", line.text)
+        assertEquals(10, line.tokens.size)
+        val space = line.tokens[1]
+        assertEquals(" ", space.text)
+        assertEquals(35_406f, space.startMs, 0f)
+        assertEquals(space.startMs, space.endMs, 0f)
+        assertEquals("你", line.tokens[2].text)
+        assertEquals(35_406f, line.tokens[2].startMs, 0f)
+        assertEquals(38_087f, line.tokens[2].endMs, 0f)
+        assertEquals(41_167f, line.endMs, 0f)
+    }
+
+    @Test
+    fun `preserves timed space but ignores empty consecutive markers`() {
+        val line = parser.formatLrcEntries(
+            "[00:01.000]<00:01.000>Hello<00:01.500> <00:01.700><00:01.700>world<00:02.000>"
+        ).single()
+
+        assertEquals("Hello world", line.text)
+        assertEquals(listOf("Hello", " ", "world"), line.tokens.map { it.text })
+        assertEquals(1500f, line.tokens[1].startMs, 0f)
+        assertEquals(1700f, line.tokens[1].endMs, 0f)
+        assertEquals(1700f, line.tokens[2].startMs, 0f)
+    }
+
+    @Test
+    fun `space only lines still use the instrumental interval rules`() {
+        val longBlank = parser.formatLrcEntries("[00:01.000] [00:13.000]").single()
+        assertTrue(longBlank.isCountdown)
+        assertEquals(1000f, longBlank.startMs, 0f)
+        assertEquals(13_000f, longBlank.endMs, 0f)
+        assertTrue(parser.formatLrcEntries("[00:01.000] [00:02.000]").isEmpty())
+    }
+
+    @Test
     fun `preserves word timing from yrc`() {
         val lines = parser.formatLrcEntries("[1000,1200](1000,400,0)Hello (1400,800,0)world")
 
@@ -36,7 +75,7 @@ class UnifiedLyricsParserTest {
     @Test
     fun `keeps long timed blank line as instrumental countdown`() {
         val lines = parser.formatLrcEntries(
-            "[00:01.00]First\n[00:05.00]\n[00:10.00]Second"
+            "[00:01.00]First\n[00:05.00]\n[00:16.00]Second"
         )
 
         assertEquals(3, lines.size)
@@ -46,34 +85,43 @@ class UnifiedLyricsParserTest {
 
     @Test
     fun `drops short timed blank line`() {
-        val lines = parser.formatLrcEntries(
-            "[00:01.00]First\n[00:05.00]\n[00:09.00]Second"
-        )
-
-        assertEquals(2, lines.size)
-        assertTrue(lines.none { it.text.isBlank() })
+        for (nextStart in listOf("00:09.00", "00:10.00", "00:15.00")) {
+            val lines = parser.formatLrcEntries(
+                "[00:01.00]First\n[00:05.00]\n[$nextStart]Second"
+            )
+            assertEquals(2, lines.size)
+            assertTrue(lines.none { it.text.isBlank() })
+        }
     }
 
     @Test
     fun `inserts countdown for a long gap after word timed line`() {
         val lines = parser.formatLrcEntries(
-            "[1000,1000](1000,1000,0)First\n[10000,1000](10000,1000,0)Second"
+            "[1000,1000](1000,1000,0)First\n[13000,1000](13000,1000,0)Second"
         )
 
         assertEquals(3, lines.size)
         assertTrue(lines[1].isCountdown)
         assertEquals(2_000f, lines[1].startMs)
-        assertEquals(10_000f, lines[1].endMs)
+        assertEquals(13_000f, lines[1].endMs)
+        for (nextStart in listOf(10_000, 12_000)) {
+            val shortGap = parser.formatLrcEntries(
+                "[1000,1000](1000,1000,0)First\n[$nextStart,1000]($nextStart,1000,0)Second"
+            )
+            assertEquals(2, shortGap.size)
+            assertTrue(shortGap.none { it.isCountdown })
+        }
     }
 
     @Test
     fun `inserts countdown before a late first line`() {
-        val lines = parser.formatLrcEntries("[00:06.00]First")
+        val lines = parser.formatLrcEntries("[00:11.00]First")
 
         assertEquals(2, lines.size)
         assertTrue(lines.first().isCountdown)
         assertEquals(0f, lines.first().startMs)
-        assertEquals(6_000f, lines.first().endMs)
+        assertEquals(11_000f, lines.first().endMs)
+        assertTrue(parser.formatLrcEntries("[00:10.00]First").none { it.isCountdown })
     }
 
     @Test

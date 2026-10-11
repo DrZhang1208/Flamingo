@@ -34,8 +34,9 @@ import java.io.File
 object LyricCardExporter {
     private const val EXPORT_SCALE = 2
     private const val CARD_WIDTH = 1080
-    private const val OUTER_MARGIN = 108
-    private const val OUTER_VERTICAL = 64
+    // 80% of the former 64 px vertical inset, rounded to a whole export pixel.
+    private const val OUTER_MARGIN = 51
+    private const val OUTER_VERTICAL = OUTER_MARGIN
     private const val CARD_PADDING = 64
     private const val COVER_SIZE = 128
     private const val FOOTER_HEIGHT = 224

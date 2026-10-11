@@ -56,8 +56,9 @@ class ArtworkTrackFadeTest {
                 return pixels[pixels.width / 2, pixels.height / 2]
             }
             compose.waitUntil(5000) { completed.get() == 1 }
-            compose.mainClock.advanceTimeBy(500)
-            assertTrue(sample().red > 0.98f)
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            assertTrue("The initial restored cover must not fade through a placeholder", sample().red > 0.98f)
             compose.runOnUiThread { track.value = "blue" }
             compose.mainClock.advanceTimeByFrame()
             compose.waitUntil(5000) { started.get() == 2 }

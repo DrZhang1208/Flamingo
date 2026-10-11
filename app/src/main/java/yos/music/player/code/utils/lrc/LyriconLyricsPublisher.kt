@@ -89,5 +89,5 @@ private fun toLyriconWord(token: YosLyricToken): LyricWord = LyricWord().apply {
     begin = token.startMs.toLong()
     end = token.endMs.toLong()
     duration = (end - begin).coerceAtLeast(0L)
-    text = token.text + if (token.hasSpace) " " else ""
+    text = token.text + if (token.hasSpace && token.text.lastOrNull()?.isWhitespace() != true) " " else ""
 }

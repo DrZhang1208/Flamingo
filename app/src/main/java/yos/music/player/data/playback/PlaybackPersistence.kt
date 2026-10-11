@@ -34,6 +34,7 @@ class RoomPlaybackPersistence(context: Context) : PlaybackPersistence {
         .create()
     private val migrationPreferences = appContext.getSharedPreferences(MIGRATION_PREFERENCES, Context.MODE_PRIVATE)
     private val migrationMutex = Mutex()
+    private val statusMutex = Mutex()
 
     override suspend fun savePlayList(playList: PlayListV1) {
         database.withTransaction {
@@ -70,7 +71,7 @@ class RoomPlaybackPersistence(context: Context) : PlaybackPersistence {
         )
     }
 
-    override suspend fun savePlayStatus(status: PlayStatus) {
+    override suspend fun savePlayStatus(status: PlayStatus) = statusMutex.withLock {
         database.withTransaction {
             status.music?.let { dao.upsertSongs(listOf(toEntity(it))) }
             dao.upsertState(
@@ -83,6 +84,7 @@ class RoomPlaybackPersistence(context: Context) : PlaybackPersistence {
                 )
             )
         }
+        runCatching { PlaybackStartupCache.write(status) }
         migrationPreferences.edit().putBoolean(STATUS_MIGRATED, true).apply()
     }
 

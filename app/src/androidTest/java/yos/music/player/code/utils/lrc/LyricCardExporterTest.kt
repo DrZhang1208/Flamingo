@@ -28,14 +28,24 @@ class LyricCardExporterTest {
             assertEquals(0, result.height % 2)
             assertTrue(result.height > 2000)
             assertTrue(result.hasAlpha())
+            // Four equal transparent insets; old vertical padding was 128 output pixels.
+            fun opaque(x: Int, y: Int) = Color.alpha(result.getPixel(x, y)) > 0
+            val left = (0 until result.width).first { opaque(it, result.height / 2) }
+            val right = (0 until result.width).first { opaque(result.width - 1 - it, result.height / 2) }
+            val top = (0 until result.height).first { opaque(result.width / 2, it) }
+            val bottom = (0 until result.height).first { opaque(result.width / 2, result.height - 1 - it) }
+            assertEquals(102, top)
+            assertEquals(top, left)
+            assertEquals(top, right)
+            assertEquals(top, bottom)
             assertEquals(0, Color.alpha(result.getPixel(0, 0)))
-            assertEquals(0, Color.alpha(result.getPixel(214, result.height / 2)))
-            assertEquals(0, Color.alpha(result.getPixel(1080, 126)))
-            assertEquals(0, Color.alpha(result.getPixel(1080, result.height - 128)))
-            assertEquals(result.getPixel(0, 0), result.getPixel(216, 128))
+            assertEquals(0, Color.alpha(result.getPixel(100, result.height / 2)))
+            assertEquals(0, Color.alpha(result.getPixel(1080, 100)))
+            assertEquals(0, Color.alpha(result.getPixel(1080, result.height - 102)))
+            assertEquals(result.getPixel(0, 0), result.getPixel(102, 102))
             assertNotEquals(result.getPixel(0, 0), result.getPixel(1080, 200))
             assertEquals("Artwork belongs in the footer and must be centre-cropped",
-                0xFFAB5200.toInt(), result.getPixel(1688, result.height - 352))
+                0xFFAB5200.toInt(), result.getPixel(1802, result.height - 326))
             // Both saving and sharing use this lossless PNG encoder.
             val bytes = java.io.ByteArrayOutputStream().use {
                 assertTrue(result.compress(Bitmap.CompressFormat.PNG, 100, it))

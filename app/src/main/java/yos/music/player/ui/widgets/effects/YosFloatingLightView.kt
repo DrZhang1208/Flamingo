@@ -116,7 +116,7 @@ fun YosFloatingLight(
 
         // Apply the same exposure reduction to dynamic and static artwork.
         // This sits inside the background, never over controls or cover art.
-        Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.30f)) })
+        Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.15f)) })
     }
 }
 

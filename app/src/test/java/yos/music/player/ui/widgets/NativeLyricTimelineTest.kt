@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeLyricTimelineTest {
+    @Test fun standaloneTimedSpaceSurvivesBothDisplayModes() {
+        val line = yos.music.player.code.utils.lrc.YosLrcFactory().formatLrcEntries(
+            "[00:01.000]Hello[00:02.000] [00:02.000]world[00:03.000]"
+        ).single()
+        for (wordByWord in listOf(true, false)) {
+            val displayed = nativeDisplayTokens(line, wordByWord)
+            assertEquals("Hello world", displayed.joinToString("") { it.text })
+        }
+        assertSame(line.tokens, nativeDisplayTokens(line, true))
+    }
+
     @Test fun wordModeUsesRealTimingAndLineModeNeverInventsTiming() {
         val timed = yos.music.player.code.utils.lrc.YosLyricLine(1000f, 2200f, listOf(
             yos.music.player.code.utils.lrc.YosLyricToken(1000f, 1600f, "Hello "),

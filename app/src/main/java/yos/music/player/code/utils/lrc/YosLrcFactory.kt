@@ -164,7 +164,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         if (markers.isEmpty()) return lineOf(lineStart, listOf(LyricSegment(lineStart, lineStart, cleanLyricText(content))), "")
 
         val prefix = content.substring(0, markers.first().range.first)
-        if (prefix.isNotBlank()) {
+        if (prefix.isNotEmpty()) {
             val firstTime = parseLrcTimeMs(markers.first().groupValues[1]) ?: lineStart
             segments += LyricSegment(lineStart, firstTime, cleanLyricTokenText(prefix))
         }
@@ -174,7 +174,9 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val textStart = marker.range.last + 1
             val textEnd = markers.getOrNull(index + 1)?.range?.first ?: content.length
             val lyric = cleanLyricTokenText(content.substring(textStart, textEnd))
-            if (lyric.isNotBlank()) {
+            // A space between timestamps still has layout width, even when
+            // both timestamps are equal. Only an empty marker has no text.
+            if (lyric.isNotEmpty()) {
                 val end = parseLrcTimeMs(markers.getOrNull(index + 1)?.groupValues?.get(1) ?: "")
                     ?: (start + estimateSegmentDuration(lyric))
                 segments += LyricSegment(start, end.coerceAtLeast(start), lyric)
@@ -504,7 +506,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
     ): YosLyricLine {
         val tokens = segments
             .sortedBy { it.startMs }
-            .filter { it.text.isNotBlank() }
+            .filter { it.text.isNotEmpty() }
             .map { segment ->
                 YosLyricToken(
                     startMs = segment.startMs.coerceAtLeast(lineStart),
@@ -575,7 +577,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             .map { line ->
                 val tokens = line.tokens.map { token ->
                     token.copy(text = cleanLyricTokenText(token.text))
-                }.filter { it.text.isNotBlank() }
+                }.filter { it.text.isNotEmpty() }
                 val startMs = line.startMs.coerceAtLeast(0f)
                 val endMs = (tokens.maxOfOrNull { it.endMs } ?: line.endMs).coerceAtLeast(startMs)
                 line.copy(
@@ -638,7 +640,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
     }
 
     private companion object {
-        const val WAITING_LINE_MIN_DURATION_MS = 4_200f
+        const val WAITING_LINE_MIN_DURATION_MS = 10_000f
     }
 
     private fun parseTtmlTimeMs(raw: String?): Float? {

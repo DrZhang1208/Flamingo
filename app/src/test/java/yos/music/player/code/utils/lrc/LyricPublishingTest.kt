@@ -7,6 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LyricPublishingTest {
+    @Test
+    fun `lyricon keeps standalone space without appending a duplicate`() {
+        val parsed = YosLrcFactory().formatLrcEntries(
+            "[00:01.000]Hello[00:02.000] [00:02.000]world[00:03.000]"
+        )
+        val song = buildLyriconSong(
+            LyricTrackInfo("Song", "Artist", "id", "file:///song", 12_000L), parsed
+        )
+        val words = requireNotNull(requireNotNull(song.lyrics).single().words)
+        assertEquals("Hello world", words.joinToString("") { it.text.orEmpty() })
+        assertEquals(" ", words[1].text)
+        assertEquals(words[1].begin, words[1].end)
+    }
+
     private val entries = listOf(
         YosLyricLine(
             startMs = 1_250f,

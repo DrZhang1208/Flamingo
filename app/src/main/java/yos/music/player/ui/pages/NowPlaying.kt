@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.core.graphics.drawable.toBitmap
@@ -138,6 +139,7 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.withFrameMillis
 import kotlinx.coroutines.isActive
+import yos.music.player.ui.widgets.PlaybackSeekTrack
 import yos.music.player.ui.widgets.drawPlaybackProgress
 import yos.music.player.ui.widgets.NativeLyricClock
 import androidx.compose.ui.geometry.CornerRadius
@@ -214,6 +216,7 @@ import yos.music.player.data.libraries.PlayListLibrary
 
 import yos.music.player.ui.widgets.basic.PlaylistPickerDialog
 import yos.music.player.ui.widgets.basic.OptionDialog
+import yos.music.player.ui.widgets.basic.dialogListFade
 import yos.music.player.ui.widgets.basic.SongDetailDialog
 import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.songMenuTrigger
@@ -459,7 +462,7 @@ fun NowPlaying(
             }
 
             val lyricRenderActive = remember {
-                derivedStateOf { nowPageLambda() == Lyric || alphaAnim.value > 0f }
+                derivedStateOf { !showLyricShare.value && (nowPageLambda() == Lyric || alphaAnim.value > 0f) }
             }
             val translationButtonEnabled = remember("NowPlaying_translationButtonEnabled") {
                 derivedStateOf { showControl.value && alphaAnim.value != 0f }
@@ -880,10 +883,11 @@ fun NowPlaying(
                             if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                             Row(
                                 Modifier.fillMaxWidth().height(48.dp).clickable {
-                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
-                                    closeSheet()
-                                    navController.toUI(UI.ArtistInfo)
-                                    dismiss()
+                                    dismiss.after {
+                                        yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                        closeSheet()
+                                        navController.toUI(UI.ArtistInfo)
+                                    }
                                 }.padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1445,33 +1449,27 @@ private fun LyricShareSheet(
         horizontalTitle = true,
         contentBottomSpacing = 0.dp,
         bottomContentPadding = 16.dp,
+        scrollContent = false,
         content = {
             val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialShareIndex.coerceAtLeast(0))
+            val rowShape = remember { YosRoundedCornerShape(18.dp) }
+            val sheetBackground = Color.White withNight Color.Black
+            val listHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp - 280)
+                .coerceIn(72, 430).dp
             Column(Modifier.fillMaxWidth()) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp)
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithCache {
-                            val fade = minOf(18.dp.toPx(), size.height / 2f)
-                            val fraction = fade / size.height.coerceAtLeast(1f)
-                            val mask = Brush.verticalGradient(
-                                0f to Color.Transparent, fraction to Color.Black,
-                                (1f - fraction) to Color.Black, 1f to Color.Transparent)
-                            onDrawWithContent {
-                                drawContent()
-                                drawRect(mask, blendMode = BlendMode.DstIn)
-                            }
-                        },
+                    modifier = Modifier.fillMaxWidth().heightIn(max = listHeight)
+                        .dialogListFade(sheetBackground),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 18.dp)
                 ) {
-                    itemsIndexed(shareEntries) { index, line ->
+                    itemsIndexed(shareEntries, key = { index, _ -> index }, contentType = { _, _ -> "lyric" }) { index, line ->
                         val checked = index in selected.value
                         val foreground = if (checked) Color.White else MaterialTheme.colorScheme.onSurface
                         Column(
                             Modifier.fillMaxWidth()
-                                .clip(YosRoundedCornerShape(18.dp))
+                                .clip(rowShape)
                                 .background(if (checked) yos.music.player.ui.theme.primary else MaterialTheme.colorScheme.surface)
                                 .toggleable(
                                     value = checked, enabled = !working.value, role = Role.Checkbox,
@@ -1652,7 +1650,7 @@ private fun ActionButtonsRow(
                 subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
                 content = { dismiss ->
                     val items = listOf(
-                        Triple("添加到歌单", Icons.Filled.Add, { dismiss(); showPlaylistPicker.value = true }),
+                        Triple("添加到歌单", Icons.Filled.Add, { dismiss.after { showPlaylistPicker.value = true } }),
                         Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
                             val currentMusic = MediaController.musicPlaying.value ?: return@Triple
                             val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
@@ -1685,11 +1683,10 @@ private fun ActionButtonsRow(
                             },
                             if (yos.music.player.code.SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
                             {
-                                dismiss()
-                                showSleepTimerDialog.value = true
+                                dismiss.after { showSleepTimerDialog.value = true }
                             }
                         ),
-                        Triple("歌曲信息", Icons.Outlined.Info, { dismiss(); showDetail.value = true })
+                        Triple("歌曲信息", Icons.Outlined.Info, { dismiss.after { showDetail.value = true } })
                     )
                     Column(
                         Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
@@ -1765,9 +1762,10 @@ private fun ActionButtonsRow(
                             if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                             Row(
                                 Modifier.fillMaxWidth().height(48.dp).clickable {
-                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
-                                    navController.toUI(UI.ArtistInfo)
-                                    dismiss()
+                                    dismiss.after {
+                                        yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                        navController.toUI(UI.ArtistInfo)
+                                    }
                                 }.padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -2010,19 +2008,20 @@ private fun PlayerControl(
     onWhile: suspend () -> Unit,
     modifier: Modifier
 ) {
-    val playingDuration = rememberSaveable(key = "PlayerControl_playingDuration") {
-        mutableLongStateOf(0L)
-    }
+    val trackKey = musicPlaying.value?.uri?.toString()
+    val restoredStatus = MediaController.restoredPlayStatus.value
+    val initialProgress = remember(trackKey, restoredStatus) { MediaController.playbackProgress() }
+    val playingDuration = remember(trackKey, restoredStatus) { mutableLongStateOf(initialProgress.durationMs) }
     val context = LocalContext.current
-    val playedTime = rememberSaveable(key = "PlayerControl_playedTime") { mutableStateOf("0:00") }
-    val remainingTime =
-        rememberSaveable(key = "PlayerControl_remainingTime") { mutableStateOf("-0:00") }
-    val sliderPosition = remember("PlayerControl_sliderPosition") { mutableFloatStateOf(0f) }
-    val isSliding = remember("PlayerControl_isSliding") {
-        mutableStateOf(false)
+    val playedTime = remember(trackKey, restoredStatus) { mutableStateOf(formatTime(initialProgress.positionMs / 1000L)) }
+    val remainingTime = remember(trackKey, restoredStatus) {
+        mutableStateOf("-${formatTime(((initialProgress.durationMs - initialProgress.positionMs) / 1000L).coerceAtLeast(0L))}")
     }
-
-    val progressClock = remember { NativeLyricClock((mediaControl?.currentPosition ?: 0L).toFloat()) }
+    val sliderPosition = remember(trackKey, restoredStatus) { mutableFloatStateOf(initialProgress.positionMs.toFloat()) }
+    val isSliding = remember(trackKey) { mutableStateOf(false) }
+    val seekCancelled = remember(trackKey) { mutableStateOf(false) }
+    val cancelAreaTop = remember { mutableFloatStateOf(Float.POSITIVE_INFINITY) }
+    val progressClock = remember(trackKey, restoredStatus) { NativeLyricClock(initialProgress.positionMs.toFloat()) }
     val onWhileRef = rememberUpdatedState(onWhile)
 
     YosWrapper {
@@ -2040,7 +2039,7 @@ private fun PlayerControl(
                 // 启动作用
                 YosWrapper {
                     val lifecycleOwner = LocalLifecycleOwner.current
-                    LaunchedEffect(lifecycleOwner, renderActive) {
+                    LaunchedEffect(lifecycleOwner, renderActive, trackKey, restoredStatus) {
                         if (!renderActive) return@LaunchedEffect
                         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                             progressClock.restartFrames()
@@ -2054,21 +2053,25 @@ private fun PlayerControl(
                                 var report: Float? = null
                                 if (frame >= nextSampleAt) {
                                     nextSampleAt = frame + 80L
-                                    playingDuration.longValue = (mediaControl?.duration ?: 0L).coerceAtLeast(0L)
-                                    report = (mediaControl?.currentPosition ?: 0L).coerceAtLeast(0L).toFloat()
+                                    val sample = MediaController.playbackProgress()
+                                    playingDuration.longValue = sample.durationMs
+                                    report = sample.positionMs.toFloat()
                                     val currentTrack = mediaControl?.currentMediaItem?.mediaId
                                     if (trackId != currentTrack) {
                                         trackId = currentTrack
                                         progressClock.seek(report, frame)
                                     }
                                 }
-                                if (isSliding.value) {
+                                if (isSliding.value && !seekCancelled.value) {
                                     progressClock.seek(sliderPosition.floatValue, frame)
                                 } else {
                                     sliderPosition.floatValue = progressClock.frame(frame,
                                         mediaControl?.isPlaying == true,
                                         mediaControl?.playbackParameters?.speed ?: 1f, report)
-                                        .coerceIn(0f, playingDuration.longValue.toFloat())
+                                        .let { position ->
+                                            if (playingDuration.longValue > 0L) position.coerceIn(0f, playingDuration.longValue.toFloat())
+                                            else position.coerceAtLeast(0f)
+                                        }
                                     val seconds = sliderPosition.floatValue.toLong() / 1000L
                                     if (seconds != lastSeconds || playingDuration.longValue != lastDuration) {
                                         playedTime.value = formatTime(seconds)
@@ -2088,61 +2091,49 @@ private fun PlayerControl(
 
                 // 进度条
                 YosWrapper {
-                    val trackHeight = animateDpAsState(
-                        targetValue = if (isSliding.value) 10.dp else 7.dp,
-                        animationSpec = tween(150)
-                    )
-                    val trackWidthPx = remember { mutableFloatStateOf(300f) }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp)
-                            .overlayEffect()
-                            .alpha(0.45f)
-                            .height(14.dp)
-                            .onSizeChanged { trackWidthPx.floatValue = it.width.toFloat() }
-                            .pointerInput(playingDuration.longValue) {
-                                detectHorizontalDragGestures(
-                                    onDragStart = {
-                                        isSliding.value = true
-                                    },
-                                    onDragEnd = {
-                                        Vibrator.longClick(context)
-                                        progressClock.seek(sliderPosition.floatValue, android.os.SystemClock.uptimeMillis())
-                                        onSeek(sliderPosition.floatValue)
-                                        isSliding.value = false
-                                    },
-                                    onDragCancel = {
-                                        progressClock.seek((mediaControl?.currentPosition ?: 0L).toFloat(), android.os.SystemClock.uptimeMillis())
-                                        isSliding.value = false
-                                    },
-                                    onHorizontalDrag = { change, dragAmount ->
-                                        change.consume()
-                                        if (playingDuration.longValue <= 0L) return@detectHorizontalDragGestures
-                                        val deltaMs = dragAmount / trackWidthPx.floatValue.coerceAtLeast(100f) * playingDuration.longValue.toFloat()
-                                        val newPosition = (sliderPosition.floatValue + deltaMs)
-                                            .coerceIn(0f, playingDuration.longValue.toFloat())
-                                        sliderPosition.floatValue = newPosition
-                                        val totalSeconds = newPosition.toLong() / 1000
-                                        playedTime.value = formatTime(totalSeconds)
-                                        val remainingSeconds = playingDuration.longValue / 1000 - totalSeconds
-                                        remainingTime.value = "-${formatTime(remainingSeconds)}"
-                                        onSlider()
-                                    }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Read position in drawing, so 120 Hz updates do not recompose
-                        // or remeasure the player controls and lyric page.
-                        Canvas(Modifier.fillMaxWidth().height(trackHeight.value)) {
-                            val duration = playingDuration.longValue
-                            val progress = if (duration > 0L)
-                                (sliderPosition.floatValue / duration).coerceIn(0f, 1f) else 0f
-                            drawPlaybackProgress(progress)
-                        }
+                    fun restoreLiveProgress() {
+                        val live = MediaController.playbackProgress().positionMs.toFloat()
+                        sliderPosition.floatValue = live
+                        progressClock.seek(live, android.os.SystemClock.uptimeMillis())
+                        playedTime.value = formatTime(live.toLong() / 1000L)
+                        remainingTime.value = "-${formatTime(((playingDuration.longValue - live.toLong()) / 1000L).coerceAtLeast(0L))}"
                     }
+                    PlaybackSeekTrack(
+                        gestureKey = trackKey,
+                        position = { sliderPosition.floatValue },
+                        duration = { playingDuration.longValue },
+                        dragging = isSliding.value,
+                        cancelAreaTop = { cancelAreaTop.floatValue },
+                        onStart = {
+                            seekCancelled.value = false
+                            isSliding.value = true
+                            onSlider()
+                        },
+                        onPreview = { position, cancelled ->
+                            if (cancelled && !seekCancelled.value) restoreLiveProgress()
+                            seekCancelled.value = cancelled
+                            if (!cancelled) {
+                                sliderPosition.floatValue = position
+                                playedTime.value = formatTime(position.toLong() / 1000L)
+                                remainingTime.value = "-${formatTime(((playingDuration.longValue - position.toLong()) / 1000L).coerceAtLeast(0L))}"
+                            }
+                            onSlider()
+                        },
+                        onFinish = { position ->
+                            if (position == null) {
+                                restoreLiveProgress()
+                            } else {
+                                Vibrator.longClick(context)
+                                sliderPosition.floatValue = position
+                                progressClock.seek(position, android.os.SystemClock.uptimeMillis())
+                                onSeek(position)
+                            }
+                            isSliding.value = false
+                            seekCancelled.value = false
+                            onSlider()
+                        },
+                        modifier = Modifier.padding(horizontal = 4.dp).overlayEffect().alpha(0.45f)
+                    )
                 }
 
                 // 控制按钮&进度文本
@@ -2357,11 +2348,31 @@ private fun PlayerControl(
                     Spacer(modifier = Modifier.navigationBarsHeight(5.dp))
                 }*/
                 // 为显示设备名称，迁移到 AirPlay 底部处理
+                }
             }
-
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .height(if (compactWindow) 44.dp else 64.dp)
+                    .onGloballyPositioned { cancelAreaTop.floatValue = it.boundsInRoot().top },
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVisibility(isSliding.value, enter = fadeIn(tween(100)), exit = fadeOut(tween(100))) {
+                    Box(
+                        Modifier.fillMaxSize().background(
+                            if (seekCancelled.value) Color(0xFF9C3238) else Color(0xEB242424),
+                            RoundedCornerShape(18.dp)
+                        ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (seekCancelled.value) "松开取消进度调整" else "手指移到这里撤销进度调整",
+                            color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
     }
-}
 }
 
 @Composable

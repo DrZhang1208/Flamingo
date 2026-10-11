@@ -119,6 +119,16 @@ object MediaController {
     /** 原始播放列表（未打乱），用于关闭随机时恢复自然顺序 */
     var sourceMusicList: List<YosMediaItem>? = null
 
+    internal val restoredPlayStatus = mutableStateOf<PlayStatus?>(null)
+
+    internal fun playbackProgress(): yos.music.player.code.utils.player.PlaybackProgressSnapshot {
+        val live = mediaControl?.takeIf { it.currentMediaItem != null }
+        val song = musicPlaying.value
+        val restored = restoredPlayStatus.value?.takeIf { it.music?.uri == song?.uri }
+        return yos.music.player.code.utils.player.playbackProgressSnapshot(
+            live?.currentPosition, live?.duration, restored?.position ?: 0L, song?.duration ?: 0L)
+    }
+
     private val prepareMutex = Mutex()
 
 
@@ -133,6 +143,8 @@ object MediaController {
         sourceList: List<YosMediaItem>? = null
     ) {
         prepareMutex.withLock {
+            // A user may have started another song while the saved queue was loading.
+            if (!play && withContext(Dispatchers.Main) { (mediaControl?.mediaItemCount ?: 0) > 0 }) return@withLock
             shuffleEnabled.value = shuffleModeEnabled
 
             if (thisMusicList != playingMusicList.value) {
@@ -530,8 +542,11 @@ class YosPlaybackService : MediaSessionService() {
         saveJob = serviceScope.launch {
             // 在主线程读取所有需要的值
             val music = musicPlaying.value ?: return@launch
+            val control = mediaControl?.takeIf {
+                it.currentMediaItem?.localConfiguration?.uri == music.uri && it.currentMediaItem != null
+            } ?: return@launch // The startup preview is not a live session to save back as zero.
             val playlist = playingMusicList.value ?: listOf(music)
-            val pos = runCatching { mediaControl?.currentPosition ?: 0 }.getOrDefault(0)
+            val pos = control.currentPosition
             val shuffle = shuffleEnabled.value
             val repeat = runCatching { mediaControl?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
             val mainListUris = yos.music.player.code.MediaController.mainMusicList.toUriStrings()
@@ -553,8 +568,10 @@ class YosPlaybackService : MediaSessionService() {
         // 同步保存，仅用于 onDestroy/onTaskRemoved
         val music = musicPlaying.value ?: return
         val playlist = playingMusicList.value ?: listOf(music)
-        val control = mediaControl
-        val pos = runCatching { control?.currentPosition ?: 0 }.getOrDefault(0)
+        val control = mediaControl?.takeIf {
+            it.currentMediaItem?.localConfiguration?.uri == music.uri && it.currentMediaItem != null
+        } ?: return
+        val pos = control.currentPosition
         val shuffle = shuffleEnabled.value
         val repeat = runCatching { control?.repeatMode ?: REPEAT_MODE_ALL }.getOrDefault(REPEAT_MODE_ALL)
         runBlocking(Dispatchers.IO) {

@@ -46,6 +46,7 @@ import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.SearchTextField
 import yos.music.player.ui.widgets.basic.ShadowImage
 import yos.music.player.ui.widgets.basic.Title
+import yos.music.player.ui.widgets.basic.TitleBarIcon
 import yos.music.player.ui.widgets.basic.TitleWithLazyVerticalGrid
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -117,8 +118,12 @@ fun LocalAlbums(
                     navController.popBackStack()
                 },
                 state = listState,
-                rightIcon = Icons.Rounded.Sort,
-                onRightIcon = { showSort.value = true }
+                rightBarIcon = {
+                    TitleBarIcon(
+                        icon = Icons.Rounded.Sort,
+                        onBack = { showSort.value = true }
+                    )
+                }
             ) {
                 item("SearchField", span = { GridItemSpan(2) }) {
                     val keyboardController = LocalSoftwareKeyboardController.current

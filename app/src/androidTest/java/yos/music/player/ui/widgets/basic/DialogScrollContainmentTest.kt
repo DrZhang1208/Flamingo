@@ -25,12 +25,20 @@ class DialogScrollContainmentTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun sameGestureAtTopStaysExpandedButNextGestureDismisses() {
+        assertScrollContainment(scrollContent = true)
+    }
+
+    @Test fun lyricListWithoutOuterScrollerKeepsTheSameDismissBoundary() {
+        assertScrollContainment(scrollContent = false)
+    }
+
+    private fun assertScrollContainment(scrollContent: Boolean) {
         var dismissals = 0
         lateinit var sheet: androidx.compose.material3.SheetState
         compose.setContent {
             MaterialTheme {
                 sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-                OptionDialog(icon = {}, title = "Lyrics", bottomSheetState = sheet,
+                OptionDialog(icon = {}, title = "Lyrics", bottomSheetState = sheet, scrollContent = scrollContent,
                     content = {
                         LazyColumn(Modifier.height(200.dp).testTag("list"), state = rememberLazyListState(initialFirstVisibleItemIndex = 1)) {
                             items(30) { Text("Lyric $it", Modifier.height(40.dp).padding(8.dp)) }

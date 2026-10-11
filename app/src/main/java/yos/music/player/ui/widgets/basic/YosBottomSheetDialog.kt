@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetDefaults
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -39,11 +39,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
@@ -54,7 +54,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.theme.YosRoundedCornerShape
@@ -67,6 +66,7 @@ private fun YosBottomSheetDialog(
     properties: ModalBottomSheetProperties,
     cornerRadius: () -> Dp,
     bottomContentPadding: Dp = 26.dp,
+    scrollContent: Boolean = true,
     onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -87,9 +87,10 @@ private fun YosBottomSheetDialog(
         }
     }
 
-    val shape = YosRoundedCornerShape(cornerRadius())
+    val radius = cornerRadius()
+    val shape = remember(radius) { YosRoundedCornerShape(radius) }
     val scope = rememberCoroutineScope()
-    val elasticLimit = with(LocalDensity.current) { 24.dp.toPx() }
+    val elasticLimit = with(LocalDensity.current) { 48.dp.toPx() }
     val elastic = remember(scope, elasticLimit) { DialogElasticMotion(scope, elasticLimit) }
 
     ModalBottomSheet(
@@ -102,11 +103,12 @@ private fun YosBottomSheetDialog(
         properties = properties,
         shape = RectangleShape,
         content = {
+            DialogRefreshRate()
             Surface(modifier = Modifier
                 .containDialogScroll(elastic)
                 .padding(vertical = 5.dp, horizontal = 5.dp)
                 .graphicsLayer {
-                    this.shape = if (cornerRadius() != 0.dp) {
+                    this.shape = if (radius != 0.dp) {
                         shape
                     } else {
                         RectangleShape
@@ -123,7 +125,7 @@ private fun YosBottomSheetDialog(
                         Modifier
                             .fillMaxWidth()
                             .padding(start = 26.dp, top = 26.dp, end = 26.dp, bottom = bottomContentPadding)
-                            .verticalScroll(rememberScrollState())
+                            .then(if (scrollContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                     ) {
                         content()
                     }
@@ -215,7 +217,7 @@ fun OptionDialog(
     icon: @Composable () -> Unit,
     title: String,
     subTitle: String? = null,
-    content: (@Composable (dismiss: () -> Unit) -> Unit)?,
+    content: (@Composable (dismiss: DialogDismissAction) -> Unit)?,
     positiveContent: String? = null,
     negativeContent: String? = null,
     dismissOnPositive: Boolean = true,
@@ -224,6 +226,7 @@ fun OptionDialog(
     contentKey: Any? = null,
     contentBottomSpacing: Dp = 19.5.dp,
     bottomContentPadding: Dp = 26.dp,
+    scrollContent: Boolean = true,
     bottomSheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     properties: ModalBottomSheetProperties = ModalBottomSheetDefaults.properties(),
     cornerRadius: () -> Dp = { SettingsLibrary.ScreenCorner.toInt().dp },
@@ -233,19 +236,24 @@ fun OptionDialog(
 ) {
     val scope = rememberCoroutineScope()
 
-    val animatedDismiss: () -> Unit = {
-        scope.launch {
-            bottomSheetState.hide()
-            onDismissRequest()
-        }
+    val currentOnDismiss by rememberUpdatedState(onDismissRequest)
+    val dismissController = remember(scope, bottomSheetState) {
+        DialogDismissController(scope,
+            hide = {
+                bottomSheetState.hide()
+                bottomSheetState.currentValue == SheetValue.Hidden
+            },
+            dismissed = { currentOnDismiss() })
     }
+    val animatedDismiss = remember(dismissController) { DialogDismissAction(dismissController::request) }
 
     YosBottomSheetDialog(
         bottomSheetState = bottomSheetState,
         properties = properties,
         onDismissRequest = animatedDismiss,
         cornerRadius = cornerRadius,
-        bottomContentPadding = bottomContentPadding
+        bottomContentPadding = bottomContentPadding,
+        scrollContent = scrollContent
     ) {
         // println(cornerRadius())
         DialogTitle(icon = icon, title = title, subTitle = subTitle, horizontal = horizontalTitle)
@@ -294,11 +302,7 @@ fun OptionDialog(
                                 .clip(smoothShape)
                                 .clickable {
                                     if (dismissOnPositive) {
-                                        scope.launch {
-                                            bottomSheetState.hide()
-                                            onPositive?.invoke()
-                                            onDismissRequest()
-                                        }
+                                        dismissController.confirm { onPositive?.invoke() }
                                     } else onPositive?.invoke()
                                 },
                             contentAlignment = Alignment.Center
@@ -323,11 +327,7 @@ fun OptionDialog(
                                 )
                                 .clickable {
                                     if (dismissOnNegative) {
-                                        scope.launch {
-                                            bottomSheetState.hide()
-                                            onNegative?.invoke()
-                                            onDismissRequest()
-                                        }
+                                        dismissController.confirm { onNegative?.invoke() }
                                     } else onNegative?.invoke()
                                 },
                             contentAlignment = Alignment.Center

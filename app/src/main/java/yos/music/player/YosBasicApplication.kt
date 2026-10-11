@@ -15,6 +15,8 @@ import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import yos.music.player.code.MediaController.mediaControl
 import yos.music.player.code.MediaController.musicPlaying
 import yos.music.player.code.MediaController.playingMusicList
@@ -95,6 +97,34 @@ class YosBasicApplication : Application() {
         MusicLibrary.initPlaybackPersistence(this)
         MediaViewModelObject.isPlaying.value = false
 
+        // The tiny committed preview is available before Activity's first composition.
+        val cachedStatus = yos.music.player.data.playback.PlaybackStartupCache.read()
+        var prefetchedArtwork: Uri? = null
+        fun showStartupStatus(status: yos.music.player.data.libraries.PlayStatus) {
+            val music = status.music ?: return
+            yos.music.player.code.MediaController.restoredPlayStatus.value = status
+            musicPlaying.value = music
+            MediaViewModelObject.setNowPlayingBackground(music.uri?.toString(), music.thumb)
+            music.thumb?.takeIf { it != prefetchedArtwork }?.let {
+                prefetchedArtwork = it
+                val width = resources.displayMetrics.widthPixels.coerceAtLeast(1)
+                coil.Coil.imageLoader(this).enqueue(
+                    yos.music.player.ui.widgets.nowPlayingArtworkRequest(this, it, width))
+            }
+        }
+        cachedStatus?.let(::showStartupStatus)
+        // Read current status independently of service binding and before the potentially large queue.
+        val startupStatus = CoroutineScope(Dispatchers.IO).async {
+            MusicLibrary.loadPlayStatus().also { status ->
+                withContext(Dispatchers.Main) {
+                    if (mediaControl?.currentMediaItem == null &&
+                        (musicPlaying.value == null || musicPlaying.value === cachedStatus?.music)) {
+                        showStartupStatus(status)
+                    }
+                }
+            }
+        }
+
         // 初始化媒体控制器
         val sessionToken = SessionToken(this, ComponentName(this, YosPlaybackService::class.java))
         val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
@@ -105,33 +135,20 @@ class YosBasicApplication : Application() {
 
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
+                        val playStatusData = startupStatus.await()
                         val playListData = MusicLibrary.loadPlayList()
-                        val playStatusData = MusicLibrary.loadPlayStatus()
 
                         val savedMusic = playStatusData.music
                         val savedPlayingMusicList = playListData.playingMusicList
 
-                        // 切到主线程修改 Compose State，避免 snapshot 锁竞争
                         if (savedMusic != null) {
-                            mainHandler.post {
-                                MediaViewModelObject.isPlaying.value = false
-                                musicPlaying.value = savedMusic
-                            }
-                        }
-
-                        if (savedPlayingMusicList != null && savedPlayingMusicList.isNotEmpty()) {
-                            if (savedMusic != null) {
-                                val savedSourceList = playListData.sourceMusicList
-                                yos.music.player.code.MediaController.prepare(
-                                    savedMusic, savedPlayingMusicList,
-                                    playStatusData.position,
-                                    playStatusData.shuffleModeEnabled,
-                                    playStatusData.repeatMode,
-                                    false,
-                                    savedSourceList
-                                )
-                            }
-                            mainHandler.post { playingMusicList.value = savedPlayingMusicList }
+                            val queue = savedPlayingMusicList?.takeIf { songs -> songs.any { it.uri == savedMusic.uri } }
+                                ?: listOf(savedMusic)
+                            yos.music.player.code.MediaController.prepare(
+                                savedMusic, queue, playStatusData.position,
+                                playStatusData.shuffleModeEnabled, playStatusData.repeatMode,
+                                false, playListData.sourceMusicList
+                            )
                         }
 
                         // 清理过期标签缓存（超过 30 天未更新的标签）

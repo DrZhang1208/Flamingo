@@ -21,6 +21,26 @@ class NativeLyricRendererTest {
     private val measurer = TextMeasurer(createFontFamilyResolver(context), density, LayoutDirection.Ltr)
     private val dim = Color(0x47FFFFFF)
 
+    @Test fun standaloneZeroDurationSpaceKeepsWidthAndFollowsAdjacentWordMotion() {
+        val line = yos.music.player.code.utils.lrc.YosLrcFactory().formatLrcEntries(
+            "[00:01.000]Hello[00:02.000] [00:02.000]world[00:03.000]"
+        ).single()
+        val layout = measurer.measure(line.text, TextStyle(fontSize = 32.sp))
+        val paragraph = nativeLyricParagraph(layout, line.tokens)
+        val spaces = paragraph.glyphs.filter { it.whitespace }
+        val before = paragraph.glyphs.last { it.textOffset == 4 }
+        val after = paragraph.glyphs.first { it.textOffset == 6 }
+        assertEquals("Hello world", layout.layoutInput.text.text)
+        assertEquals(2, spaces.size)
+        assertTrue(layout.getBoundingBox(5).width > 0f)
+        assertTrue(after.left > before.right)
+        assertEquals(before.upliftMotion, spaces.first().upliftMotion)
+        assertEquals(after.upliftMotion, spaces.last().upliftMotion)
+        for (time in listOf(1900f, 2000f, 2100f, 3200f)) {
+            render(paragraph, time).recycle()
+        }
+    }
+
     private fun render(paragraph: NativeLyricParagraph, time: Float, reference: Boolean = false, rise: Float = 4f,
         lineHighlight: NativeLineHighlight? = null, ttmlEffects: Boolean = false, uniformColor: Boolean = false): Bitmap {
         val bitmap = Bitmap.createBitmap(paragraph.layout.size.width + 20,

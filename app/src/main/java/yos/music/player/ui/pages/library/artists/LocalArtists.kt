@@ -69,6 +69,7 @@ import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.SearchTextField
 import yos.music.player.ui.widgets.basic.Title
+import yos.music.player.ui.widgets.basic.TitleBarIcon
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
@@ -135,8 +136,12 @@ fun LocalArtists(navController: NavController) {
                     navController.popBackStack()
                 },
                 state = listState,
-                rightIcon = Icons.Rounded.Sort,
-                onRightIcon = { showSort.value = true }
+                rightBarIcon = {
+                    TitleBarIcon(
+                        icon = Icons.Rounded.Sort,
+                        onBack = { showSort.value = true }
+                    )
+                }
             ) {
                 item("SearchField") {
                     val keyboardController = LocalSoftwareKeyboardController.current

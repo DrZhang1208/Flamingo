@@ -32,6 +32,25 @@ class DialogElasticMotionTest {
         assertEquals(before, motion.offset, 0.0001f)
     }
 
+    @Test fun longerPullRemainsResponsiveInsteadOfHittingAnEarlyHardStop() {
+        val start = dialogElasticOffset(1f, 48f)
+        assertTrue(start < -0.45f && start > -0.5f)
+        assertTrue(dialogElasticOffset(300f, 48f) - dialogElasticOffset(400f, 48f) > 2f)
+    }
+
+    @Test fun upwardPullFlingDoesNotAlsoSettleTheMaterialSheet() = kotlinx.coroutines.runBlocking {
+        val boundary = DialogScrollBoundary(DialogElasticMotion(this, 48f))
+        boundary.startGesture()
+        boundary.onPostScroll(androidx.compose.ui.geometry.Offset.Zero,
+            androidx.compose.ui.geometry.Offset(0f, -150f),
+            androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput)
+        val velocity = androidx.compose.ui.unit.Velocity(0f, -2000f)
+        assertEquals(velocity, boundary.onPostFling(androidx.compose.ui.unit.Velocity.Zero, velocity))
+        boundary.startGesture()
+        assertEquals(androidx.compose.ui.unit.Velocity.Zero,
+            boundary.onPostFling(androidx.compose.ui.unit.Velocity.Zero, velocity))
+    }
+
     @Test fun upwardEdgeDragYieldsButScrollingContentNeverStretchesSheet() {
         val motion = DialogElasticMotion(CoroutineScope(Dispatchers.Unconfined), 24f)
         val boundary = DialogScrollBoundary(motion)

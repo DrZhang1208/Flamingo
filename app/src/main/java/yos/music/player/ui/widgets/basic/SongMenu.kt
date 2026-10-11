@@ -113,7 +113,7 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                     Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
                 ) {
                     val items = buildList {
-                        add(Triple("添加到歌单", Icons.Filled.Add, { dismiss(); showPlaylistPicker = true }))
+                        add(Triple("添加到歌单", Icons.Filled.Add, { dismiss.after { showPlaylistPicker = true } }))
                         if (showRemoveFromPlaylist) {
                             val (playlistTitle, _) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
                             val targetPlaylist = PlayListLibrary.playList.find { it.name == playlistTitle }
@@ -143,18 +143,26 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                         }))
                         if (showArtistMenuItem && hasMultipleArtists) {
                             add(Triple("歌手", Icons.Filled.Person, {
-                                dismiss(); showArtistPicker = true
+                                dismiss.after { showArtistPicker = true }
                             }))
                         } else if (showArtistMenuItem) {
                             add(Triple("歌手", Icons.Filled.Person, {
-                                music.artistsList?.firstOrNull()?.let { artist -> yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist); navController?.toUI(UI.ArtistInfo) }
-                                dismiss()
+                                dismiss.after {
+                                    music.artistsList?.firstOrNull()?.let { artist ->
+                                        yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                        navController?.toUI(UI.ArtistInfo)
+                                    }
+                                }
                             }))
                         }
                         if (showAlbumMenuItem && music.album != null) {
                             add(Triple("专辑", Icons.Filled.Album, {
-                                music.album?.let { album -> yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album); navController?.toUI(UI.AlbumInfo) }
-                                dismiss()
+                                dismiss.after {
+                                    music.album?.let { album ->
+                                        yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
+                                        navController?.toUI(UI.AlbumInfo)
+                                    }
+                                }
                             }))
                         }
                         add(Triple(if (FavPlayListLibrary.isFavorite(music)) "从喜爱移除" else "添加到喜爱",
@@ -164,7 +172,7 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                             else FavPlayListLibrary.addMusic(music)
                             dismiss()
                         }))
-                        add(Triple("详细信息", Icons.Outlined.Info, { dismiss(); showDetail = true }))
+                        add(Triple("详细信息", Icons.Outlined.Info, { dismiss.after { showDetail = true } }))
                     }
                     items.forEachIndexed { index, (label, icon, onClick) ->
                         if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
@@ -215,9 +223,10 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                         if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
                         Row(
                             Modifier.fillMaxWidth().height(48.dp).clickable {
-                                yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
-                                navController.toUI(UI.ArtistInfo)
-                                dismiss()
+                                dismiss.after {
+                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                    navController.toUI(UI.ArtistInfo)
+                                }
                             }.padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

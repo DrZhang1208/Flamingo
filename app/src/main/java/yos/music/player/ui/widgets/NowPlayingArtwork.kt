@@ -62,6 +62,15 @@ private data class ArtworkLayers(
     val progress: Animatable<Float, AnimationVector1D> = Animatable(1f)
 )
 
+internal fun nowPlayingArtworkRequest(context: android.content.Context, data: Any?, width: Int): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(data ?: R.drawable.placeholder_music_default_artwork)
+        .size(width).precision(Precision.INEXACT)
+        .crossfade(false)
+        .placeholder(R.drawable.placeholder_music_default_artwork)
+        .error(R.drawable.placeholder_music_default_artwork)
+        .build()
+
 /** One loading request and one interruptible fade belong to the whole player. */
 @Composable
 internal fun rememberNowPlayingArtwork(
@@ -70,13 +79,7 @@ internal fun rememberNowPlayingArtwork(
     val context = LocalContext.current
     val width = (LocalConfiguration.current.screenWidthDp * LocalDensity.current.density).roundToInt().coerceAtLeast(1)
     val request = remember(context, data, width) {
-        ImageRequest.Builder(context)
-            .data(data ?: R.drawable.placeholder_music_default_artwork)
-            .size(width).precision(Precision.INEXACT)
-            .crossfade(false)
-            .placeholder(R.drawable.placeholder_music_default_artwork)
-            .error(R.drawable.placeholder_music_default_artwork)
-            .build()
+        nowPlayingArtworkRequest(context, data, width)
     }
     val loaderPainter = rememberAsyncImagePainter(request, imageLoader = imageLoader)
     val fallback = painterResource(R.drawable.placeholder_music_default_artwork)
@@ -86,8 +89,15 @@ internal fun rememberNowPlayingArtwork(
         else -> null
     }
     var layers by remember { mutableStateOf(ArtworkLayers(fallback, fallback)) }
+    var hasArtwork by remember { mutableStateOf(false) }
     LaunchedEffect(loaded) {
         if (loaded != null) {
+            // A restored cover is an initial state, not a track-change animation.
+            if (!hasArtwork) {
+                layers = ArtworkLayers(loaded, loaded)
+                hasArtwork = data != null && loaderPainter.state is AsyncImagePainter.State.Success
+                return@LaunchedEffect
+            }
             if (loaded !== layers.next) {
                 // Each transition owns its clock: resetting a shared clock would redraw
                 // the previous surface at zero before recomposition installs the snapshot.
