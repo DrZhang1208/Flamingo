@@ -2,6 +2,17 @@
 
 package yos.music.player.ui.pages
 
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+
+import androidx.compose.runtime.SideEffect
+import yos.music.player.ui.widgets.playerWindowLayout
+import yos.music.player.ui.widgets.playerWindowPane
+import yos.music.player.ui.widgets.PlayerContentVisibility
+import androidx.compose.ui.graphics.TransformOrigin
+import yos.music.player.ui.widgets.playerHeaderModifier
+import yos.music.player.ui.widgets.clipPlayerLyrics
+
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
@@ -23,8 +34,8 @@ import androidx.compose.animation.AnimatedContent
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -66,6 +77,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +89,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -87,6 +100,8 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
@@ -101,8 +116,6 @@ import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.SliderPositions
 import androidx.compose.material3.Surface
@@ -122,6 +135,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.runtime.withFrameMillis
+import kotlinx.coroutines.isActive
+import yos.music.player.ui.widgets.drawPlaybackProgress
+import yos.music.player.ui.widgets.NativeLyricClock
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -131,18 +151,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -220,6 +235,11 @@ import yos.music.player.ui.pages.NowPlayingPage.PlayingList
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.widgets.YosLyricView
+import yos.music.player.ui.widgets.PlayerArtworkBridge
+import yos.music.player.ui.widgets.PlayerElementAnchors
+import yos.music.player.ui.widgets.ALBUM_ARTWORK_ENDPOINT
+import yos.music.player.ui.widgets.COMPACT_ARTWORK_ENDPOINT
+import androidx.compose.ui.graphics.painter.Painter
 import yos.music.player.ui.widgets.rememberArtworkPauseProgress
 import yos.music.player.ui.widgets.artworkSharedFrame
 import yos.music.player.ui.widgets.effects.YosFloatingLight
@@ -243,7 +263,6 @@ object NowPlayingPage {
     const val Lyric = "Lyric"
 }
 
-private const val ShareAlbumKey = "album"
 private const val AnimDurationMillis = 300
 
 /*
@@ -269,6 +288,8 @@ private val MaterialFadeOutTransitionSpec
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun NowPlaying(
+    artwork: Painter,
+    artworkBridge: PlayerArtworkBridge,
     mainViewModel: MainViewModel,
     mediaViewModel: MediaViewModel,
     navController: NavController,
@@ -280,11 +301,31 @@ fun NowPlaying(
     nowPageOnChanged: (String) -> Unit
 ) {
     val thisMusicPlaying = musicPlaying
+    val headerAnchors = remember { PlayerElementAnchors() }
+    val headerY = remember { Animatable(0f) }
+    val headerInitialized = remember { mutableStateOf(false) }
+    val albumHeaderY = headerAnchors.bounds["album"]?.center?.y
+    val compactHeaderY = headerAnchors.bounds["compact"]?.center?.y
+    val headerTarget = if (nowPageLambda() == Album) albumHeaderY ?: compactHeaderY else compactHeaderY ?: albumHeaderY
+    LaunchedEffect(headerTarget) {
+        if (headerTarget != null) {
+            if (!headerInitialized.value) {
+                headerY.snapTo(headerTarget)
+                headerInitialized.value = true
+            } else headerY.animateTo(headerTarget, spring(dampingRatio = 1f, stiffness = 360f))
+        }
+    }
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().onGloballyPositioned { headerAnchors.owner(it) },
         contentColor = Color.White,
         color = Color.Black
     ) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+        val windowHeight = maxHeight.value
+        val window = playerWindowLayout(maxWidth.value, windowHeight)
+        val compactWindow = window.compact
+        val splitWindow = window.split
+        val albumPage = nowPageLambda() == Album
         val context = LocalContext.current
 
         val lyricState: MutableState<NowPlayingLyricState> =
@@ -302,6 +343,7 @@ fun NowPlaying(
         val showControl = rememberSaveable(key = "NowPlaying_showControl") {
             mutableStateOf(true)
         }
+        val lyricViewportInsetPx = remember { mutableIntStateOf(0) }
         val lyricContentReady = rememberSaveable(key = "NowPlaying_lyricContentReady") {
             mutableStateOf(!showMiniPlayer())
         }
@@ -324,7 +366,6 @@ fun NowPlaying(
             mutableIntStateOf(mediaControl?.repeatMode ?: REPEAT_MODE_OFF)
         }
 
-        val controlsHeightPx = remember("NowPlaying_controlsHeightPx") { mutableIntStateOf(0) }
 
         /*val nowPage = rememberSaveable(key = "NowPlaying_nowPage") {
             MainViewModelObject.nowPage
@@ -400,14 +441,9 @@ fun NowPlaying(
             derivedStateOf { buttonEnabled.value && alpha.value != 0f }
         }*/
 
+            val artworkPainter = artwork
             val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
-            // Snapshot actual cover bounds at a page transition. Playback motion
-            // between transitions remains layer-only; shared bounds now include
-            // the paused size instead of snapping to it after the overlay ends.
-            val artworkLayoutProgress = remember(nowPageLambda()) { artworkPauseProgress.value }
-            // This key identifies the artwork position across pages, not the song.
-            // Changing songs mid-transition must not destroy the shared animation.
-            val sharedAlbumKey = ShareAlbumKey
+            SideEffect { artworkBridge.pauseProgress = { artworkPauseProgress.value } }
 
             fun requestNowPage(targetPage: String) {
                 if (nowPageLambda() != targetPage) nowPageOnChanged(targetPage)
@@ -418,7 +454,7 @@ fun NowPlaying(
             YosWrapper {
                 LaunchedEffect(nowPageLambda()) {
                     val targetAlpha = if (nowPageLambda() == Lyric) 1f else 0f
-                    alphaAnim.animateTo(targetAlpha)
+                    alphaAnim.animateTo(targetAlpha, tween(210, easing = FastOutSlowInEasing))
                 }
             }
 
@@ -435,22 +471,36 @@ fun NowPlaying(
 
                 Column(
                     Modifier
+                        .playerWindowPane(if (splitWindow) 0.5f else 0f, if (splitWindow) 0.5f else 1f)
                         .fillMaxSize()
+                        .clipPlayerLyrics(
+                            enabled = { !splitWindow && showControl.value },
+                            controlsTop = { headerAnchors.bounds["controls"]?.top },
+                            lyricsTop = { lyricViewportInsetPx.intValue.takeIf { it > 0 }?.toFloat() }
+                        )
                         .graphicsLayer {
                             compositingStrategy =
                                 CompositingStrategy.ModulateAlpha
                             this.alpha = alphaAnim.value
+                            val contentScale = 0.97f + 0.03f * alphaAnim.value
+                            scaleX = contentScale
+                            scaleY = contentScale
+                            transformOrigin = TransformOrigin(0.5f, 0.15f)
+                            val compact = headerAnchors.bounds["compact"]?.center?.y
+                            translationY = if (!splitWindow && compact != null && headerInitialized.value) headerY.value - compact else 0f
                         }
                 ) {
 
                     Lyric(
                           lyricState = { lyricState.value },
-                        weightLambda = { showControl.value },
-                        controlsHeightPxLambda = { controlsHeightPx.intValue },
+                        weightLambda = { !splitWindow && showControl.value },
+                        onViewportInsetChanged = { lyricViewportInsetPx.intValue = it },
+                        compactWindow = compactWindow,
+                        splitWindow = splitWindow,
                         translationLambda = { SettingsLibrary.NowPlayingTranslation },
                           shouldRenderContent = lyricContentReady.value || nowPageLambda() == Lyric,
                         showMiniPlayer = showMiniPlayer,
-                        userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric,
+                        userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric && !showMiniPlayer(),
                         renderActive = lyricRenderActive.value,
                         onLineLongPress = { index ->
                             lyricShareInitialIndex.intValue = index
@@ -493,41 +543,45 @@ fun NowPlaying(
             // 主 View
             YosWrapper {
                 SharedTransitionLayout {
-                    Crossfade(
-                        targetState = nowPageLambda(),
+                    AnimatedContent(
+                        transitionSpec = {
+                            (fadeIn(tween(210)) togetherWith fadeOut(tween(210))).using(SizeTransform(clip = false))
+                        },
+                        // The artwork has exactly two endpoints: album and compact.
+                        targetState = nowPageLambda() == Album,
                         modifier = Modifier
+                            .playerWindowPane(0f, if (splitWindow) 0.5f else 1f)
                             .fillMaxSize()
                             .statusBarsPadding()
-                            .padding(top = 22.dp)
+                            .padding(top = if (compactWindow) 8.dp else 22.dp)
                     ) {
-                        //println("nowPage: ${nowPageLambda()}")
-                        //println("nowPageIt: $it")
+                        val visibilityScope = this
+                        val sharedHeader: @Composable (String) -> Modifier = { key ->
+                            playerHeaderModifier(key, visibilityScope)
+                        }
                         when (it) {
-                            Album ->
+                            true ->
                                 Column(
                                     Modifier
                                         .fillMaxSize()
                                         .clickable(enabled = false, onClick = {})
                                 ) {
                                     YosWrapper {
-                                        Column(Modifier.fillMaxHeight(0.595f)) {
+                                        Column(Modifier.fillMaxHeight(if (splitWindow) 1f else if (compactWindow)
+                                            (1f - 220f / windowHeight).coerceIn(0.25f, 0.595f) else 0.595f)) {
                                             // Shared element 的可见性只跟页内状态走，避免播放页展开动画未完全 settle 时
                                             // showMiniPlayer() 仍为 true，导致从歌词页快速返回封面页缺少共享元素动画。
                                             val isVisible = nowPageLambda() == Album
 
                                             Album(
-                                                modifier = Modifier.sharedElementWithCallerManagedVisibility(
-                                                    sharedContentState = rememberSharedContentState(
-                                                          key = sharedAlbumKey
-                                                    ),
-                                                    visible = isVisible
-                                                ),
-                                                albumUrl = { thisMusicPlaying.value?.thumb },
-                                                pauseProgress = { artworkPauseProgress.value },
-                                                layoutProgress = artworkLayoutProgress
+                                                modifier = Modifier,
+                                                artwork = artworkPainter,
+                                                artworkBridge = artworkBridge,
+                                                compactWindow = compactWindow
                                             )
                                             AnimatedContent(
                                                 targetState = thisMusicPlaying.value,
+                                                contentKey = { Unit },
                                                 transitionSpec = {
                                                     fadeIn() togetherWith fadeOut()
                                                 }, modifier = Modifier.padding(horizontal = rememberAdaptive(32))
@@ -557,6 +611,7 @@ fun NowPlaying(
                                                                 }
                                                         ) {
                                                             Text(
+                                                                modifier = sharedHeader("title"),
                                                                 text = it?.title
                                                                     ?: defaultTitle,
                                                                 fontSize = 19.5.sp,
@@ -585,6 +640,7 @@ fun NowPlaying(
                                                                 }
                                                         ) {
                                                             Text(
+                                                                modifier = sharedHeader("artist"),
                                                                 text = it?.artistsName
                                                                     ?: defaultArtistsName,
                                                                 fontSize = 18.5.sp,
@@ -598,7 +654,12 @@ fun NowPlaying(
                                                     }
 
                                                     YosWrapper {
-                                                        ActionButtonsRow(navController = navController, closeSheet = closeSheet) {
+                                                        ActionButtonsRow(
+                                                            navController = navController, closeSheet = closeSheet,
+                                                            modifier = Modifier.onGloballyPositioned { headerAnchors.record("album", it) },
+                                                            favoriteModifier = sharedHeader("favorite"),
+                                                            menuModifier = sharedHeader("menu")
+                                                        ) {
                                                             it
                                                         }
                                                     }
@@ -608,48 +669,23 @@ fun NowPlaying(
                                     }
                                 }
 
-                            Lyric ->
-                                Column(Modifier.fillMaxSize()) {
-                                    YosWrapper {
-                                        val isVisible = nowPageLambda() == Lyric
-                                        PlayingBar(
-                                            modifier = Modifier.sharedElementWithCallerManagedVisibility(
-                                                sharedContentState = rememberSharedContentState(
-                                                      key = sharedAlbumKey
-                                                ),
-                                                visible = isVisible
-                                            ),
-                                            albumUrlLambda = {
-                                                thisMusicPlaying.value?.thumb
-                                            },
-                                            musicPlayingLambda = { thisMusicPlaying.value }) {
-                                              requestNowPage(Album)
-                                        }
-                                    }
-                                }
-
-                            PlayingList ->
+                            false ->
                                 YosWrapper {
-                                    Column(
-                                        Modifier
-                                            .fillMaxSize()
-                                            .clickable(enabled = false, onClick = {})
-                                    ) {
-                                        val isVisible = nowPageLambda() == PlayingList
+                                    Column(Modifier.fillMaxSize()) {
                                         PlayingBar(
-                                            modifier = Modifier.sharedElementWithCallerManagedVisibility(
-                                                sharedContentState = rememberSharedContentState(
-                                                      key = sharedAlbumKey
-                                                ),
-                                                visible = isVisible
-                                            ),
-                                            albumUrlLambda = {
-                                                thisMusicPlaying.value?.thumb
-                                            },
-                                            musicPlayingLambda = { thisMusicPlaying.value }) {
-                                              requestNowPage(Album)
-                                        }
-                                        YosWrapper {
+                                            modifier = Modifier,
+                                            artwork = artworkPainter,
+                                            artworkBridge = artworkBridge,
+                                            compactWindow = compactWindow,
+                                            titleModifier = sharedHeader("title"),
+                                            artistModifier = sharedHeader("artist"),
+                                            favoriteModifier = sharedHeader("favorite"),
+                                            menuModifier = sharedHeader("menu"),
+                                            actionsModifier = Modifier.onGloballyPositioned { headerAnchors.record("compact", it) },
+                                            musicPlayingLambda = { thisMusicPlaying.value }
+                                        ) { requestNowPage(Album) }
+                                        if (!splitWindow) PlayerContentVisibility(nowPageLambda() == PlayingList) {
+                                            Column {
                                             PlayingList(
                                                 navController = navController,
                                                 shuffleModeEnabledLambda = { shuffleModeEnabled.value },
@@ -662,6 +698,7 @@ fun NowPlaying(
                                                 },
                                                 thisMusicPlayingLambda = { thisMusicPlaying.value }
                                             )
+                                            }
                                         }
                                     }
                                 }
@@ -670,22 +707,42 @@ fun NowPlaying(
                 }
             }
 
+            if (splitWindow) {
+                PlayerContentVisibility(
+                    visible = nowPageLambda() == PlayingList,
+                    modifier = Modifier.playerWindowPane(0.5f, 0.5f).fillMaxSize().statusBarsPadding()
+                ) {
+                Column(Modifier.fillMaxSize()) {
+                    PlayingList(
+                        navController = navController,
+                        shuffleModeEnabledLambda = { shuffleModeEnabled.value },
+                        shuffleModeOnChanged = { shuffleModeEnabled.value = it },
+                        repeatModeLambda = { repeatMode.intValue },
+                        repeatModeOnChanged = { repeatMode.intValue = it },
+                        thisMusicPlayingLambda = { thisMusicPlaying.value },
+                        fillAvailableHeight = true
+                    )
+                }
+                }
+            }
+
             // 音乐控制
             YosWrapper {
                 Column(
                     Modifier
+                        .playerWindowPane(if (splitWindow && albumPage) 0.5f else 0f, if (splitWindow) 0.5f else 1f)
                         .fillMaxSize()
                         .statusBarsPadding(), verticalArrangement = Arrangement.Bottom
                 ) {
                     Box(
                         Modifier
                             /*.fillMaxHeight(0.385f)*/
-                            .fillMaxHeight(0.437f)
+                            .fillMaxHeight(if (compactWindow) 1f else 0.437f)
                             .fillMaxWidth()
                     ) playerOverlayBox@ {
 
                         YosWrapper {
-                            if (showControl.value) {
+                            if (showControl.value && !compactWindow) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -705,16 +762,18 @@ fun NowPlaying(
                             ) {
                                 AnimatedVisibility(
                                     visible = showControl.value,
-                                    enter = fadeIn(tween(durationMillis = 260, easing = EaseOutQuart)) + expandVertically(
-                                        animationSpec = tween(durationMillis = 260, easing = EaseOutQuart),
+                                    enter = fadeIn(tween(durationMillis = 200, easing = EaseOutQuart)) + expandVertically(
+                                        animationSpec = tween(durationMillis = 200, easing = EaseOutQuart),
                                         expandFrom = Alignment.Top,
                                         initialHeight = { (it / 1.4).toInt() }),
-                                    exit = fadeOut(tween(durationMillis = 260, easing = EaseOutQuart)) + shrinkVertically(
-                                        animationSpec = tween(durationMillis = 260, easing = EaseOutQuart),
+                                    exit = fadeOut(tween(durationMillis = 200, easing = EaseOutQuart)) + shrinkVertically(
+                                        animationSpec = tween(durationMillis = 200, easing = EaseOutQuart),
                                         shrinkTowards = Alignment.Top,
                                         targetHeight = { (it / 1.4).toInt() })
                                 ) {
                                     PlayerControl(
+                                        compactWindow = compactWindow,
+                                        renderActive = !showMiniPlayer(),
                                         isPlayingLambda = isPlayingStatusLambda,
                                         isPlayingOnChanged = isPlayingOnChanged,
                                         onPrevious = {
@@ -758,8 +817,8 @@ fun NowPlaying(
                                                     CompositingStrategy.Offscreen
                                                 //this.alpha = controlAlpha.value
                                             }*/
-                                            .padding(top = rememberAdaptive(52))
-                                            .onSizeChanged { controlsHeightPx.intValue = it.height },
+                                            .padding(top = if (compactWindow) 0.dp else rememberAdaptive(52))
+                                            .onGloballyPositioned { headerAnchors.record("controls", it) },
                                         onWhile = {
                                             shuffleModeEnabled.value =
                                                 shuffleEnabled.value
@@ -773,7 +832,7 @@ fun NowPlaying(
                         // The APK places MSS as a sibling overlay of the whole
                         // control panel. Its expansion therefore grows upward
                         // without participating in PlayerControl measurement.
-                        if (showControl.value && nowPageLambda() == Lyric) {
+                        if (!compactWindow && showControl.value && nowPageLambda() == Lyric) {
                             val vocalBottomOffset =
                                 if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
                             VocalSeparationControl(
@@ -805,7 +864,7 @@ fun NowPlaying(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ShadowImageWithCache(
                             dataLambda = { m.thumb }, contentDescription = null,
-                            modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                            modifier = Modifier.size(56.dp), cornerRadius = 8.dp,
                             shadowAlpha = 0f, imageQuality = ImageQuality.LOW
                         )
                     }
@@ -846,21 +905,23 @@ fun NowPlaying(
             )
         }
 
+        }
     }
 }
 
 @Composable
 private fun ColumnScope.Album(
     modifier: Modifier,
-    albumUrl: () -> Uri?,
-    pauseProgress: () -> Float,
-    layoutProgress: Float
-) = Box(
+    artwork: Painter,
+    artworkBridge: PlayerArtworkBridge,
+    compactWindow: Boolean = false
+) = BoxWithConstraints(
     Modifier
         .weight(1f)
-        .padding(top = 20.dp)
+        .fillMaxWidth()
+        .padding(top = if (compactWindow) 4.dp else 32.dp)
         .padding(horizontal = 15.dp)
-        .padding(bottom = 33.dp),
+        .padding(bottom = if (compactWindow) 8.dp else 21.dp),
     contentAlignment = Alignment.BottomCenter
 ) {
     val albumShape = YosRoundedCornerShape(8)
@@ -868,33 +929,22 @@ private fun ColumnScope.Album(
     YosWrapper {
         Box(
             Modifier
-                .fillMaxWidth()
-                .artworkSharedFrame(modifier, pauseProgress, layoutProgress)
+                .size(minOf(maxWidth, maxHeight))
+                .artworkSharedFrame(modifier) { 0f }
                 .shadow(
-                    elevation = 24.dp, shape = albumShape, clip = false,
+                    elevation = 0.dp, shape = albumShape, clip = false,
                     ambientColor = Color.Black.copy(alpha = 0.36f),
                     spotColor = Color.Black.copy(alpha = 0.36f)
                 )
         ) {
-            Crossfade(
-                targetState = albumUrl(),
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                animationSpec = tween(250),
-                label = "AlbumCoverCrossfade"
-            ) { url ->
-                val context = LocalContext.current
-                val request = remember(context, url) {
-                    ImageRequest.Builder(context)
-                        .data(url ?: R.drawable.placeholder_music_default_artwork)
-                        .crossfade(false).build()
-                }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null, 
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(albumShape)
-                )
-            }
+            Image(
+                painter = artwork,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(albumShape)
+                    .onGloballyPositioned { artworkBridge.record(ALBUM_ARTWORK_ENDPOINT, it) }
+                    .graphicsLayer { alpha = 0f }
+            )
         }
     }
 }
@@ -908,7 +958,8 @@ private fun PlayingList(
     shuffleModeOnChanged: (Boolean) -> Unit,
     repeatModeLambda: () -> Int,
     repeatModeOnChanged: (Int) -> Unit,
-    thisMusicPlayingLambda: () -> YosMediaItem?
+    thisMusicPlayingLambda: () -> YosMediaItem?,
+    fillAvailableHeight: Boolean = false
 ) {
     val context = LocalContext.current
 
@@ -922,7 +973,7 @@ private fun PlayingList(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.545f),
+                .fillMaxHeight(if (fillAvailableHeight) 1f else 0.545f),
         ) {
             val hide = remember("PlayingList_hide") {
                 derivedStateOf {
@@ -1243,7 +1294,9 @@ private fun LazyItemScope.SmallMusicListItem(music: YosMediaItem, navController:
 private fun Lyric(
     lyricState: () -> NowPlayingLyricState,
     weightLambda: () -> Boolean,
-    controlsHeightPxLambda: () -> Int,
+    onViewportInsetChanged: (Int) -> Unit,
+    compactWindow: Boolean = false,
+    splitWindow: Boolean = false,
     translationLambda: () -> Boolean,
     shouldRenderContent: Boolean,
     mainViewModel: MainViewModel,
@@ -1256,10 +1309,6 @@ private fun Lyric(
 ) = YosWrapper {
 
     val context = LocalContext.current
-    val controlsProgress = animateFloatAsState(
-        targetValue = if (weightLambda()) 1f else 0f,
-        animationSpec = tween(durationMillis = 260, easing = EaseOutQuart)
-    )
 
 
     Column(
@@ -1268,7 +1317,11 @@ private fun Lyric(
     ) {
         YosWrapper {
 
-            Spacer(modifier = Modifier.statusBarsHeight(110.dp))
+            // Measure the fixed spacer, not global bounds inside the animated layer.
+            // Graphics-layer motion need not dispatch another layout callback.
+            Spacer(modifier = Modifier
+                .statusBarsHeight(if (splitWindow) 16.dp else if (compactWindow) 94.dp else 110.dp)
+                .onSizeChanged { onViewportInsetChanged(it.height) })
 
               // 歌词控件较重，首次打开播放页时延后到展开动画结束后再初始化；
               // 若用户直接切到歌词页，则立即渲染，避免和页面展开动画争主线程。
@@ -1280,6 +1333,7 @@ private fun Lyric(
                           (mediaControl?.currentPosition ?: 0).toInt()
                       },
                       userScrollEnabled = userScrollEnabled,
+                      interactionEnabled = userScrollEnabled,
                       renderActive = renderActive,
                       mediaEvent = object : YosMediaEvent {
                           override fun onSeek(position: Int) {
@@ -1296,55 +1350,7 @@ private fun Lyric(
                           subTextSize = SettingsLibrary.TranslationFontSize
                       ),
                       weightLambda = weightLambda,
-                      modifier = Modifier.drawWithCache {
-                              val overlayPaint = Paint().apply {
-                                  blendMode = BlendMode.Plus
-                              }
-                              val rect = Rect(0f, 0f, size.width, size.height)
-                              val p = controlsProgress.value.coerceIn(0f, 1f)
-                              val fallbackMaskHeightPx = size.height * 0.38f
-                              val measuredMaskHeightPx = controlsHeightPxLambda().toFloat()
-                              val maskHeightPx = ((if (measuredMaskHeightPx > 0f) measuredMaskHeightPx else fallbackMaskHeightPx) * p)
-                                  .coerceIn(0f, size.height)
-                              val extraPx = 80.dp.toPx()
-                              val fadePx = 70.dp.toPx()
-
-                              val cutStart = (1f - ((maskHeightPx + extraPx) / size.height)).coerceIn(0f, 1f)
-                              val fadeLen = (fadePx / size.height).coerceIn(0.001f, 0.15f)
-                              val cutFadeEnd = (cutStart + fadeLen).coerceIn(cutStart, 1f)
-
-                              val colors = if (p == 0f) {
-                                  arrayOf(
-                                      0f to Color.Transparent,
-                                      0.025f to Color(0x59000000),
-                                      0.05f to Color.Black,
-                                      1f to Color.Black
-                                  )
-                              } else {
-                                  arrayOf(
-                                      0f to Color.Transparent,
-                                      0.025f to Color(0x59000000),
-                                      0.05f to Color.Black,
-                                      cutStart to Color.Black,
-                                      cutFadeEnd to Color.Transparent,
-                                      1f to Color.Transparent
-                                  )
-                              }
-
-                              val maskBrush = Brush.verticalGradient(colorStops = colors)
-                          onDrawWithContent {
-                              val canvas = this.drawContext.canvas
-                              canvas.saveLayer(rect, overlayPaint)
-                              drawContent()
-
-                              drawRect(
-                                  brush = maskBrush,
-                                  blendMode = BlendMode.DstIn
-                              )
-
-                              canvas.restore()
-                          }
-                      },
+                      modifier = Modifier,
                       onLineLongPress = onLineLongPress,
                       onBackClick = onBackClick
                   )
@@ -1365,7 +1371,6 @@ private fun LyricShareSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val shareEntries = remember(entries) { entries.filter { it.text.isNotBlank() && !it.isCountdown } }
     val initialTime = entries.getOrNull(initialIndex)?.startMs
     val initialShareIndex = remember(shareEntries, initialTime) {
@@ -1400,7 +1405,9 @@ private fun LyricShareSheet(
             working.value = true
             runCatching {
                 val bitmap = renderCard()
-                val intent = withContext(Dispatchers.IO) { LyricCardExporter.createShareIntent(context, bitmap) }
+                val intent = try {
+                    withContext(Dispatchers.IO) { LyricCardExporter.createShareIntent(context, bitmap) }
+                } finally { bitmap.recycle() }
                 context.startActivity(Intent.createChooser(intent, context.getString(R.string.lyric_share_to)))
             }.onFailure { Toast.makeText(context, shareFailed, Toast.LENGTH_SHORT).show() }
             working.value = false
@@ -1413,7 +1420,9 @@ private fun LyricShareSheet(
             working.value = true
             runCatching {
                 val bitmap = renderCard()
-                withContext(Dispatchers.IO) { LyricCardExporter.saveToPictures(context, bitmap) }
+                try {
+                    withContext(Dispatchers.IO) { LyricCardExporter.saveToPictures(context, bitmap) }
+                } finally { bitmap.recycle() }
             }.onSuccess {
                 Toast.makeText(context, saveSuccess, Toast.LENGTH_SHORT).show()
             }.onFailure {
@@ -1423,74 +1432,104 @@ private fun LyricShareSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-            Text(
-                stringResource(R.string.lyric_share_title, selected.value.size),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
+    OptionDialog(
+        icon = {
+            ShadowImageWithCache(
+                dataLambda = { music?.thumb }, contentDescription = null,
+                modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
+                shadowAlpha = 0f, imageQuality = ImageQuality.LOW
             )
-            Text(
-                stringResource(R.string.lyric_share_subtitle, selected.value.size),
-                modifier = Modifier.alpha(0.55f).padding(top = 4.dp, bottom = 12.dp)
-            )
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 430.dp)) {
-                itemsIndexed(shareEntries) { index, line ->
-                    val checked = index in selected.value
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp)
-                            .clip(YosRoundedCornerShape(12.dp))
-                            .background(
-                                if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
-                            )
-                            .clickable {
-                                selected.value = if (checked) {
-                                    selected.value - index
-                                } else if (selected.value.size < 14) {
-                                    selected.value + index
-                                } else selected.value
+        },
+        title = stringResource(R.string.lyric_share_title, selected.value.size),
+        subTitle = stringResource(R.string.lyric_share_subtitle, selected.value.size),
+        horizontalTitle = true,
+        contentBottomSpacing = 0.dp,
+        bottomContentPadding = 16.dp,
+        content = {
+            val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialShareIndex.coerceAtLeast(0))
+            Column(Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp)
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .drawWithCache {
+                            val fade = minOf(18.dp.toPx(), size.height / 2f)
+                            val fraction = fade / size.height.coerceAtLeast(1f)
+                            val mask = Brush.verticalGradient(
+                                0f to Color.Transparent, fraction to Color.Black,
+                                (1f - fraction) to Color.Black, 1f to Color.Transparent)
+                            onDrawWithContent {
+                                drawContent()
+                                drawRect(mask, blendMode = BlendMode.DstIn)
                             }
-                            .padding(horizontal = 14.dp, vertical = 11.dp)
-                    ) {
-                        Text(line.text, fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal)
-                        if (SettingsLibrary.NowPlayingTranslation && line.translation.isNotBlank()) {
-                            Text(line.translation, fontSize = 13.sp, modifier = Modifier.alpha(0.55f).padding(top = 3.dp))
+                        },
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 18.dp)
+                ) {
+                    itemsIndexed(shareEntries) { index, line ->
+                        val checked = index in selected.value
+                        val foreground = if (checked) Color.White else MaterialTheme.colorScheme.onSurface
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .clip(YosRoundedCornerShape(18.dp))
+                                .background(if (checked) yos.music.player.ui.theme.primary else MaterialTheme.colorScheme.surface)
+                                .toggleable(
+                                    value = checked, enabled = !working.value, role = Role.Checkbox,
+                                    onValueChange = { choose ->
+                                        selected.value = if (!choose) selected.value - index
+                                            else if (selected.value.size < 14) selected.value + index
+                                            else selected.value
+                                    }
+                                )
+                                .padding(horizontal = 16.dp, vertical = 14.dp)
+                        ) {
+                            Text(line.text, fontSize = 20.sp, lineHeight = 28.sp,
+                                fontWeight = FontWeight.Bold, color = foreground)
+                            if (SettingsLibrary.NowPlayingTranslation && line.translation.isNotBlank()) {
+                                Text(line.translation, fontSize = 13.sp, color = foreground.copy(alpha = 0.65f),
+                                    modifier = Modifier.padding(top = 4.dp))
+                            }
                         }
                     }
                 }
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Surface(
-                    modifier = Modifier.weight(1f).clickable(enabled = selected.value.isNotEmpty() && !working.value, onClick = ::save),
-                    shape = YosRoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(stringResource(R.string.lyric_share_save), Modifier.padding(15.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
-                Surface(
-                    modifier = Modifier.weight(1f).clickable(enabled = selected.value.isNotEmpty() && !working.value, onClick = ::share),
-                    shape = YosRoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.primary
-                ) {
-                    Text(stringResource(R.string.lyric_share_to), Modifier.padding(15.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    val enabled = selected.value.isNotEmpty() && !working.value
+                    Surface(
+                        modifier = Modifier.weight(1f).clickable(enabled = enabled, onClick = ::save),
+                        shape = YosRoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                    ) {
+                        Text(stringResource(R.string.lyric_share_save), Modifier.padding(15.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                    Surface(
+                        modifier = Modifier.weight(1f).clickable(enabled = enabled, onClick = ::share),
+                        shape = YosRoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White
+                    ) {
+                        Text(stringResource(R.string.lyric_share_to), Modifier.padding(15.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
                 }
             }
-        }
-    }
+        },
+        onDismissRequest = onDismiss
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ActionButtonsRow(navController: NavController? = null, closeSheet: () -> Unit = {}, musicPlayingLambda: () -> YosMediaItem?) {
+private fun ActionButtonsRow(
+    navController: NavController? = null, closeSheet: () -> Unit = {},
+    modifier: Modifier = Modifier, favoriteModifier: Modifier = Modifier, menuModifier: Modifier = Modifier,
+    musicPlayingLambda: () -> YosMediaItem?
+) {
     Row(
-        modifier = Modifier
-            .overlayEffect(),
+        modifier = modifier.overlayEffect(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val dp = 28.dp
@@ -1498,7 +1537,7 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
         val context = LocalContext.current
 
         Box(
-            modifier = Modifier
+            modifier = favoriteModifier
                 .clickable(
                     onClick = {
                         //println("收藏 开始")
@@ -1561,7 +1600,7 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
         val menuOpen = showMoreMenu.value || showPlaylistPicker.value || showDetail.value
 
         Box(
-            modifier = Modifier
+            modifier = menuModifier
                 .graphicsLayer {
                     rotationZ = 90f
                     compositingStrategy = CompositingStrategy.ModulateAlpha
@@ -1746,37 +1785,40 @@ private fun ActionButtonsRow(navController: NavController? = null, closeSheet: (
 @Composable
 private fun PlayingBar(
     modifier: Modifier,
-    albumUrlLambda: () -> Uri?,
+    artwork: Painter,
+    artworkBridge: PlayerArtworkBridge,
+    compactWindow: Boolean = false,
+    titleModifier: Modifier, artistModifier: Modifier,
+    favoriteModifier: Modifier, menuModifier: Modifier, actionsModifier: Modifier,
     musicPlayingLambda: () -> YosMediaItem?,
     onAlbumClick: () -> Unit
 ) = YosWrapper {
-    val stickyUrl = remember { mutableStateOf(albumUrlLambda()) }
-    val current = albumUrlLambda()
-    if (current != null) stickyUrl.value = current
 
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = rememberAdaptive(28))
-            .padding(top = 22.dp)
-            .height(70.dp), verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = if (compactWindow) 12.dp else rememberAdaptive(28))
+            .padding(top = if (compactWindow) 8.dp else 22.dp)
+            .height(if (compactWindow) 52.dp else 70.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        stickyUrl.value?.let { url ->
+        run {
             val smallShape = YosRoundedCornerShape(8)
             Box(
-                modifier = modifier.size(69.dp)
+                modifier = modifier.size(if (compactWindow) 48.dp else 69.dp)
                       .dropShadow(
                           shape = smallShape,
-                          shadowAlpha = 0.36f,
+                          shadowAlpha = 0f,
                           shadowType = ShadowType.Small
                       )
                     .clip(smallShape)
                     .clickable(MutableInteractionSource(), null) { onAlbumClick() }
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(false).build(),
+                Image(
+                    painter = artwork,
                     contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
+                        .onGloballyPositioned { artworkBridge.record(COMPACT_ARTWORK_ENDPOINT, it) }
+                        .graphicsLayer { alpha = 0f }
                 )
             }
         }
@@ -1784,13 +1826,13 @@ private fun PlayingBar(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(start = 12.dp, end = 15.dp)
+                .padding(start = if (compactWindow) 8.dp else 12.dp, end = if (compactWindow) 8.dp else 15.dp)
         ) {
             Text(
                 text = musicPlayingLambda()?.title ?: defaultTitle,
                 fontSize = 16.5.sp,
                 maxLines = 1,
-                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                modifier = titleModifier.basicMarquee(iterations = Int.MAX_VALUE),
                 fontWeight = FontWeight.Bold,
                 lineHeight = 16.5.sp
             )
@@ -1798,7 +1840,7 @@ private fun PlayingBar(
                 text = musicPlayingLambda()?.artistsName
                     ?: defaultArtistsName,
                 fontSize = 15.sp,
-                modifier = Modifier
+                modifier = artistModifier
                     .overlayEffect()
                     .basicMarquee(iterations = Int.MAX_VALUE),
                 maxLines = 1,
@@ -1808,7 +1850,8 @@ private fun PlayingBar(
         }
 
         YosWrapper {
-            ActionButtonsRow(musicPlayingLambda = musicPlayingLambda)
+            ActionButtonsRow(modifier = actionsModifier, favoriteModifier = favoriteModifier,
+                menuModifier = menuModifier, musicPlayingLambda = musicPlayingLambda)
         }
     }
 
@@ -1816,7 +1859,7 @@ private fun PlayingBar(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun RowScope.AirPlay() {
+fun RowScope.AirPlay(compactWindow: Boolean = false) {
     val contextCompose = LocalContext.current
     val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
     val connectedDevices =
@@ -1892,8 +1935,8 @@ fun RowScope.AirPlay() {
     YosWrapper {
         Column(
             modifier = Modifier
-                .heightIn(min = 53.dp)
-                .navigationBarsHeight(48.dp)
+                .then(if (compactWindow) Modifier.height(36.dp) else
+                    Modifier.heightIn(min = 53.dp).navigationBarsHeight(48.dp))
                 .weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1923,7 +1966,7 @@ fun RowScope.AirPlay() {
                 }
             }
 
-            AnimatedVisibility(showName.value, enter = scaleIn(initialScale = 0.3f) + fadeIn(), exit = scaleOut(
+            AnimatedVisibility(showName.value && !compactWindow, enter = scaleIn(initialScale = 0.3f) + fadeIn(), exit = scaleOut(
                 targetScale = 0.3f
             ) + fadeOut()) {
                 Text(
@@ -1952,6 +1995,8 @@ private fun BluetoothDevice.isConnected(): Boolean {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayerControl(
+    compactWindow: Boolean = false,
+    renderActive: Boolean,
     isPlayingLambda: () -> Boolean,
     isPlayingOnChanged: (Boolean) -> Unit,
     onPrevious: () -> Unit,
@@ -1968,9 +2013,6 @@ private fun PlayerControl(
     val playingDuration = rememberSaveable(key = "PlayerControl_playingDuration") {
         mutableLongStateOf(0L)
     }
-    val playingPosition = rememberSaveable(key = "PlayerControl_playingPosition") {
-        mutableLongStateOf(0L)
-    }
     val context = LocalContext.current
     val playedTime = rememberSaveable(key = "PlayerControl_playedTime") { mutableStateOf("0:00") }
     val remainingTime =
@@ -1980,12 +2022,15 @@ private fun PlayerControl(
         mutableStateOf(false)
     }
 
+    val progressClock = remember { NativeLyricClock((mediaControl?.currentPosition ?: 0L).toFloat()) }
+    val onWhileRef = rememberUpdatedState(onWhile)
+
     YosWrapper {
         Box(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = rememberAdaptive(25))
-                .padding(bottom = 15.dp)
+                .padding(bottom = if (compactWindow) 4.dp else 15.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -1994,37 +2039,49 @@ private fun PlayerControl(
                 YosWrapper {
                 // 启动作用
                 YosWrapper {
-                    val lifecycleState =
-                        LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-
-                    LaunchedEffect(Unit) {
-                        var lastPosition = 0L
-                        while (true) {
-                            //isPlaying.value = /*mediaControl?.isPlaying ?: false*/ FadeExo.targetStatus != 0
-                            if (lifecycleState.value.isAtLeast(Lifecycle.State.RESUMED)) {
-                                playingDuration.longValue = mediaControl?.duration ?: 0
-                                playingPosition.longValue = mediaControl?.currentPosition ?: 0
-
-                                if (!isSliding.value && playingDuration.longValue > 0L) {
-                                    val totalSeconds =
-                                        playingPosition.longValue.coerceAtLeast(0) / 1000
-                                    if (totalSeconds != lastPosition) {
-                                        playedTime.value = formatTime(totalSeconds)
-
-                                        sliderPosition.floatValue =
-                                            playingPosition.longValue.coerceAtLeast(0).toFloat()
-
-                                        val remainingSeconds =
-                                            playingDuration.longValue.coerceAtLeast(0) / 1000 - totalSeconds
-                                        remainingTime.value = "-${formatTime(remainingSeconds)}"
-                                        lastPosition = totalSeconds
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    LaunchedEffect(lifecycleOwner, renderActive) {
+                        if (!renderActive) return@LaunchedEffect
+                        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                            progressClock.restartFrames()
+                            var nextSampleAt = 0L
+                            var nextControlsAt = 0L
+                            var trackId = mediaControl?.currentMediaItem?.mediaId
+                            var lastSeconds = -1L
+                            var lastDuration = -1L
+                            while (isActive) {
+                                val frame = withFrameMillis { it }
+                                var report: Float? = null
+                                if (frame >= nextSampleAt) {
+                                    nextSampleAt = frame + 80L
+                                    playingDuration.longValue = (mediaControl?.duration ?: 0L).coerceAtLeast(0L)
+                                    report = (mediaControl?.currentPosition ?: 0L).coerceAtLeast(0L).toFloat()
+                                    val currentTrack = mediaControl?.currentMediaItem?.mediaId
+                                    if (trackId != currentTrack) {
+                                        trackId = currentTrack
+                                        progressClock.seek(report, frame)
                                     }
                                 }
-
-                                onWhile()
+                                if (isSliding.value) {
+                                    progressClock.seek(sliderPosition.floatValue, frame)
+                                } else {
+                                    sliderPosition.floatValue = progressClock.frame(frame,
+                                        mediaControl?.isPlaying == true,
+                                        mediaControl?.playbackParameters?.speed ?: 1f, report)
+                                        .coerceIn(0f, playingDuration.longValue.toFloat())
+                                    val seconds = sliderPosition.floatValue.toLong() / 1000L
+                                    if (seconds != lastSeconds || playingDuration.longValue != lastDuration) {
+                                        playedTime.value = formatTime(seconds)
+                                        remainingTime.value = "-${formatTime((playingDuration.longValue / 1000L - seconds).coerceAtLeast(0L))}"
+                                        lastSeconds = seconds
+                                        lastDuration = playingDuration.longValue
+                                    }
+                                }
+                                if (frame >= nextControlsAt) {
+                                    nextControlsAt = frame + 700L
+                                    onWhileRef.value()
+                                }
                             }
-
-                            delay(700)
                         }
                     }
                 }
@@ -2052,10 +2109,12 @@ private fun PlayerControl(
                                     },
                                     onDragEnd = {
                                         Vibrator.longClick(context)
+                                        progressClock.seek(sliderPosition.floatValue, android.os.SystemClock.uptimeMillis())
                                         onSeek(sliderPosition.floatValue)
                                         isSliding.value = false
                                     },
                                     onDragCancel = {
+                                        progressClock.seek((mediaControl?.currentPosition ?: 0L).toFloat(), android.os.SystemClock.uptimeMillis())
                                         isSliding.value = false
                                     },
                                     onHorizontalDrag = { change, dragAmount ->
@@ -2075,23 +2134,13 @@ private fun PlayerControl(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        val progress = if (playingDuration.longValue > 0L) {
-                            (sliderPosition.floatValue / playingDuration.longValue.toFloat()).coerceIn(0f, 1f)
-                        } else 0f
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(trackHeight.value)
-                                .clip(RoundedCornerShape(percent = 50))
-                                .background(Color.White.copy(alpha = 0.5f))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(progress)
-                                    .background(Color.White)
-                            )
+                        // Read position in drawing, so 120 Hz updates do not recompose
+                        // or remeasure the player controls and lyric page.
+                        Canvas(Modifier.fillMaxWidth().height(trackHeight.value)) {
+                            val duration = playingDuration.longValue
+                            val progress = if (duration > 0L)
+                                (sliderPosition.floatValue / duration).coerceIn(0f, 1f) else 0f
+                            drawPlaybackProgress(progress)
                         }
                     }
                 }
@@ -2135,7 +2184,7 @@ private fun PlayerControl(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 25.dp, bottom = 35.dp),
+                            .padding(top = if (compactWindow) 4.dp else 25.dp, bottom = if (compactWindow) 4.dp else 35.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -2144,7 +2193,7 @@ private fun PlayerControl(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(rememberAdaptive(61))
+                                    .size(if (compactWindow) 44.dp else rememberAdaptive(61))
                                     .clickable(
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }
@@ -2163,16 +2212,16 @@ private fun PlayerControl(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(rememberAdaptive(43)))
+                            Spacer(modifier = Modifier.width(if (compactWindow) 20.dp else rememberAdaptive(43)))
 
                             Box(
                                 modifier = Modifier
-                                    .size(rememberAdaptive(58))
+                                    .size(if (compactWindow) 44.dp else rememberAdaptive(58))
                                     .clickable(
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }
                                     ) {
-                                        val nowPlaying = isPlayingLambda()
+                                        val nowPlaying = isPlayingLambda() || MediaViewModelObject.isBuffering.value
                                         if (nowPlaying) mediaControl?.fadePause()
                                         else mediaControl?.fadePlay()
                                         isPlayingOnChanged(!nowPlaying)
@@ -2185,10 +2234,10 @@ private fun PlayerControl(
                                     buffering = MediaViewModelObject.isBuffering.value
                                 )
                             }
-                            Spacer(modifier = Modifier.width(rememberAdaptive(43)))
+                            Spacer(modifier = Modifier.width(if (compactWindow) 20.dp else rememberAdaptive(43)))
                             Box(
                                 modifier = Modifier
-                                    .size(rememberAdaptive(61))
+                                    .size(if (compactWindow) 44.dp else rememberAdaptive(61))
                                     .clickable(
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }
@@ -2216,7 +2265,7 @@ private fun PlayerControl(
                         VolumeSlider(context = context, onSlider)
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(if (compactWindow) 6.dp else 16.dp))
 
                 // 底部 歌词&播放列表
                 YosWrapper {
@@ -2234,7 +2283,7 @@ private fun PlayerControl(
                                 .height(36.dp)
                                 .weight(1f)
                                 .clickable(
-                                    onClick = { onLyrics() },
+                                    onClick = { onLyrics(); Vibrator.click(context) },
                                     indication = null,
                                     interactionSource = remember { MutableInteractionSource() }),
                             contentAlignment = Alignment.Center
@@ -2264,7 +2313,7 @@ private fun PlayerControl(
 
                         Spacer(modifier = Modifier.weight(0.1f))
 
-                        AirPlay()
+                        AirPlay(compactWindow = compactWindow)
 
                         Spacer(modifier = Modifier.weight(0.1f))
 
@@ -2273,7 +2322,7 @@ private fun PlayerControl(
                                 .height(36.dp)
                                 .weight(1f)
                                 .clickable(
-                                    onClick = { onPlaylist() },
+                                    onClick = { onPlaylist(); Vibrator.click(context) },
                                     indication = null,
                                     interactionSource = remember { MutableInteractionSource() }),
                             contentAlignment = Alignment.Center
@@ -2391,19 +2440,21 @@ private fun VocalSeparationControl(
         animationSpec = spring(dampingRatio = 1f, stiffness = 405f),
         label = "MssControlVisibility"
     )
-    val adjustmentRangePx = with(density) { 50.dp.toPx() }
+    val adjustmentRangePx = with(density) { 60.dp.toPx() }
+    val controlHeight = (34f + 60f * expansion.value).dp
+    val smoothShape = remember { YosRoundedCornerShape(roundSize = 9.dp) }
 
     Box(
         modifier = modifier
-            .width(27.dp)
-            .height((27f + 50f * expansion.value).dp)
+            .width(34.dp)
+            .height(controlHeight)
             .graphicsLayer {
                 scaleX = controlScale
                 scaleY = controlScale
                 alpha = controlAlpha
             }
-            .shadow(controlElevation, RoundedCornerShape(7.dp), clip = false)
-            .clip(RoundedCornerShape(7.dp))
+            .shadow(controlElevation, smoothShape, clip = false)
+            .clip(smoothShape)
             .background(Color.White.copy(alpha = 0.10f))
             .pointerInput(state.available, state.enabled) {
                 if (!state.available || !state.enabled) return@pointerInput
@@ -2445,8 +2496,23 @@ private fun VocalSeparationControl(
             contentDescription = stringResource(R.string.now_playing_mss_toggle),
             tint = Color.White,
             modifier = Modifier
-                .padding(bottom = 2.5.dp)
-                .size(22.dp)
+                .padding(bottom = 3.dp)
+                .size(28.dp)
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    // The same fill boundary clips a second tint of the icon:
+                    // white above the liquid, dark violet within the bright fill.
+                    val fillTop = controlHeight.toPx() * (1f - liquidFraction.value.coerceIn(0f, 1f))
+                    val iconTop = controlHeight.toPx() - 3.dp.toPx() - size.height
+                    val localFillTop = (fillTop - iconTop).coerceIn(0f, size.height)
+                    clipRect(top = localFillTop) {
+                        drawRect(
+                            color = androidx.compose.ui.graphics.lerp(Color.White, Color(0xFF3C2455), liquidAlpha.value.coerceIn(0f, 1f)),
+                            blendMode = BlendMode.SrcIn
+                        )
+                    }
+                }
         )
     }
 }
@@ -2553,19 +2619,8 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
                     ).value
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(trackHeight.value)
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(Color.White.copy(alpha = 0.5f))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(animatedProgress.coerceIn(0f, 1f))
-                            .background(Color.White)
-                    )
+                Canvas(Modifier.fillMaxWidth().height(trackHeight.value)) {
+                    drawPlaybackProgress(animatedProgress)
                 }
             }
         }

@@ -68,6 +68,9 @@ import yos.music.player.code.utils.lrc.LyricTrackInfo
 import yos.music.player.code.utils.lrc.LyricsController
 import yos.music.player.code.utils.lrc.StatusBarLyricsPublisher
 import yos.music.player.code.utils.player.FadeExo
+import yos.music.player.code.utils.player.playbackIsWaiting
+import yos.music.player.code.utils.player.retryableNetworkPlaybackFailure
+import yos.music.player.code.utils.player.networkPlaybackRetryDelayMs
 import yos.music.player.code.utils.player.FadeExo.fadePause
 import yos.music.player.code.utils.player.FadeExo.fadePlay
 import yos.music.player.data.libraries.MusicLibrary
@@ -372,6 +375,17 @@ class YosPlaybackService : MediaSessionService() {
     private val repeatMode = "repeat_mode"
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main.immediate + serviceJob)
+    private var networkPlaybackRetry: Job? = null
+    private var networkRetryUri: String? = null
+    private var networkRetryAttempt = 0
+
+    private fun cancelNetworkPlaybackRetry() {
+        networkPlaybackRetry?.cancel()
+        networkPlaybackRetry = null
+        networkRetryUri = null
+        networkRetryAttempt = 0
+    }
+
     private val localLyricsLoader by lazy { LocalLyricsLoader(this, serviceScope) }
     private lateinit var statusBarLyricsPublisher: StatusBarLyricsPublisher
     @Volatile private var tickerLyric: String? = null
@@ -671,7 +685,7 @@ class YosPlaybackService : MediaSessionService() {
                             durationMs = playerDuration.coerceAtLeast(0L),
                             currentPositionMs = player.currentPosition.toInt()
                         )
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        serviceScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             runCatching {
                                 if (samplingRate == 0 || bitrate == 0) {
                                     val audioInfo = AudioMetadataUtils.getQualityInfos(thisPath)
@@ -711,7 +725,7 @@ class YosPlaybackService : MediaSessionService() {
                                     AudioMetadataUtils.reliableBitrateKbps(cur.bitrate, cur.fileSize, cur.duration) ?: 0
                             }
                         } else {
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            serviceScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 val cached = yos.music.player.data.remote.RemoteTagDatabase.get(capturedUri)
                                 handler.post {
                                     if (player.currentMediaItem?.uri?.toString() != capturedUri) return@post
@@ -820,6 +834,7 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    cancelNetworkPlaybackRetry()
                     yos.music.player.data.remote.RemoteRetryManager.onTrackChanged(
                         mediaItem?.localConfiguration?.uri?.toString()
                     )
@@ -1043,11 +1058,39 @@ class YosPlaybackService : MediaSessionService() {
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                     android.util.Log.e("Flamingo", "播放错误: ${error.errorCodeName}", error)
                     super.onPlayerError(error)
+                    val uri = player.currentMediaItem?.localConfiguration?.uri
+                    if (uri != null && player.playWhenReady && !FadeExo.isPausePending &&
+                        retryableNetworkPlaybackFailure(error.errorCode, uri.scheme, error.cause)) {
+                        networkPlaybackRetry?.cancel()
+                        networkRetryUri = uri.toString()
+                        val retryDelay = networkPlaybackRetryDelayMs(networkRetryAttempt++)
+                        MediaViewModelObject.isBuffering.value = true
+                        networkPlaybackRetry = serviceScope.launch {
+                            delay(retryDelay)
+                            networkPlaybackRetry = null
+                            // Never resume a paused track or prepare an old song after a switch.
+                            if (networkRetryUri == uri.toString() && player.playWhenReady &&
+                                !FadeExo.isPausePending &&
+                                player.currentMediaItem?.localConfiguration?.uri == uri) {
+                                player.prepare()
+                            }
+                        }
+                    } else {
+                        cancelNetworkPlaybackRetry()
+                        MediaViewModelObject.isBuffering.value = false
+                        MediaViewModelObject.isPlaying.value = false
+                    }
                 }
 
                 override fun onEvents(player: Player, events: Player.Events) {
-                    MediaViewModelObject.isBuffering.value =
-                        player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
+                    if (!player.playWhenReady || FadeExo.isPausePending ||
+                        (networkRetryUri != null && player.currentMediaItem?.localConfiguration?.uri?.toString() != networkRetryUri) ||
+                        player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_ENDED) {
+                        cancelNetworkPlaybackRetry()
+                    }
+                    MediaViewModelObject.isBuffering.value = playbackIsWaiting(
+                        player.playWhenReady, FadeExo.isPausePending,
+                        player.playbackState == Player.STATE_BUFFERING, networkRetryUri != null)
                     super.onEvents(player, events)
 
                     // 定时关闭: 检测歌曲播放完毕(STATE_ENDED)
@@ -1290,6 +1333,7 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        cancelNetworkPlaybackRetry()
         if (::statusBarLyricsPublisher.isInitialized) statusBarLyricsPublisher.stop()
         localLyricsLoader.cancel()
         yos.music.player.code.MediaController.refreshJob?.cancel()

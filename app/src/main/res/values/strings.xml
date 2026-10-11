@@ -43,8 +43,6 @@
     <string name="settings_mss_title">Vocal Separation</string>
     <string name="settings_mss_gpu_acceleration">GPU Acceleration</string>
     <string name="settings_mss_gpu_acceleration_desc">Use LiteRT GPU acceleration for vocal separation. Changes apply after the playback service is recreated.</string>
-    <string name="settings_performance_lyric_smart_wbw_lyric">Smart Word-by-Word Lyrics</string>
-    <string name="settings_performance_lyric_smart_wbw_lyric_desc">Give line-timed lyrics a smooth word-by-word gradient.</string>
     <string name="settings_performance_lyric_timing_offset">Lyric Timing Offset</string>
     <string name="settings_performance_lyric_timing_offset_desc">Negative values delay lyrics; positive values advance them.</string>
     <string name="settings_performance_lyric_prefer_embedded">Prefer Embedded Lyrics</string>
@@ -131,7 +129,7 @@
     <string name="playlist_shuffle_desc">Currently in shuffle play mode.</string>
     <string name="page_library_playlists_music_total">%d Songs</string>
     <string name="settings_performance_ui_nowplaying_background_effect">Background Dynamic Effect</string>
-    <string name="settings_performance_ui_nowplaying_background_effect_desc">Dynamic effect of the playback page background, which may cause performance issues.</string>
+    <string name="settings_performance_ui_nowplaying_background_effect_desc">Slowly flowing artwork colours on Android 13 and later. Motion freezes when paused or in the background; older devices use a static background.</string>
     <string name="page_library_playlists_add_title">Create New Playlist…</string>
     <string name="page_library_playlists_fav_title">Favorite Songs</string>
     <string name="settings_performance_notification_title">Media Notifications</string>
@@ -160,4 +158,17 @@
     <string name="settings_lyric_coloros_desc">Send synchronized full-song lyrics to supported ColorOS lock-screen surfaces. Availability may depend on the system version or app whitelist.</string>
     <string name="settings_lyric_coloros_provider">ColorOS Live Lyrics Bridge v4 Provider</string>
     <string name="settings_lyric_coloros_provider_desc">Send lyrics through the ColorOS Live Lyrics Bridge v4 Provider path. This may improve compatibility on some system versions.</string>
+    <string name="settings_lyric_word_by_word">Word-by-word lyrics</string>
+    <string name="settings_lyric_word_by_word_desc">Use word timing when available. When disabled, show all lyrics line by line.</string>
+    <string name="page_library_artist_counts">Songs: %1$d · Albums: %2$d</string>
+    <string name="library_sort_title">Sort by</string>
+    <string name="library_sort_descending">Descending</string>
+    <string name="library_sort_artist">Artist name</string>
+    <string name="library_sort_songs">Song count</string>
+    <string name="library_sort_albums">Album count</string>
+    <string name="library_sort_album">Album name</string>
+    <string name="library_sort_year">Year</string>
+    <string name="library_sort_updated">Updated</string>
+    <string name="library_sort_tracks">Track count</string>
+    <string name="library_sort_ascending">Ascending</string>
 </resources>

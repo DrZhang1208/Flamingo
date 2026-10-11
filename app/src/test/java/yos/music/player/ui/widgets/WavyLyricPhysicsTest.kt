@@ -36,8 +36,8 @@ class WavyLyricPhysicsTest {
     fun onlyRowsBelowAnchorReceiveShrinkingDelay() {
         assertEquals(0L, wavyRowDelayMs(index = 3, anchorIndex = 4))
         assertEquals(0L, wavyRowDelayMs(index = 4, anchorIndex = 4))
-        assertEquals(50L, wavyRowDelayMs(index = 5, anchorIndex = 4))
-        assertEquals(97L, wavyRowDelayMs(index = 6, anchorIndex = 4))
+        assertEquals(24L, wavyRowDelayMs(index = 5, anchorIndex = 4))
+        assertEquals(46L, wavyRowDelayMs(index = 6, anchorIndex = 4))
         assertEquals(
             wavyRowDelayMs(index = 12, anchorIndex = 4),
             wavyRowDelayMs(index = 40, anchorIndex = 4)

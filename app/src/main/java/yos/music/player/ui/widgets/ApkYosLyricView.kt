@@ -2,6 +2,8 @@ package yos.music.player.ui.widgets
 
 import android.os.Build
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -17,16 +19,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import yos.music.player.code.MediaController
@@ -52,10 +60,12 @@ fun YosLyricView(
     weightLambda: () -> Boolean,
     modifier: Modifier,
     userScrollEnabled: Boolean = true,
+    interactionEnabled: Boolean = true,
     renderActive: Boolean = true,
     onLineLongPress: (Int) -> Unit = {},
     onBackClick: () -> Unit
 ) {
+    val interactionAllowed = androidx.compose.runtime.rememberUpdatedState(interactionEnabled)
     val lyricState = lyricStateLambda()
     val entries = lyricState.entries
     val document = remember(entries) { nativeLyricDocument(entries) }
@@ -74,6 +84,7 @@ fun YosLyricView(
                 .fillMaxHeight(if (weightLambda()) 0.56f else 1f)
                 .fillMaxWidth()
                 .clickable(
+                    enabled = interactionEnabled,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                     onClick = onBackClick
@@ -91,31 +102,37 @@ fun YosLyricView(
     val clock = remember(lyricState.trackKey, lyricState.generation) {
         NativeLyricClock(lyricState.effectivePositionMs.toFloat())
     }
-    val seekToLyric: (Float) -> Unit = { startMs ->
+    val seekRevision = remember(lyricState.trackKey) { mutableIntStateOf(0) }
+    val seekToLyric: (Float) -> Unit = seek@{ startMs ->
+        if (!interactionAllowed.value) return@seek
         val target = startMs.toInt()
         columnState.resumeFollowing()
         val now = SystemClock.uptimeMillis()
+        seekRevision.intValue++
         clock.seek((target + effectiveLyricTimingOffsetMs()).toFloat(), now)
         framePosition.floatValue = clock.positionMs
         LyricsController.updatePosition(lyricState.trackKey, startMs)
         mediaEvent.onSeek(target)
     }
-    LaunchedEffect(lyricState.trackKey, lyricState.generation, renderActive) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, lyricState.trackKey, lyricState.generation, renderActive) {
         if (!renderActive) return@LaunchedEffect
-        clock.restartFrames()
-        var nextSampleAt = 0L
-        while (isActive) {
-            withFrameMillis { frameTime ->
-                val controller = MediaController.mediaControl
-                // Player position is sampled at 12.5 Hz. The frame clock interpolates
-                // presentation time; it does not query the player 120 times per second.
-                val report = if (frameTime >= nextSampleAt) {
-                    nextSampleAt = frameTime + 80L
-                    (controller?.currentPosition?.toFloat() ?: liveTimeLambda().toFloat()) +
-                        effectiveLyricTimingOffsetMs()
-                } else null
-                framePosition.floatValue = clock.frame(frameTime, controller?.isPlaying == true,
-                    controller?.playbackParameters?.speed ?: 1f, report)
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            clock.restartFrames()
+            var nextSampleAt = 0L
+            while (isActive) {
+                withFrameMillis { frameTime ->
+                    val controller = MediaController.mediaControl
+                    // Player position is sampled at 12.5 Hz. The frame clock interpolates
+                    // presentation time; it does not query the player 120 times per second.
+                    val report = if (frameTime >= nextSampleAt) {
+                        nextSampleAt = frameTime + 80L
+                        (controller?.currentPosition?.toFloat() ?: liveTimeLambda().toFloat()) +
+                            effectiveLyricTimingOffsetMs()
+                    } else null
+                    framePosition.floatValue = clock.frame(frameTime, controller?.isPlaying == true,
+                        controller?.playbackParameters?.speed ?: 1f, report)
+                }
             }
         }
     }
@@ -144,16 +161,21 @@ fun YosLyricView(
         SettingsLibrary.LyricFontScale,
         SettingsLibrary.LyricLineBalance
     ) {
-        if (followIndex < 0 || columnState.viewportHeightPx == 0 ||
+        if (columnState.viewportHeightPx == 0 ||
             columnState.isUserScrolling || columnState.isPreviewing) return@LaunchedEffect
         // One transition, directly to the requested line. Measurement corrections
         // are handled by the column, without delayed jumps or a next-line detour.
         columnState.jumpTo(
-            followTargets[followIndex] ?: return@LaunchedEffect,
+            followTargets[followIndex.coerceAtLeast(0)] ?: return@LaunchedEffect,
             animateRows = columnState.waveAnchorIndex >= 0
         )
     }
 
+    // A new document arrives gently; playback frames never restart this entrance.
+    val entrance = remember(lyricState.trackKey, entries) { Animatable(0f) }
+    LaunchedEffect(entrance, renderActive) {
+        if (renderActive && entrance.value < 1f) entrance.animateTo(1f, tween(210))
+    }
     val measurer = rememberTextMeasurer(cacheSize = 32)
     val supportsBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
@@ -161,7 +183,7 @@ fun YosLyricView(
     WavyLyricsColumn(
         itemCount = document.size,
         state = columnState,
-        userScrollEnabled = userScrollEnabled,
+        userScrollEnabled = userScrollEnabled && interactionEnabled,
         itemKey = { index ->
             val line = document[index].line
             "${lyricState.trackKey}|$index|${line.agent}|${line.startMs}|${line.endMs}|${line.text}"
@@ -169,7 +191,12 @@ fun YosLyricView(
         rowSpringParams = { index -> wavySpringParams(documentLines, index) },
         modifier = modifier
             .fillMaxSize()
+            .graphicsLayer {
+                alpha = entrance.value
+                translationY = (1f - entrance.value) * 8.dp.toPx()
+            }
             .clickable(
+                    enabled = interactionEnabled,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onBackClick
@@ -177,7 +204,8 @@ fun YosLyricView(
     ) { index ->
         val row = document.getOrNull(index) ?: return@WavyLyricsColumn
         val line = row.line
-        val nextStart = entries.getOrNull(row.sourceIndex + 1)?.startMs
+        val nextLine = entries.getOrNull(row.sourceIndex + 1)
+        val nextStart = nextLine?.startMs
         val active = row.sourceIndex in lyricState.activeLineIndexes || row.sourceIndex == followIndex
         val lineState = when {
             active -> LineState.Active
@@ -189,7 +217,8 @@ fun YosLyricView(
             nextStart ?: (line.startMs + LAST_LINE_DURATION_MS),
             line.startMs + 1f
         )
-        val blur = if (!blurLambda() || !supportsBlur || active) 0f
+        val browsing = columnState.isUserScrolling || columnState.isPreviewing
+        val blur = if (browsing || !blurLambda() || !supportsBlur || active) 0f
         else (abs(row.sourceIndex - followIndex) * 2.5f).coerceAtMost(8f)
 
         key(lyricState.trackKey, index) {
@@ -197,23 +226,29 @@ fun YosLyricView(
                 RenderNativeLyricRow(
                     line = line,
                     nextStart = nextStart,
+                    nextIsCountdown = nextLine?.isCountdown == true,
                     lineState = lineState,
                     active = active,
+                    seekRevision = seekRevision.intValue,
                     focused = index == followTargets[followIndex],
                     staticText = row.staticText,
                     displayEnd = displayEnd,
                     blur = blur,
+                    browsing = browsing,
                     liveTime = { framePosition.floatValue },
                     showTranslation = showTranslation,
                     mainColor = mainColor,
                     subColor = subColor,
                     measurer = measurer,
                     fontFamily = fontFamily,
+                    interactionEnabled = interactionEnabled,
                     onClick = {
+                        if (!interactionAllowed.value) return@RenderNativeLyricRow
                         Vibrator.doubleClick(context)
                         seekToLyric(line.startMs)
                     },
                     onLongClick = {
+                        if (!interactionAllowed.value) return@RenderNativeLyricRow
                         Vibrator.longClick(context)
                         onLineLongPress(row.sourceIndex)
                     }
@@ -222,19 +257,23 @@ fun YosLyricView(
                     RenderNativeLyricRow(
                         line = background,
                         nextStart = nextStart,
+                        nextIsCountdown = nextLine?.isCountdown == true,
                         lineState = lineState,
                         active = active,
                         focused = false,
+                        seekRevision = seekRevision.intValue,
                         displayEnd = maxOf(background.endMs, displayEnd),
                         blur = blur,
+                        browsing = browsing,
                         liveTime = { framePosition.floatValue },
                         showTranslation = showTranslation,
                         mainColor = mainColor,
                         subColor = subColor,
                         measurer = measurer,
                         fontFamily = fontFamily,
+                        interactionEnabled = interactionEnabled,
                         onClick = { seekToLyric(background.startMs) },
-                        onLongClick = { onLineLongPress(row.sourceIndex) }
+                        onLongClick = { if (interactionAllowed.value) onLineLongPress(row.sourceIndex) }
                     )
                 }
             }
@@ -247,12 +286,15 @@ fun YosLyricView(
 private fun RenderNativeLyricRow(
     line: YosLyricLine,
     nextStart: Float?,
+    nextIsCountdown: Boolean,
     lineState: LineState,
     active: Boolean,
     focused: Boolean,
+    seekRevision: Int,
     staticText: Boolean = false,
     displayEnd: Float,
     blur: Float,
+    browsing: Boolean,
     liveTime: () -> Float,
     showTranslation: Boolean,
     mainColor: Color,
@@ -260,16 +302,17 @@ private fun RenderNativeLyricRow(
     measurer: androidx.compose.ui.text.TextMeasurer,
     fontFamily: FontFamily?,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    interactionEnabled: Boolean = true
 ) {
     val committedBlur by animateFloatAsState(
         targetValue = blur,
         animationSpec = TweenSpec(durationMillis = 180),
         label = "LyricRowBlur"
     )
-    val displayTokens = remember(line, nextStart, staticText, SettingsLibrary.SmartWordByWordLyric) {
+    val displayTokens = remember(line, staticText, SettingsLibrary.EnableWordByWordLyric) {
         if (staticText) listOf(yos.music.player.code.utils.lrc.YosLyricToken(line.startMs, line.startMs, line.text))
-        else createDisplayTokens(line, nextStart)
+        else nativeDisplayTokens(line, SettingsLibrary.EnableWordByWordLyric)
     }
     // Stationary past/future rows must not repaint for every playback tick.
     // Keep a conservative margin for preroll and overlapping uplift at each edge.
@@ -277,16 +320,22 @@ private fun RenderNativeLyricRow(
         (minOf(line.startMs, displayTokens.minOfOrNull { it.startMs } ?: line.startMs) - 1000f) to
             (maxOf(line.endMs, displayTokens.maxOfOrNull { it.endMs } ?: line.endMs) + 1000f)
     }
+    val lineHighlight = remember(line.startMs, nextStart, nextIsCountdown, line.hasWordTiming, SettingsLibrary.EnableWordByWordLyric) {
+        if (!SettingsLibrary.EnableWordByWordLyric || !line.hasWordTiming) nativePlaybackLineHighlight(line.startMs, nextStart, nextIsCountdown) else null
+    }
     val liveTimeRef = androidx.compose.runtime.rememberUpdatedState(liveTime)
-    val rowTime = remember(renderWindow) {
-        derivedStateOf { liveTimeRef.value().coerceIn(renderWindow.first, renderWindow.second) }
+    val rowTime = remember(renderWindow, lineHighlight) {
+        derivedStateOf {
+            val time = liveTimeRef.value()
+            lineHighlight?.renderTime(time, renderWindow) ?: time.coerceIn(renderWindow.first, renderWindow.second)
+        }
     }
     NativeLyricRow(
         line = line, tokens = displayTokens, staticText = staticText,
-        active = active, focused = focused, past = lineState == LineState.Past, blur = committedBlur, nextStart = nextStart,
+        active = active, focused = focused, past = lineState == LineState.Past, seekRevision = seekRevision, blur = if (browsing) 0f else committedBlur, nextStart = nextStart, nextIsCountdown = nextIsCountdown,
         time = { rowTime.value }, showTranslation = showTranslation,
         mainColor = mainColor, subColor = subColor, measurer = measurer,
-        fontFamily = fontFamily, onClick = onClick, onLongClick = onLongClick
+        fontFamily = fontFamily, onClick = onClick, onLongClick = onLongClick, interactionEnabled = interactionEnabled
     )
 }
 
@@ -298,7 +347,7 @@ internal fun shouldRenderStaticLyric(line: YosLyricLine, documentSize: Int): Boo
 }
 internal fun lyricVisualFollowIndex(entries: List<YosLyricLine>, positionMs: Float): Int =
     entries.indexOfLast { line ->
-        positionMs >= line.startMs - if (line.isCountdown) 0f else LYRIC_LINE_PREROLL_MS
+        positionMs >= nativeLyricVisualStartMs(line.startMs, line.isCountdown)
     }
 private const val SEEK_BACKWARD_JITTER_MS = 500f
 internal fun reconcileLyricClock(previous: Float, reported: Float): Float =

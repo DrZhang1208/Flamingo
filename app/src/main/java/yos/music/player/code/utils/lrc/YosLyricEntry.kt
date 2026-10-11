@@ -19,7 +19,8 @@ data class YosLyricLine(
     val otherSide: Boolean = false,
     val agent: String = DEFAULT_AGENT,
     val lyricsTextLine: String? = null,
-    val otherLrcEntries: List<YosLyricLine> = emptyList()
+    val otherLrcEntries: List<YosLyricLine> = emptyList(),
+    val ttmlEffects: Boolean = false
 ) {
     val text: String
         get() = lyricsTextLine ?: tokens.joinToString(separator = "") { it.text }

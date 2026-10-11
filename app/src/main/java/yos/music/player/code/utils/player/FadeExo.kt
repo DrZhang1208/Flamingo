@@ -92,6 +92,7 @@ object FadeExo {
 
     fun MediaController.fadePlay() {
         setPlaying(1)
+        if (playbackState == androidx.media3.common.Player.STATE_IDLE && mediaItemCount > 0) prepare()
         if (!yos.music.player.data.libraries.SettingsLibrary.FadePlay) {
             this.play()
             this.volume = 1f
@@ -117,6 +118,7 @@ object FadeExo {
 
     fun ExoPlayer.fadePlay() {
         setPlaying(1)
+        if (playbackState == androidx.media3.common.Player.STATE_IDLE && mediaItemCount > 0) prepare()
         if (!yos.music.player.data.libraries.SettingsLibrary.FadePlay) {
             this.play()
             this.volume = 1f
@@ -129,6 +131,7 @@ object FadeExo {
 
     private fun setPlaying(targetStatus: Int) {
         isPlaying.value = targetStatus == 1
+        if (targetStatus == 0) yos.music.player.data.objects.MediaViewModelObject.isBuffering.value = false
     }
 
     fun cancelAnimator() {

@@ -13,9 +13,11 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -29,6 +31,13 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import yos.music.player.R
+import yos.music.player.data.libraries.LibrarySortIndex
+import yos.music.player.data.libraries.AlbumLibraryEntry
+import yos.music.player.data.libraries.AlbumSort
+import yos.music.player.data.libraries.albumLibraryEntries
+import yos.music.player.data.libraries.sortAlbums
+import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.ui.widgets.basic.LibrarySortDialog
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.UI
@@ -38,7 +47,6 @@ import yos.music.player.ui.widgets.basic.SearchTextField
 import yos.music.player.ui.widgets.basic.ShadowImage
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.TitleWithLazyVerticalGrid
-import yos.music.player.ui.widgets.basic.YosWrapper
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -52,18 +60,29 @@ fun LocalAlbums(
             .fillMaxSize()
         /*.statusBarsPadding()*/
     ) {
-        val albumsList = remember("LocalAlbums_albumsList") {
-            MusicLibrary.albums
-        }
-
-        val searchText = remember("LocalAlbums_searchText") {
-            mutableStateOf("")
-        }
-
-        val hideMusic = remember("LocalAlbums_showMusic") {
-            derivedStateOf {
-                albumsList.isEmpty()
+        val librarySongs = MusicLibrary.songs
+        val orders = produceState<LibrarySortIndex<AlbumLibraryEntry, AlbumSort>?>(null, librarySongs) {
+            value = withContext(Dispatchers.Default) {
+                LibrarySortIndex(albumLibraryEntries(librarySongs), AlbumSort.entries, ::sortAlbums)
             }
+        }
+        val listState = rememberLazyGridState()
+        val searchText = remember { mutableStateOf("") }
+        val showSort = remember { mutableStateOf(false) }
+        val sortMode = SettingsLibrary.AlbumSortMode
+        val descending = SettingsLibrary.AlbumSortDescending
+        val hideMusic = remember(librarySongs) { mutableStateOf(librarySongs.isEmpty()) }
+        if (showSort.value) {
+            LibrarySortDialog(
+                options = listOf(stringResource(R.string.library_sort_album), stringResource(R.string.library_sort_year), stringResource(R.string.library_sort_updated), stringResource(R.string.library_sort_artist), stringResource(R.string.library_sort_tracks)),
+                selected = sortMode, descending = descending,
+                onSelect = { mode, reversed ->
+                    SettingsLibrary.AlbumSortMode = mode
+                    SettingsLibrary.AlbumSortDescending = reversed
+                    listState.requestScrollToItem(0)
+                },
+                onDismiss = { showSort.value = false }
+            )
         }
         if (hideMusic.value) {
             val message =
@@ -86,30 +105,20 @@ fun LocalAlbums(
                 }
             }
         } else {
-            val useSearch = remember { derivedStateOf { searchText.value.isNotEmpty() } }
-            val list = remember { mutableStateOf(albumsList) }
-
-            YosWrapper {
-                LaunchedEffect(searchText.value) {
-                    withContext(Dispatchers.IO) {
-                        val filteredList = withContext(Dispatchers.IO) {
-                            if (useSearch.value) {
-                                MusicLibrary.albums.asSequence().filter { album ->
-                                    album.contains(searchText.value, ignoreCase = true)
-                                }.toList()
-                            } else {
-                                albumsList
-                            }
-                        }
-                        list.value = filteredList
-                    }
-                }
+            val query = searchText.value
+            val index = orders.value
+            val list = remember(index, query, sortMode, descending) {
+                val ordered = index?.ordered(AlbumSort.entries.getOrElse(sortMode) { AlbumSort.NAME }, descending).orEmpty()
+                if (query.isBlank()) ordered else ordered.filter { it.name.contains(query, ignoreCase = true) }
             }
 
             TitleWithLazyVerticalGrid(
                 title = stringResource(id = R.string.page_library_albums), onBack = {
                     navController.popBackStack()
-                }
+                },
+                state = listState,
+                rightIcon = Icons.Rounded.Sort,
+                onRightIcon = { showSort.value = true }
             ) {
                 item("SearchField", span = { GridItemSpan(2) }) {
                     val keyboardController = LocalSoftwareKeyboardController.current
@@ -129,16 +138,16 @@ fun LocalAlbums(
                         })
                 }
                 itemsIndexed(
-                    list.value,
-                    key = { _, album -> album }/*,
+                    list,
+                    key = { _, album -> album.name }/*,
                     contentType = { _, _ -> "LocalAlbums_item" }*/
                 ) { _, album ->
                     AlbumItems(
-                        albumName = album,
+                        entry = album,
                         animatedContentScope = animatedContentScope,
                         sharedTransitionScope = sharedTransitionScope
                     ) {
-                        LibraryObject.setTargetAlbumName(album)
+                        LibraryObject.setTargetAlbumName(album.name)
                         navController.toUI(UI.AlbumInfo)
                     }
                 }
@@ -150,15 +159,15 @@ fun LocalAlbums(
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun LazyGridItemScope.AlbumItems(
-    albumName: String,
+    entry: AlbumLibraryEntry,
     sharedTransitionScope: SharedTransitionScope,
     animatedContentScope: AnimatedContentScope,
     onClick: () -> Unit
 ) {
-    val songs = MusicLibrary.Album[albumName]
+    val albumName = entry.name
+    val songs = entry.songs
     Column(
         Modifier
-            .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .fillMaxWidth()
             .clickable(
                 indication = null,

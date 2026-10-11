@@ -19,9 +19,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +55,13 @@ import coil.size.Precision
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import yos.music.player.R
+import yos.music.player.data.libraries.LibrarySortIndex
+import yos.music.player.data.libraries.ArtistLibraryEntry
+import yos.music.player.data.libraries.ArtistSort
+import yos.music.player.data.libraries.artistLibraryEntries
+import yos.music.player.data.libraries.sortArtists
+import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.ui.widgets.basic.LibrarySortDialog
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.UI
@@ -69,16 +78,29 @@ fun LocalArtists(navController: NavController) {
             .fillMaxSize()
         /*.statusBarsPadding()*/
     ) {
-        val artistsList = MusicLibrary.artists
-
-        val searchText = remember("LocalArtists_searchText") {
-            mutableStateOf("")
-        }
-
-        val hideMusic = remember("LocalArtists_showMusic") {
-            derivedStateOf {
-                artistsList.isEmpty()
+        val librarySongs = MusicLibrary.songs
+        val orders = produceState<LibrarySortIndex<ArtistLibraryEntry, ArtistSort>?>(null, librarySongs) {
+            value = withContext(Dispatchers.Default) {
+                LibrarySortIndex(artistLibraryEntries(librarySongs), ArtistSort.entries, ::sortArtists)
             }
+        }
+        val listState = rememberLazyListState()
+        val searchText = remember { mutableStateOf("") }
+        val showSort = remember { mutableStateOf(false) }
+        val sortMode = SettingsLibrary.ArtistSortMode
+        val descending = SettingsLibrary.ArtistSortDescending
+        val hideMusic = remember(librarySongs) { mutableStateOf(librarySongs.isEmpty()) }
+        if (showSort.value) {
+            LibrarySortDialog(
+                options = listOf(stringResource(R.string.library_sort_artist), stringResource(R.string.library_sort_songs), stringResource(R.string.library_sort_albums)),
+                selected = sortMode, descending = descending,
+                onSelect = { mode, reversed ->
+                    SettingsLibrary.ArtistSortMode = mode
+                    SettingsLibrary.ArtistSortDescending = reversed
+                    listState.requestScrollToItem(0)
+                },
+                onDismiss = { showSort.value = false }
+            )
         }
         if (hideMusic.value) {
             val message =
@@ -101,30 +123,20 @@ fun LocalArtists(navController: NavController) {
                 }
             }
         } else {
-            val useSearch = remember { derivedStateOf { searchText.value.isNotEmpty() } }
-            val list = remember { mutableStateOf(artistsList) }
-
-            YosWrapper {
-                LaunchedEffect(searchText.value) {
-                    withContext(Dispatchers.IO) {
-                        val filteredList = withContext(Dispatchers.IO) {
-                            if (useSearch.value) {
-                                MusicLibrary.artists.asSequence().filter { artist ->
-                                    artist.contains(searchText.value, ignoreCase = true)
-                                }.toList()
-                            } else {
-                                artistsList
-                            }
-                        }
-                        list.value = filteredList
-                    }
-                }
+            val query = searchText.value
+            val index = orders.value
+            val list = remember(index, query, sortMode, descending) {
+                val ordered = index?.ordered(ArtistSort.entries.getOrElse(sortMode) { ArtistSort.NAME }, descending).orEmpty()
+                if (query.isBlank()) ordered else ordered.filter { it.name.contains(query, ignoreCase = true) }
             }
 
             Title(
                 title = stringResource(id = R.string.page_library_artists), onBack = {
                     navController.popBackStack()
-                }
+                },
+                state = listState,
+                rightIcon = Icons.Rounded.Sort,
+                onRightIcon = { showSort.value = true }
             ) {
                 item("SearchField") {
                     val keyboardController = LocalSoftwareKeyboardController.current
@@ -147,17 +159,17 @@ fun LocalArtists(navController: NavController) {
                 }
 
                 itemsIndexed(
-                    list.value,
-                    key = { _, artist -> artist }/*,
+                    list,
+                    key = { _, artist -> artist.name }/*,
                     contentType = { _, _ -> "LocalArtists_item" }*/
                 ) { index, artist ->
-                    ArtistItem(artistName = artist) {
-                        LibraryObject.setTargetArtistName(artist)
+                    ArtistItem(entry = artist) {
+                        LibraryObject.setTargetArtistName(artist.name)
                         navController.toUI(UI.ArtistInfo)
                     }
 
                     key(index) {
-                        val needDivider = index < artistsList.size - 1
+                        val needDivider = index < list.size - 1
                         if (needDivider) {
                             Spacer(
                                 modifier = Modifier
@@ -178,19 +190,20 @@ fun LocalArtists(navController: NavController) {
 @Composable
 private fun LazyItemScope.ArtistItem(
     modifier: Modifier = Modifier,
-    artistName: String,
+    entry: ArtistLibraryEntry,
     onClick: () -> Unit
 ) =
     Row(
         modifier = Modifier
-            .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .fillMaxWidth()
             .height(56.dp)
             .clickable(onClick = onClick)
             .padding(start = 18.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val songs = MusicLibrary.Artist[artistName]
+        val artistName = entry.name
+        val songs = entry.songs
+        val albumCount = entry.albumCount
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
             YosWrapper {
                 val shape = CircleShape
@@ -248,6 +261,15 @@ private fun LazyItemScope.ArtistItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp
+            )
+            Text(
+                text = stringResource(R.string.page_library_artist_counts, songs.size, albumCount),
+                fontSize = 12.5.sp,
+                lineHeight = 17.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
 

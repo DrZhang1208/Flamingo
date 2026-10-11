@@ -93,6 +93,8 @@ class UnifiedLyricsParserTest {
 
         val line = parser.formatLrcEntries(ttml).single()
 
+        assertTrue(line.ttmlEffects)
+        assertTrue(line.otherLrcEntries.single().ttmlEffects)
         assertEquals("v2", line.agent)
         assertTrue(line.otherSide)
         assertEquals("你好世界", line.translation)

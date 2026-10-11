@@ -284,7 +284,9 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         }
 
     private fun parseTtml(text: String): List<YosLyricLine> =
-        parseTtmlXml(text).ifEmpty { parseTtmlRegex(text) }
+        parseTtmlXml(text).ifEmpty { parseTtmlRegex(text) }.map { line ->
+            line.copy(ttmlEffects = true, otherLrcEntries = line.otherLrcEntries.map { it.copy(ttmlEffects = true) })
+        }
 
     private fun parseTtmlXml(text: String): List<YosLyricLine> = runCatching {
         val parser = XmlPullParserFactory.newInstance().apply {

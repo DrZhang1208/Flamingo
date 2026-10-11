@@ -4,6 +4,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeLyricTimelineTest {
+    @Test fun wordModeUsesRealTimingAndLineModeNeverInventsTiming() {
+        val timed = yos.music.player.code.utils.lrc.YosLyricLine(1000f, 2200f, listOf(
+            yos.music.player.code.utils.lrc.YosLyricToken(1000f, 1600f, "Hello "),
+            yos.music.player.code.utils.lrc.YosLyricToken(1600f, 2200f, "world")))
+        assertSame(timed.tokens, nativeDisplayTokens(timed, true))
+        val lineOnly = nativeDisplayTokens(timed, false).single()
+        assertEquals("Hello world", lineOnly.text)
+        assertEquals(1000f, lineOnly.startMs, 0f)
+        assertEquals(lineOnly.startMs, lineOnly.endMs, 0f)
+        val untimed = timed.copy(tokens = listOf(
+            yos.music.player.code.utils.lrc.YosLyricToken(1000f, 1000f, "Hello world")))
+        for (enabled in listOf(true, false)) {
+            val displayed = nativeDisplayTokens(untimed, enabled).single()
+            assertEquals(untimed.text, displayed.text)
+            assertEquals(displayed.startMs, displayed.endMs, 0f)
+        }
+    }
+    @Test fun progressAdvancesEveryFrameBetweenSparsePlayerSamples() {
+        val clock = NativeLyricClock(1000f)
+        clock.frame(0L, true, 1f, 1000f)
+        var previous = 1000f
+        for (frame in 1..120) {
+            val now = frame * 8L
+            val position = clock.frame(now, true, 1f, if (frame % 10 == 0) 1000f + now else null)
+            assertEquals(8f, position - previous, 0.001f)
+            previous = position
+        }
+        assertEquals(previous, clock.frame(968L, false, 1f, previous), 0f)
+        clock.seek(400f, 968L)
+        assertEquals(400f, clock.frame(976L, true, 1f, previous), 0f)
+    }
     @Test fun essayIsSplitLosslesslyIntoBoundedLazyRows() {
         val text = "介绍正文和组合字符😀。\n".repeat(2000)
         val line = yos.music.player.code.utils.lrc.YosLyricLine(0f, 200000f,
@@ -48,6 +79,24 @@ class NativeLyricTimelineTest {
         val longNote = NativeWordMotion(0f, 10000f, 0f)
         assertTrue(longNote.uplift(700f) >= 0.72f)
     }
+    @Test fun heldFinalWordKeepsMovingBetweenInitialRiseAndEnd() {
+        for (duration in listOf(900f, 1200f, 2000f, 5000f)) {
+            val word = NativeWordMotion(1000f, 1000f + duration, 160f)
+            // Previously these frames all stayed at exactly 72% of the rise.
+            val middle = word.startMs + 650f
+            assertTrue("Held word must keep moving after its initial rise: $duration",
+                word.uplift(middle + 80f) > word.uplift(middle))
+            var previous = word.uplift(800f)
+            for (frame in 808..(word.endMs + 260f).toInt() step 8) {
+                val next = word.uplift(frame.toFloat())
+                assertTrue(next >= previous)
+                assertTrue("No frame may jump through the continuation", next - previous < 0.025f)
+                previous = next
+            }
+            assertEquals(1f, word.uplift(word.endMs + 240f), 0.00001f)
+        }
+    }
+
     @Test fun eachWrappedOrSpaceSeparatedGlyphStartsDimAndNeverRegresses() {
         for (x in listOf(0f, 0.2f, 0.5f, 0.9f, 1f)) {
             assertEquals(0f, nativeHighlightCoverage(0f, x, 0.7f), 0f)
@@ -74,6 +123,8 @@ class NativeLyricTimelineTest {
         motion.frame(120_000_000L)
         assertTrue(motion.displacement("row", 140f, 0) < immediate)
         motion.unregister("row")
-        assertFalse(motion.frame(140_000_000L))
+        // The moving viewport keeps virtualization alive even between visible rows.
+        assertTrue(motion.frame(140_000_000L))
+        assertFalse(motion.frame(3_000_000_000L))
     }
 }

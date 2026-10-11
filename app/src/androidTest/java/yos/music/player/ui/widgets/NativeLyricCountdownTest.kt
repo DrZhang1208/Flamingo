@@ -12,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeLyricCountdownTest {
-    private data class Coverage(val width: Int, val alpha: Long, val firstDotHeight: Int)
+    private data class Coverage(val width: Int, val alpha: Long, val firstDotHeight: Int, val dotHeights: List<Int>)
 
     private fun render(time: Float): Coverage {
         val bitmap = Bitmap.createBitmap(90, 40, Bitmap.Config.ARGB_8888)
@@ -20,25 +20,33 @@ class NativeLyricCountdownTest {
             drawNativeCountdown(time, 1000f, 101000f, Color.White)
         }
         var left = bitmap.width; var right = -1; var top = bitmap.height; var bottom = -1
+        val dotTops = IntArray(3) { bitmap.height }; val dotBottoms = IntArray(3) { -1 }
         var alpha = 0L
         for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
             val pixelAlpha = android.graphics.Color.alpha(bitmap.getPixel(x, y))
             alpha += pixelAlpha
             if (pixelAlpha > 0) {
                 left = minOf(left, x); right = maxOf(right, x)
+                val dot = (x / 24).coerceIn(0, 2)
+                dotTops[dot] = minOf(dotTops[dot], y); dotBottoms[dot] = maxOf(dotBottoms[dot], y)
                 if (x < 24) { top = minOf(top, y); bottom = maxOf(bottom, y) }
             }
         }
         bitmap.recycle()
-        return Coverage((right - left + 1).coerceAtLeast(0), alpha, (bottom - top + 1).coerceAtLeast(0))
+        return Coverage((right - left + 1).coerceAtLeast(0), alpha, (bottom - top + 1).coerceAtLeast(0),
+            (0..2).map { (dotBottoms[it] - dotTops[it] + 1).coerceAtLeast(0) })
     }
 
     @Test fun largerDotsBreatheAndBothBoundariesScaleAndFadeToNothing() {
         for (time in listOf(999f, 1000f, 101000f, 101001f)) assertEquals(0L, render(time).alpha)
-        val contracted = render(1450f)
-        val expanded = render(2350f)
+        val contracted = render(1700f)
+        val expanded = render(3100f)
         assertTrue("Dots should be visibly larger than the former 7–8px diameter", contracted.firstDotHeight >= 10)
         assertTrue("Breathing must change actual drawn size", expanded.firstDotHeight > contracted.firstDotHeight)
+        for (time in listOf(1700f, 2400f, 3100f)) {
+            val heights = render(time).dotHeights
+            assertTrue("All three dots must breathe in sync: $heights", heights.max() - heights.min() <= 1)
+        }
         val entering = render(1180f)
         val leaving = render(100840f)
         assertTrue(entering.width < contracted.width * 0.75f)

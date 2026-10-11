@@ -8,10 +8,9 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.net.Uri
+import android.os.Build
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -19,40 +18,30 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
 import coil.request.ImageRequest
 import com.google.android.renderscript.Toolkit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.data.libraries.SettingsLibrary.NowplayingBackgroundEffect
 import yos.music.player.data.objects.NowPlayingBackgroundState
 
 /**
  * 播放页背景组件。
- * 静态模式（默认）：预模糊 + 缓存 + Crossfade，零持续开销。
- * 动态模式：GPU 实时模糊 + 对角线缓慢流动动画。
+ * 静态模式：保留相同柔化色场与曝光，停止形变帧循环。
+ * 动态模式：预柔化封面纹理 + AGSL 连续形变，不做逐帧大范围模糊。
  */
 @Composable
 fun YosFloatingLight(
@@ -92,6 +81,8 @@ fun YosFloatingLight(
         )
 
         if (result != null) {
+            // Bound retained cover textures instead of accumulating every played track.
+            if (assetCache.size >= 6) assetCache.keys.firstOrNull()?.let { assetCache.remove(it) }
             assetCache[requestKey] = result
             settledFrame.value = BackgroundRenderFrame.asset(trackKey, requestKey, result)
         } else {
@@ -99,121 +90,46 @@ fun YosFloatingLight(
         }
     }
 
+    DisposableEffect(imageLoader) {
+        onDispose { imageLoader.shutdown() }
+    }
+
     val displayFrame = settledFrame.value
-    val renderTarget = BackgroundRenderTarget(
-        key = displayFrame.frameKey,
-        dynamic = dynamicEnabled,
-        raw = displayFrame.raw,
-        blurred = displayFrame.blurred
-    )
 
     Box(modifier = modifier) {
-        Crossfade(
-            targetState = renderTarget,
+        if (Build.VERSION.SDK_INT >= 33) {
+            // Keep one renderer across track/page changes so its motion never restarts.
+            val fallbackTexture = remember {
+                Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888).apply {
+                    eraseColor(android.graphics.Color.rgb(28, 30, 38))
+                }
+            }
+            FlowingArtworkBackground(displayFrame.flow ?: fallbackTexture, isPlaying, showMiniPlayer,
+                motionEnabled = dynamicEnabled)
+        } else Crossfade(
+            targetState = displayFrame,
             animationSpec = tween(700, easing = FastOutSlowInEasing)
         ) { target ->
-            when {
-                target.dynamic && target.raw != null -> {
-                    DynamicBlurLayer(target.raw, showMiniPlayer)
-                }
-                !target.dynamic && target.blurred != null -> {
-                    StaticBlurLayer(target.blurred)
-                }
-                !target.dynamic && target.raw != null -> {
-                    // 静态模糊图尚未准备好时，先用原图做一次轻量 GPU blur 过渡，避免整屏黑掉。
-                    StaticBlurLayer(target.raw, runtimeBlur = true)
-                }
-                target.blurred != null -> {
-                    StaticBlurLayer(target.blurred)
-                }
-                target.raw != null -> {
-                    DynamicBlurLayer(target.raw, showMiniPlayer)
-                }
-                else -> {
-                    FallbackLayer()
-                }
-            }
+            val texture = target.flow
+            if (texture != null) StaticFlowLayer(texture.asImageBitmap()) else FallbackLayer()
         }
+
+        // Apply the same exposure reduction to dynamic and static artwork.
+        // This sits inside the background, never over controls or cover art.
+        Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.30f)) })
     }
 }
 
-/** 静态模式：预模糊图居中裁剪 + 遮罩 */
+/** Older devices use the same soft colour texture and exposure without AGSL motion. */
 @Composable
-private fun StaticBlurLayer(bitmap: ImageBitmap, runtimeBlur: Boolean = false) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (runtimeBlur) Modifier.blur(72.dp) else Modifier)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawBehind { drawRect(Color(0x66000000)) }
-        )
-    }
-}
-
-/** 动态模式:原图 + GPU 模糊 + 缓慢位移。生命周期感知：后台/锁屏/最小化时冻结动画 */
-@Composable
-private fun DynamicBlurLayer(bitmap: ImageBitmap, showMiniPlayer: () -> Boolean) {
-    var isForeground by remember { mutableStateOf(true) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            isForeground = event == Lifecycle.Event.ON_RESUME
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    val tx = remember { Animatable(0f) }
-    val ty = remember { Animatable(0f) }
-
-    // 仅当前台且播放页全屏时运行动画
-    val shouldAnimate = isForeground && !showMiniPlayer()
-
-    LaunchedEffect(shouldAnimate) {
-        if (!shouldAnimate) return@LaunchedEffect
-
-        val jobX = launch {
-            while (isActive) {
-                tx.animateTo(-0.15f, tween(6000, easing = LinearEasing))
-                tx.animateTo(0.15f, tween(6000, easing = LinearEasing))
-            }
-        }
-        val jobY = launch {
-            while (isActive) {
-                ty.animateTo(-0.15f, tween(7500, easing = LinearEasing))
-                ty.animateTo(0.15f, tween(7500, easing = LinearEasing))
-            }
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = 1.35f
-                    scaleY = 1.35f
-                    translationX = tx.value * size.width
-                    translationY = ty.value * size.height
-                }
-                .blur(80.dp)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawBehind { drawRect(Color(0x66000000)) }
-        )
+private fun StaticFlowLayer(bitmap: ImageBitmap) {
+    Box(Modifier.fillMaxSize()) {
+        Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.FillBounds,
+            modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().drawBehind {
+            drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.22f),
+                Color.Black.copy(alpha = 0.41f))))
+        })
     }
 }
 
@@ -239,15 +155,13 @@ private fun FallbackLayer() {
 
 private data class BackgroundAssets(
     val key: String? = null,
-    val raw: ImageBitmap,
-    val blurred: ImageBitmap
+    val flow: Bitmap
 )
 
 private data class BackgroundRenderFrame(
     val frameKey: String,
     val trackKey: String?,
-    val raw: ImageBitmap? = null,
-    val blurred: ImageBitmap? = null
+    val flow: Bitmap? = null
 ) {
     companion object {
         fun fallback(trackKey: String?) = BackgroundRenderFrame(
@@ -258,18 +172,10 @@ private data class BackgroundRenderFrame(
         fun asset(trackKey: String?, requestKey: String, assets: BackgroundAssets) = BackgroundRenderFrame(
             frameKey = "asset:$requestKey",
             trackKey = trackKey,
-            raw = assets.raw,
-            blurred = assets.blurred
+            flow = assets.flow
         )
     }
 }
-
-private data class BackgroundRenderTarget(
-    val key: String?,
-    val dynamic: Boolean,
-    val raw: ImageBitmap?,
-    val blurred: ImageBitmap?
-)
 
 private suspend fun loadBackgroundAssets(
     context: Context,
@@ -294,29 +200,32 @@ private suspend fun loadBackgroundAssets(
             (source.height * scale).toInt().coerceAtLeast(1),
             true
         )
-        val saturated = applySaturation(scaled)
         BackgroundAssets(
             key = key,
-            raw = saturated.asImageBitmap(),
-            blurred = Toolkit.blur(saturated.copy(Bitmap.Config.ARGB_8888, true), 20).asImageBitmap()
+            flow = prepareFlowTexture(scaled)
         )
     }
 }
 
-private fun applySaturation(source: Bitmap): Bitmap {
-    val out = source.copy(Bitmap.Config.ARGB_8888, true)
-    val canvas = Canvas(out)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-        val matrix = ColorMatrix()
-        matrix.setSaturation(1.5f)
-        colorFilter = ColorMatrixColorFilter(matrix)
+/** Compact, opaque colour field: retain cover colours but remove recognisable details. */
+internal fun prepareFlowTexture(source: Bitmap): Bitmap {
+    val square = Bitmap.createScaledBitmap(source, 96, 96, true)
+    val opaque = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+    Canvas(opaque).apply {
+        drawColor(android.graphics.Color.rgb(28, 28, 32))
+        drawBitmap(square, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.7f) })
+        })
     }
-    canvas.drawBitmap(source, 0f, 0f, paint)
-    return out
+    if (square !== source) square.recycle()
+    val firstPass = Toolkit.blur(opaque, 20)
+    opaque.recycle()
+    return Toolkit.blur(firstPass, 20).also { firstPass.recycle() }
 }
 
 private fun toSoftware(bitmap: Bitmap): Bitmap =
-    if (bitmap.config == Bitmap.Config.HARDWARE) bitmap.copy(Bitmap.Config.ARGB_8888, false) else bitmap
+    if (Build.VERSION.SDK_INT >= 26 && bitmap.config == Bitmap.Config.HARDWARE)
+        bitmap.copy(Bitmap.Config.ARGB_8888, false) else bitmap
 
 // region === Home.kt 兼容 ===
 

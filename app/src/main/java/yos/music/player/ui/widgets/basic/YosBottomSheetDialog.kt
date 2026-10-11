@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +66,7 @@ private fun YosBottomSheetDialog(
     bottomSheetState: SheetState = rememberModalBottomSheetState(),
     properties: ModalBottomSheetProperties,
     cornerRadius: () -> Dp,
+    bottomContentPadding: Dp = 26.dp,
     onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -86,8 +88,14 @@ private fun YosBottomSheetDialog(
     }
 
     val shape = YosRoundedCornerShape(cornerRadius())
+    val scope = rememberCoroutineScope()
+    val elasticLimit = with(LocalDensity.current) { 24.dp.toPx() }
+    val elastic = remember(scope, elasticLimit) { DialogElasticMotion(scope, elasticLimit) }
 
     ModalBottomSheet(
+        // Translate above Material's Surface clipping, so the entire sheet outline
+        // moves too. Translating only the child clips its top at the old bounds.
+        modifier = Modifier.graphicsLayer { translationY = elastic.offset },
         onDismissRequest = onDismissRequest,
         sheetState = bottomSheetState,
         windowInsets = windowInsets,
@@ -95,6 +103,7 @@ private fun YosBottomSheetDialog(
         shape = RectangleShape,
         content = {
             Surface(modifier = Modifier
+                .containDialogScroll(elastic)
                 .padding(vertical = 5.dp, horizontal = 5.dp)
                 .graphicsLayer {
                     this.shape = if (cornerRadius() != 0.dp) {
@@ -104,16 +113,8 @@ private fun YosBottomSheetDialog(
                     }
                     shadowElevation = 10f
                     spotShadowColor = Color.Black
-                }
-                .graphicsLayer {
                     clip = true
-                    this.shape = if (cornerRadius() != 0.dp) {
-                         shape
-                    } else {
-                        RectangleShape
-                    }
                 }
-                .clipToBounds()
                 /*.navigationBarsPadding()*/,
                 color = Color.White withNight Color.Black,
                 contentColor = Color.Black withNight Color.White,
@@ -121,7 +122,7 @@ private fun YosBottomSheetDialog(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .padding(26.dp)
+                            .padding(start = 26.dp, top = 26.dp, end = 26.dp, bottom = bottomContentPadding)
                             .verticalScroll(rememberScrollState())
                     ) {
                         content()
@@ -221,6 +222,8 @@ fun OptionDialog(
     dismissOnNegative: Boolean = true,
     horizontalTitle: Boolean = false,
     contentKey: Any? = null,
+    contentBottomSpacing: Dp = 19.5.dp,
+    bottomContentPadding: Dp = 26.dp,
     bottomSheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     properties: ModalBottomSheetProperties = ModalBottomSheetDefaults.properties(),
     cornerRadius: () -> Dp = { SettingsLibrary.ScreenCorner.toInt().dp },
@@ -241,7 +244,8 @@ fun OptionDialog(
         bottomSheetState = bottomSheetState,
         properties = properties,
         onDismissRequest = animatedDismiss,
-        cornerRadius = cornerRadius
+        cornerRadius = cornerRadius,
+        bottomContentPadding = bottomContentPadding
     ) {
         // println(cornerRadius())
         DialogTitle(icon = icon, title = title, subTitle = subTitle, horizontal = horizontalTitle)
@@ -253,7 +257,7 @@ fun OptionDialog(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 19.5.dp)
+                        .padding(bottom = contentBottomSpacing)
                 ) {
                     if (contentKey != null) {
                         AnimatedContent(

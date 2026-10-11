@@ -89,41 +89,13 @@ internal fun wavySpringParams(lines: List<YosLyricLine>, index: Int): WavySpring
 }
 
 internal fun wavyRowDelayMs(index: Int, anchorIndex: Int): Long {
-    var stepMs = 50f
+    var stepMs = 24f
     var delayMs = 0f
     repeat((index - anchorIndex).coerceIn(0, 8)) {
         delayMs += stepMs
-        stepMs /= 1.05f
+        stepMs /= 1.08f
     }
     return delayMs.toLong()
-}
-
-/**
- * Keeps real word timing untouched and synthesizes a monotonic character timeline
- * only for line-timed lyrics. Whitespace is attached to the current instant and
- * never consumes singing time.
- */
-internal fun createDisplayTokens(line: YosLyricLine, nextLineStart: Float?): List<YosLyricToken> {
-    val hasSourceTiming = line.tokens.any { it.endMs > it.startMs }
-    if (hasSourceTiming || !SettingsLibrary.SmartWordByWordLyric) return line.tokens
-
-    val text = line.text
-    if (text.isEmpty()) return line.tokens
-    val graphemes = lyricGraphemeRanges(text).map { text.substring(it.first, it.last + 1) }
-    val timedCount = graphemes.count { it.any { char -> !char.isWhitespace() } }.coerceAtLeast(1)
-    val available = ((nextLineStart ?: (line.startMs + timedCount * 220f)) - line.startMs - 80f)
-        .coerceIn(timedCount * 90f, timedCount * 420f)
-    val step = available / timedCount
-    var cursor = line.startMs
-    return graphemes.map { grapheme ->
-        if (grapheme.all(Char::isWhitespace)) {
-            YosLyricToken(cursor, cursor, grapheme)
-        } else {
-            val token = YosLyricToken(cursor, cursor + step, grapheme)
-            cursor += step
-            token
-        }
-    }
 }
 
 @Composable

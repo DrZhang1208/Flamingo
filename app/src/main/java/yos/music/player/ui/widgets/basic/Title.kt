@@ -162,6 +162,7 @@ fun Title(
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     bottomPadding: Dp = 134.dp,
     showLargeTitle: Boolean = true,
+    state: LazyListState = rememberLazyListState(),
     content: LazyListScope.() -> Unit
 ) =
     BaseTitle(
@@ -171,6 +172,7 @@ fun Title(
         rightIcon = rightIcon,
         onRightIcon = onRightIcon,
         rightBarIcon = rightBarIcon,
+        listState = state,
         grid = false,
         bottomPadding = bottomPadding,
         showLargeTitle = showLargeTitle,
@@ -186,6 +188,7 @@ fun TitleWithLazyVerticalGrid(
     onRightIcon: (() -> Unit)? = null,
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     columns: () -> Int = { 2 },
+    state: LazyGridState = rememberLazyGridState(),
     content: LazyGridScope.() -> Unit
 ) =
     BaseTitle(
@@ -196,6 +199,7 @@ fun TitleWithLazyVerticalGrid(
         onRightIcon = onRightIcon,
         rightBarIcon = rightBarIcon,
         columns = columns,
+        gridState = state,
         grid = true,
         content = content
     )
@@ -210,6 +214,8 @@ private fun BaseTitle(
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     columns: () -> Int = { 2 },
     grid: Boolean,
+    listState: LazyListState? = null,
+    gridState: LazyGridState? = null,
     bottomPadding: Dp = 134.dp,
     showLargeTitle: Boolean = true,
     content: Any
@@ -222,6 +228,7 @@ private fun BaseTitle(
             rightIcon = rightIcon,
             onRightIcon = onRightIcon,
             rightBarIcon = rightBarIcon,
+            state = gridState ?: rememberLazyGridState(),
             columns = columns,
             content = content as LazyGridScope.() -> Unit
         )
@@ -233,6 +240,7 @@ private fun BaseTitle(
             rightIcon = rightIcon,
             onRightIcon = onRightIcon,
             rightBarIcon = rightBarIcon,
+            state = listState ?: rememberLazyListState(),
             bottomPadding = bottomPadding,
             showLargeTitle = showLargeTitle,
             content = content as LazyListScope.() -> Unit
@@ -249,9 +257,9 @@ private fun BaseTitleGrid(
     onRightIcon: (() -> Unit)? = null,
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     columns: () -> Int = { 2 },
+    state: LazyGridState,
     content: LazyGridScope.() -> Unit
 ) {
-    val state = rememberLazyGridState()
     val alpha = rememberAlpha(state)
     val showSmallTitle = rememberShowSmallTitle(alpha, state)
 
@@ -313,9 +321,9 @@ private fun BaseTitleList(
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     bottomPadding: Dp = 134.dp,
     showLargeTitle: Boolean = true,
+    state: LazyListState,
     content: LazyListScope.() -> Unit
 ) {
-    val state = rememberLazyListState()
     val alpha = rememberAlpha(state)
     val showSmallTitle = rememberShowSmallTitle(alpha, state)
 

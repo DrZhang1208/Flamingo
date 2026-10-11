@@ -100,7 +100,7 @@
     <string name="playlist_shuffle_desc">當前正處於隨機播放模式。</string>
     <string name="page_library_playlists_music_total">%d 首歌曲</string>
     <string name="settings_performance_ui_nowplaying_background_effect">背景動態效果</string>
-    <string name="settings_performance_ui_nowplaying_background_effect_desc">播放頁面背景的動態效果，可能導致性能問題。</string>
+    <string name="settings_performance_ui_nowplaying_background_effect_desc">Android 13 及以上使用封面色彩緩慢流動的背景。暫停、背景執行時停止流動；較舊系統使用靜態背景。</string>
     <string name="page_library_playlists_add_title">新建播放列表…</string>
     <string name="page_library_playlists_fav_title">喜愛的歌曲</string>
     <string name="settings_performance_notification_title">媒體通知</string>
@@ -121,4 +121,15 @@
     <string name="settings_performance_ui_nowplaying_show_volume_bar">顯示音量條</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">在播放界面的下部顯示音量調節條。</string>
     <string name="settings_performance_ui_theme">主題</string>
+    <string name="page_library_artist_counts">%1$d 首歌曲·%2$d 張專輯</string>
+    <string name="library_sort_title">排序方式</string>
+    <string name="library_sort_descending">降序</string>
+    <string name="library_sort_artist">歌手名</string>
+    <string name="library_sort_songs">歌曲數量</string>
+    <string name="library_sort_albums">專輯數量</string>
+    <string name="library_sort_album">專輯名稱</string>
+    <string name="library_sort_year">年份</string>
+    <string name="library_sort_updated">更新時間</string>
+    <string name="library_sort_tracks">曲目數量</string>
+    <string name="library_sort_ascending">升序</string>
 </resources>

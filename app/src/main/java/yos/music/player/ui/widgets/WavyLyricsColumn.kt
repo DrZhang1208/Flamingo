@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +62,14 @@ internal class WavyLyricsColumnState {
 
     private val rowHeights = mutableStateMapOf<Int, Int>()
     private var itemCount by mutableIntStateOf(0)
+    // Rebuild only when measured heights/count change, never for fractional motion.
+    private val rowOffsets by derivedStateOf {
+        FloatArray(itemCount + 1).also { offsets ->
+            for (index in 0 until itemCount) {
+                offsets[index + 1] = offsets[index] + rowHeight(index)
+            }
+        }
+    }
     private var returnFromUserScroll = false
 
     fun updateItemCount(count: Int) {
@@ -145,45 +155,39 @@ internal class WavyLyricsColumnState {
         return travel
     }
 
-    fun rowTop(index: Int): Float {
-        var result = 0f
-        for (row in 0 until index) result += (rowHeights[row] ?: ESTIMATED_ROW_HEIGHT_PX.toInt())
-        return result
-    }
+    fun rowTop(index: Int): Float = rowOffsets[index.coerceIn(0, itemCount)] +
+        (index - itemCount).coerceAtLeast(0) * ESTIMATED_ROW_HEIGHT_PX
 
     fun rowHeight(index: Int): Int = rowHeights[index] ?: ESTIMATED_ROW_HEIGHT_PX.toInt()
 
-    fun visibleIndexes(overscanPx: Float): IntRange {
+    fun visibleIndexes(overscanPx: Float, offsetPx: Float = scrollOffsetPx): IntRange {
         if (itemCount == 0) return IntRange.EMPTY
-        val startY = scrollOffsetPx - overscanPx
-        val endY = scrollOffsetPx + viewportHeightPx + overscanPx
-        var y = 0f
-        var first = 0
-        while (first < itemCount - 1 && y + rowHeight(first) < startY) {
-            y += rowHeight(first)
-            first++
-        }
-        var last = first
-        while (last < itemCount - 1 && y < endY) {
-            y += rowHeight(last)
-            last++
-        }
+        val offsets = rowOffsets
+        val startY = offsetPx - overscanPx
+        val endY = offsetPx + viewportHeightPx + overscanPx
+        // Keep the original inclusive edge/extra trailing row semantics.
+        val first = lowerBoundRow { offsets[it + 1] >= startY }
+        val last = lowerBoundRow { offsets[it] >= endY }.coerceAtLeast(first)
         return first..last
+    }
+
+    private inline fun lowerBoundRow(predicate: (Int) -> Boolean): Int {
+        var low = 0
+        var high = itemCount - 1
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (predicate(mid)) high = mid else low = mid + 1
+        }
+        return low
     }
 
     private fun firstVisibleIndex(): Int {
         if (itemCount == 0 || scrollOffsetPx <= 0f) return 0
-        var row = 0
-        var bottom = rowHeight(0).toFloat()
-        while (row < itemCount - 1 && bottom <= scrollOffsetPx) {
-            row++
-            bottom += rowHeight(row)
-        }
-        return row
+        val offsets = rowOffsets
+        return lowerBoundRow { offsets[it + 1] > scrollOffsetPx }
     }
 
-    private fun totalHeight(): Float =
-        (0 until itemCount).sumOf { rowHeight(it).toDouble() }.toFloat()
+    private fun totalHeight(): Float = rowOffsets[itemCount]
 
     private fun minOffset(): Float = -viewportHeightPx * TARGET_Y_RATIO
 
@@ -220,13 +224,20 @@ internal fun WavyLyricsColumn(
     SideEffect { state.updateItemCount(itemCount) }
     val motion = remember(state) { NativeLyricScrollMotion() }
     LaunchedEffect(motion, state.waveGeneration) {
-        motion.retarget(state.waveCumulativeTravelPx, state.waveResetGeneration,
-            state.waveAnchorIndex, System.nanoTime())
+        // Start and sample from the same display clock. A wall-clock start can
+        // fall after the current frame timestamp and skip the first sample.
+        withFrameNanos { now ->
+            motion.retarget(state.waveCumulativeTravelPx, state.waveResetGeneration,
+                state.waveAnchorIndex, now)
+        }
         var moving = true
         while (moving) withFrameNanos { moving = motion.frame(it) }
     }
-    val itemKeys = (0 until itemCount).map(itemKey)
-    require(itemKeys.toSet().size == itemCount) { "WavyLazyColumn item keys must be unique" }
+    val itemKeys = remember(itemCount, itemKey) {
+        (0 until itemCount).map(itemKey).also { keys ->
+            require(keys.toSet().size == itemCount) { "WavyLazyColumn item keys must be unique" }
+        }
+    }
 
     val scrollState = remember(state) {
         ScrollableState { delta ->
@@ -242,6 +253,24 @@ internal fun WavyLyricsColumn(
         onDispose { state.finishUserScroll() }
     }
 
+    // Fractional motion invalidates drawing each frame, but should only
+    // invalidate measurement when virtualization actually needs different rows.
+    val requestedIndexes = remember(state, motion, itemCount) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            buildSet {
+                addAll(state.visibleIndexes(OVERSCAN_PX))
+                motion.visibleDisplacements(state.waveCumulativeTravelPx, state.waveResetGeneration).forEach { displacement ->
+                    addAll(state.visibleIndexes(OVERSCAN_PX, state.scrollOffsetPx - displacement))
+                }
+                if (state.waveAnchorIndex in 0 until itemCount) {
+                    val start = (state.waveAnchorIndex - ACTIVE_ROW_RADIUS).coerceAtLeast(0)
+                    val end = (state.waveAnchorIndex + ACTIVE_ROW_RADIUS).coerceAtMost(itemCount - 1)
+                    addAll(start..end)
+                }
+            }.filter { it in 0 until itemCount }.sorted()
+        }
+    }
+
     SubcomposeLayout(
         modifier = modifier
             .clipToBounds()
@@ -253,14 +282,7 @@ internal fun WavyLyricsColumn(
                 flingBehavior = LyricFlingBehavior
             ),
     ) { constraints ->
-        val requested = buildSet {
-            addAll(state.visibleIndexes(OVERSCAN_PX))
-            if (state.waveAnchorIndex in 0 until itemCount) {
-                val start = (state.waveAnchorIndex - ACTIVE_ROW_RADIUS).coerceAtLeast(0)
-                val end = (state.waveAnchorIndex + ACTIVE_ROW_RADIUS).coerceAtMost(itemCount - 1)
-                addAll(start..end)
-            }
-        }.filter { it in 0 until itemCount }.sorted()
+        val requested = requestedIndexes.value
         val loose = constraints.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity)
         val placeables = requested.associateWith { index ->
             subcompose(itemKeys[index]) {
@@ -304,7 +326,7 @@ private fun WavyLyricsRow(
             .onSizeChanged { state.updateRowHeight(index, it.height) }
             .graphicsLayer {
                 translationY = motion.displacement(stableKey,
-                    state.waveCumulativeTravelPx, state.waveResetGeneration)
+                    state.waveCumulativeTravelPx, state.waveResetGeneration, index, springParams)
             }
     ) {
         content(index)

@@ -180,3 +180,26 @@ dependencies {
         exclude group: "androidx.compose.material3", module: "material3"
     }
 }
+
+// Upload only after a Release APK has been packaged successfully. Credentials stay local.
+def releaseWebDavConfig = new File(System.getenv('FLAMINGO_WEBDAV_CONFIG') ?:
+        new File(System.getProperty('user.home'), '.config/flamingo/release-webdav.json').absolutePath)
+def releaseUploadScript = rootProject.file('scripts/upload_release_webdav.py').absolutePath
+def releaseOutputMetadata = layout.buildDirectory.file('outputs/apk/release/output-metadata.json').get().asFile.absolutePath
+def uploadReleaseToWebDav = tasks.register('uploadReleaseToWebDav', Exec) {
+    group = 'distribution'
+    description = 'Upload the packaged Release APK to the configured private WebDAV directory.'
+    dependsOn 'packageRelease'
+    onlyIf('Private WebDAV configuration exists') { releaseWebDavConfig.isFile() }
+    commandLine 'python3', releaseUploadScript, '--metadata', releaseOutputMetadata
+    // A remote outage must not discard a successfully built local APK.
+    ignoreExitValue = true
+    doLast {
+        if (executionResult.get().exitValue != 0) {
+            logger.warn('Release APK built locally, but WebDAV upload FAILED. Run scripts/upload_release_webdav.py to retry.')
+        }
+    }
+}
+tasks.matching { it.name == 'assembleRelease' }.configureEach {
+    dependsOn uploadReleaseToWebDav
+}

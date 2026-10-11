@@ -34,7 +34,7 @@ class ArtworkSharedTransitionTest {
                             rememberSharedContentState("cover"), visible = album.value == large
                         )
                         val frame = if (large) Modifier.fillMaxWidth()
-                            .artworkSharedFrame(shared, { 1f }, 1f).aspectRatio(1f)
+                            .artworkSharedFrame(shared, { 1f }).aspectRatio(1f)
                         else Modifier.size(64.dp).then(shared)
                         Box(frame.background(Color.Red))
                     }

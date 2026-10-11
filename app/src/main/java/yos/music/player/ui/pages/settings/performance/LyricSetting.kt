@@ -16,9 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import yos.music.player.ui.theme.YosRoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,17 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -52,7 +44,6 @@ import yos.music.player.ui.pages.settings.GroupSpacerMedium
 import yos.music.player.ui.pages.settings.ListHeader
 import yos.music.player.ui.pages.settings.SettingBackground
 import yos.music.player.ui.pages.settings.SwitchItem
-import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 import java.io.File
@@ -213,12 +204,10 @@ fun LyricSetting(navController: NavController) =
                         GroupSpacer()
                         RoundColumn {
                             SwitchItem(
-                                title = stringResource(R.string.settings_performance_lyric_smart_wbw_lyric),
-                                desc = stringResource(R.string.settings_performance_lyric_smart_wbw_lyric_desc),
-                                onClick = {
-                                    SettingsLibrary.SmartWordByWordLyric = !SettingsLibrary.SmartWordByWordLyric
-                                },
-                                checkedLambda = { SettingsLibrary.SmartWordByWordLyric }
+                                title = stringResource(R.string.settings_lyric_word_by_word),
+                                desc = stringResource(R.string.settings_lyric_word_by_word_desc),
+                                onClick = { SettingsLibrary.EnableWordByWordLyric = !SettingsLibrary.EnableWordByWordLyric },
+                                checkedLambda = { SettingsLibrary.EnableWordByWordLyric }
                             )
                         }
                         GroupSpacer()
@@ -280,12 +269,8 @@ fun LyricSetting(navController: NavController) =
 private fun LyricPreview(mainSize: Float, transSize: Float, weightName: String) {
     val mainSp = mainSize.toInt()
     val transSp = transSize.toInt()
-    val isDark = isFlamingoInDarkMode()
-
-    val mainColor = if (isDark) Color.White else Color.Black
+    val mainColor = Color.Black
     val subColor = Color(0xFF919191)
-    val currentAlpha = 0.9f
-    val nextAlpha = 0.14f
 
     val fontWeight = when (weightName) {
         "Thin" -> FontWeight.Thin
@@ -300,107 +285,24 @@ private fun LyricPreview(mainSize: Float, transSize: Float, weightName: String) 
         else -> FontWeight.ExtraBold
     }
 
-    val bgColor = (if (isDark) Color.White else Color.Black).copy(alpha = 0.06f)
-
-    val scrollState = rememberScrollState()
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                val atTop = scrollState.value == 0
-                val atBottom = scrollState.value >= scrollState.maxValue
-                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
-                return Offset.Zero
-            }
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                val atTop = scrollState.value == 0
-                val atBottom = scrollState.value >= scrollState.maxValue
-                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
-                return Offset.Zero
-            }
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                val atTop = scrollState.value == 0
-                val atBottom = scrollState.value >= scrollState.maxValue
-                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
-                return Velocity.Zero
-            }
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                val atTop = scrollState.value == 0
-                val atBottom = scrollState.value >= scrollState.maxValue
-                if ((atTop && available.y > 0) || (atBottom && available.y < 0)) return available
-                return Velocity.Zero
-            }
-        }
-    }
-
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .height(160.dp)
-            .clip(YosRoundedCornerShape(12.dp))
-            .background(bgColor)
-            .nestedScroll(nestedScrollConnection)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            .clip(YosRoundedCornerShape(12.dp)).background(Color.White)
+            .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
-        Column(
-            Modifier
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp, vertical = 34.dp)
-        ) {
-            Column {
-                Text(
-                    text = "Walking through a crowd",
-                    fontSize = mainSp.sp,
-                    lineHeight = (mainSp + 8).sp,
-                    fontWeight = fontWeight,
-                    color = mainColor.copy(alpha = currentAlpha),
-                    maxLines = 2
-                )
-                Text(
-                    text = "穿过人山人海",
-                    fontSize = transSp.sp,
-                    lineHeight = (transSp + 6).sp,
-                    fontWeight = fontWeight,
-                    color = subColor.copy(alpha = currentAlpha * 0.6f),
-                    maxLines = 2
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Column {
-                Text(
-                    text = "The village is aglow",
-                    fontSize = mainSp.sp,
-                    lineHeight = (mainSp + 8).sp,
-                    fontWeight = fontWeight,
-                    color = mainColor.copy(alpha = nextAlpha),
-                    maxLines = 2
-                )
-                Text(
-                    text = "整个城市流光溢彩",
-                    fontSize = transSp.sp,
-                    lineHeight = (transSp + 6).sp,
-                    fontWeight = fontWeight,
-                    color = subColor.copy(alpha = nextAlpha * 0.6f),
-                    maxLines = 2
-                )
-            }
-        }
-
-        Box(
-            Modifier
-                .fillMaxWidth().height(28.dp)
-                .align(Alignment.TopCenter)
-                .background(Brush.verticalGradient(listOf(bgColor, Color.Transparent)))
+        Text(
+            text = "Walking through a crowd",
+            fontSize = mainSp.sp, lineHeight = (mainSp + 8).sp,
+            fontWeight = fontWeight, color = mainColor
         )
-        Box(
-            Modifier
-                .fillMaxWidth().height(28.dp)
-                .align(Alignment.BottomCenter)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, bgColor)))
+        Text(
+            text = "穿过人山人海",
+            fontSize = transSp.sp, lineHeight = (transSp + 6).sp,
+            fontWeight = fontWeight, color = subColor,
+            modifier = Modifier.padding(top = 4.dp)
         )
     }
+
 }
 
 @Composable

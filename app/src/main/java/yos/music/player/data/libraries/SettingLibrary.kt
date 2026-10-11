@@ -19,6 +19,10 @@ object SettingsLibrary {
             ScreenCornerSet
             ScreenCorner
             SongSort
+            ArtistSortMode
+            ArtistSortDescending
+            AlbumSortMode
+            AlbumSortDescending
             EnableDescending
             NowPlayingTranslation
             RefreshEveryTime
@@ -28,7 +32,7 @@ object SettingsLibrary {
             TranslationFontSize
             LyricLineBalance
             LyricBlurEffect
-            SmartWordByWordLyric
+            EnableWordByWordLyric
             LyricTimingOffsetMs
             LyricPreferEmbedded
             LyricCustomFontEnabled
@@ -109,7 +113,6 @@ object SettingsLibrary {
     /**
      * 歌曲排序
      */
-    @Stable
     var SongSort by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "yos_player_song_sort",
@@ -121,10 +124,19 @@ object SettingsLibrary {
         MUSIC_TITLE, MUSIC_DURATION, ARTIST_NAME, MODIFIED_DATE, MUSIC_ADD_DATE, MUSIC_ALBUM, PLAY_COUNT
     }
 
+    // Mutable snapshot-backed preferences must not mark their getters @Stable: doing so
+    // lets the Compose compiler omit these values from remember invalidation checks.
+    var ArtistSortMode by mutableDataSaverStateOf(dataSaverInterface = SettingsSaver, key = "library_artist_sort", initialValue = 0)
+
+    var ArtistSortDescending by mutableDataSaverStateOf(dataSaverInterface = SettingsSaver, key = "library_artist_descending", initialValue = false)
+
+    var AlbumSortMode by mutableDataSaverStateOf(dataSaverInterface = SettingsSaver, key = "library_album_sort", initialValue = 0)
+
+    var AlbumSortDescending by mutableDataSaverStateOf(dataSaverInterface = SettingsSaver, key = "library_album_descending", initialValue = false)
+
     /**
      * 启用降序
      */
-    @Stable
     var EnableDescending by mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "yos_player_enable_descending",
@@ -217,14 +229,6 @@ object SettingsLibrary {
         dataSaverInterface = SettingsSaver,
         key = "settings_performance_lyric_blur_effect",
         initialValue = false
-    )
-
-    /** 为只有逐行时间戳的歌词生成平滑的逐字渐变。 */
-    @Stable
-    var SmartWordByWordLyric by mutableDataSaverStateOf(
-        dataSaverInterface = SettingsSaver,
-        key = "settings_performance_lyric_smart_wbw_lyric",
-        initialValue = true
     )
 
     /** 全局歌词校时，正值提前、负值延后，单位毫秒。 */

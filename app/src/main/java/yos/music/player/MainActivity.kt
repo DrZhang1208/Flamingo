@@ -84,6 +84,13 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import yos.music.player.ui.widgets.PlayerArtworkBridge
+import yos.music.player.ui.widgets.PlayerArtworkBridgeOverlay
+import yos.music.player.ui.widgets.MINI_ARTWORK_ENDPOINT
+import yos.music.player.ui.widgets.ALBUM_ARTWORK_ENDPOINT
+import yos.music.player.ui.widgets.COMPACT_ARTWORK_ENDPOINT
+import yos.music.player.ui.widgets.rememberNowPlayingArtwork
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -234,6 +241,20 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         val navController = rememberNavController()
                         val navSpec = spring(
                             stiffness = 400f,
+                            dampingRatio = 1f,
+                            visibilityThreshold = 0.001f
+                        )
+                        // Match the critically damped cover-to-lyrics motion, with
+                        // a responsive nonlinear transition for mini-to-full travel.
+                        val playerOpenSpec = spring<Float>(
+                            stiffness = 320f,
+                            dampingRatio = 1f,
+                            visibilityThreshold = 0.001f
+                        )
+                        // Gesture settling must respond equally in both directions;
+                        // click and drag both preserve velocity and interruption.
+                        val playerDragSpec = spring<Float>(
+                            stiffness = 300f,
                             dampingRatio = 1f,
                             visibilityThreshold = 0.001f
                         )
@@ -648,7 +669,19 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .onSizeChanged {
-                                        parentHeight.intValue = it.height
+                                        val previousHeight = parentHeight.intValue
+                                        val nextHeight = it.height
+                                        if (previousHeight != nextHeight && nextHeight > 0) {
+                                            val progress = if (previousHeight > 0)
+                                                (offsetY.value / previousHeight).coerceIn(0f, 1f) else 0f
+                                            parentHeight.intValue = nextHeight
+                                            if (previousHeight > 0) scope.launch {
+                                                // Preserve expanded/collapsed/dragged state when
+                                                // a freeform window or split-screen changes size.
+                                                offsetY.updateBounds(0f, nextHeight.toFloat())
+                                                offsetY.snapTo(progress * nextHeight)
+                                            }
+                                        }
                                     }
                                     .graphicsLayer {
                                         //compositingStrategy = CompositingStrategy.Offscreen
@@ -751,11 +784,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                         if (velocity < 0f) {
                                                             offsetY.animateTo(
                                                                 0f,
+                                                                animationSpec = playerDragSpec,
                                                                 initialVelocity = velocity
                                                             )
                                                         } else {
                                                             offsetY.animateTo(
                                                                 parentHeight.intValue.toFloat(),
+                                                                animationSpec = playerDragSpec,
                                                                 initialVelocity = velocity
                                                             )
                                                         }
@@ -780,10 +815,14 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     ) {
 
                                         val isPlaying = MediaViewModelObject.isPlaying
+                                        val playerArtwork = rememberNowPlayingArtwork(MediaController.musicPlaying.value?.thumb)
+                                        val artworkBridge = remember { PlayerArtworkBridge { yosBottomSheetConfig.progress } }
 
                                         // NowPlaying
                                         YosWrapper {
                                             NowPlaying(
+                                                artwork = playerArtwork,
+                                                artworkBridge = artworkBridge,
                                                 mainViewModel = mainViewModel,
                                                 mediaViewModel = mediaViewModel,
                                                 navController = navController,
@@ -811,7 +850,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 compositingStrategy =
                                                                     CompositingStrategy.ModulateAlpha
                                                                 this.alpha =
-                                                                    yosBottomSheetConfig.menuAlpha
+                                                                    (1f - 4f * yosBottomSheetConfig.progress).coerceIn(0f, 1f)
                                                             }
                                                             .background(color)
                                                     ) {
@@ -826,7 +865,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                         scope.launch {
                                                                             offsetY.animateTo(
                                                                                 parentHeight.intValue.toFloat(),
-                                                                                animationSpec = navSpec
+                                                                                animationSpec = playerOpenSpec
                                                                             )
                                                                         }
                                                                     })
@@ -885,15 +924,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                     verticalAlignment = Alignment.CenterVertically
                                                                 ) {
                                                                     YosWrapper {
-                                                                        ShadowImageWithCache(
-                                                                                dataLambda = { MediaViewModelObject.nowPlayingBackground.value.artworkUri },
-                                                                            contentDescription = null,
-                                                                            modifier = Modifier
-                                                                                .size(rememberAdaptive(47)),
-                                                                            cornerRadius = 6.dp,
-                                                                            shadowAlpha = 0f,
-                                                                            imageQuality = ImageQuality.LOW
-                                                                        )
+                                                                        Spacer(Modifier.size(rememberAdaptive(47))
+                                                                            .onGloballyPositioned {
+                                                                                artworkBridge.record(MINI_ARTWORK_ENDPOINT, it)
+                                                                            })
                                                                     }
                                                                     Column(
                                                                         Modifier
@@ -945,7 +979,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                                         context
                                                                                     )
                                                                                     isPlaying.value =
-                                                                                        !isPlaying.value
+                                                                                        !(isPlaying.value || MediaViewModelObject.isBuffering.value)
                                                                                     if (isPlaying.value) {
                                                                                         MediaController.mediaControl?.fadePlay()
                                                                                     } else {
@@ -954,7 +988,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                                 }),
                                                                         contentAlignment = Alignment.Center
                                                                     ) {
-                                                                        AnimatedContent(
+                                                                        if (MediaViewModelObject.isBuffering.value) {
+                                                                            androidx.compose.material3.CircularProgressIndicator(
+                                                                                modifier = Modifier.size(22.dp),
+                                                                                color = Color.Black withNight Color.White,
+                                                                                strokeWidth = 2.dp
+                                                                            )
+                                                                        } else AnimatedContent(
                                                                             targetState = isPlaying.value,
                                                                             transitionSpec = {
                                                                                 (scaleIn(
@@ -1026,6 +1066,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 }
                                             }
                                         }
+                                        PlayerArtworkBridgeOverlay(
+                                            artworkBridge, playerArtwork,
+                                            destination = {
+                                                if (nowPageNowPlaying.value == Album) ALBUM_ARTWORK_ENDPOINT else COMPACT_ARTWORK_ENDPOINT
+                                            },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
                                     }
                                 }
                             }

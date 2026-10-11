@@ -36,3 +36,9 @@ internal fun nativeLyricDocument(entries: List<YosLyricLine>): List<NativeLyricD
         }
     }
 }
+
+/** Never infer word timings from a line's length or duration. */
+internal fun nativeDisplayTokens(line: yos.music.player.code.utils.lrc.YosLyricLine,
+    wordByWord: Boolean): List<yos.music.player.code.utils.lrc.YosLyricToken> =
+    if (wordByWord && line.hasWordTiming) line.tokens
+    else listOf(yos.music.player.code.utils.lrc.YosLyricToken(line.startMs, line.startMs, line.text))

@@ -41,8 +41,6 @@
     <string name="settings_mss_title">人声分离</string>
     <string name="settings_mss_gpu_acceleration">GPU 加速</string>
     <string name="settings_mss_gpu_acceleration_desc">使用 LiteRT GPU 加速人声分离；重建播放服务后生效。</string>
-    <string name="settings_performance_lyric_smart_wbw_lyric">智能逐字歌词</string>
-    <string name="settings_performance_lyric_smart_wbw_lyric_desc">为只有逐行时间的歌词生成平滑的逐字渐变。</string>
     <string name="settings_performance_lyric_timing_offset">歌词时间偏移</string>
     <string name="settings_performance_lyric_timing_offset_desc">负值延后歌词，正值提前歌词。</string>
     <string name="settings_performance_lyric_prefer_embedded">优先使用内嵌歌词</string>
@@ -127,7 +125,7 @@
     <string name="playlist_shuffle_desc">当前正处于随机播放模式。</string>
     <string name="page_library_playlists_music_total">%d 首歌曲</string>
     <string name="settings_performance_ui_nowplaying_background_effect">背景动态效果</string>
-    <string name="settings_performance_ui_nowplaying_background_effect_desc">播放页面背景的动态效果，可能导致性能问题。</string>
+    <string name="settings_performance_ui_nowplaying_background_effect_desc">Android 13 及以上使用封面色彩缓慢流动的背景。暂停、后台时停止流动；较旧系统使用静态背景。</string>
     <string name="page_library_playlists_add_title">新建播放列表…</string>
     <string name="page_library_playlists_fav_title">喜爱的歌曲</string>
     <string name="settings_performance_notification_title">媒体通知</string>
@@ -156,4 +154,17 @@
     <string name="settings_lyric_coloros_desc">向支持的 ColorOS 锁屏界面传递整首同步歌词，实际效果可能受系统版本或应用白名单限制。</string>
     <string name="settings_lyric_coloros_provider">ColorOS 锁屏歌词 v4 Provider</string>
     <string name="settings_lyric_coloros_provider_desc">通过 ColorOS Live Lyrics Bridge v4 Provider 通道传递歌词，可能改善部分系统版本的兼容性。</string>
+    <string name="settings_lyric_word_by_word">逐字歌词</string>
+    <string name="settings_lyric_word_by_word_desc">开启后仅对有逐字时间的歌词启用逐字显示；关闭后全部按逐行显示。</string>
+    <string name="page_library_artist_counts">%1$d 首歌曲·%2$d 张专辑</string>
+    <string name="library_sort_title">排序方式</string>
+    <string name="library_sort_descending">降序</string>
+    <string name="library_sort_artist">歌手名</string>
+    <string name="library_sort_songs">歌曲数量</string>
+    <string name="library_sort_albums">专辑数量</string>
+    <string name="library_sort_album">专辑名称</string>
+    <string name="library_sort_year">年份</string>
+    <string name="library_sort_updated">更新时间</string>
+    <string name="library_sort_tracks">曲目数量</string>
+    <string name="library_sort_ascending">升序</string>
 </resources>

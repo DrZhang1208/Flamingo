@@ -1,0 +1,21 @@
+# Lyric share card style
+
+Match the user-provided card composition: 1080px export, transparent outer padding, 864px continuous-corner card, 48px bold warm-white left-aligned lyrics, cover-coloured dark gradient and glow, darker 224px footer, song/artist/FLAMINGO at left and a 128px centre-cropped cover at right. Preserve optional translations and selection order. Metadata ellipsizes instead of character-count truncation.
+
+Use Coil with software decoding and 512px artwork requests, supporting local/remote artwork through the existing cache. Extract dominant saturated hue from a bounded sample; missing/neutral artwork falls back to warm brown. Never recycle Coil-owned cached bitmaps.
+
+The old 2400px cap silently omitted selected lyrics. New layout grows with all selected text, reducing type only for unusually long selections and reporting an error rather than silently cutting content if the 8192px limit is exceeded.
+
+Release and Android test APK builds passed. Added device tests for smooth corners/transparent padding, bottom-right centre crop and long-selection growth; they compiled but were not run because no phone was connected. Rendered visual equivalence remains unverified on device.
+
+Transparent export update: remove the pale outer fill. Keep 108px horizontal and 64px vertical transparent padding around the card in the 1080px-wide ARGB bitmap. Save/share remain PNG with image/png MIME type. The 52px card corner now reuses YosRoundedCornerShape continuous geometry at density 1 instead of a circular round rect; footer cover placement and lyric layout remain unchanged. Android regression checks transparent padding/corner cutouts and preservation of alpha after PNG encoding and decoding.
+
+High-resolution update: keep layout in 1080px logical coordinates and rasterize directly on a 2160px-wide canvas with a 2x transform, doubling exported height, transparent margins, text and artwork dimensions without bitmap upscaling. Both footer artwork and missing-artwork placeholder now use the same smooth-corner path as the card. Branding uses the single note ♪. The logical 8192px height limit remains (16384px output). PNG alpha regression coordinates are updated for 2x output.
+
+Selection/branding update: replace the text note with the actual flamingo_icon vector before the FLAMINGO label, preserving its gradient. Keep the existing OptionDialog shell, with cover/count header, bold spaced smooth-corner lyric tiles, solid app accent red and white text for checked rows, and vertically grouped share/save actions. Selection remains limited to 14 lines; translations and line order remain intact. Exported bitmaps are recycled after PNG encoding to release the larger 2x allocation.
+
+Action footer follow-up: restore the original horizontal controls (neutral Save on the left, primary-colour Share on the right), 14dp smooth corners and 10dp separation. The lyric dialog opts out of OptionDialog's 19.5dp content-bottom spacer and uses 16dp bottom content padding instead of 26dp. The action row has 12dp top spacing and no extra bottom padding. Other dialogs retain their default padding through optional parameters; selected lyric tile styling is unchanged.
+
+List-edge update: the lyric selection viewport uses a cached 18dp top/bottom alpha fade in one offscreen layer, with 18dp vertical content padding so resting first/last lines remain readable. Common dialogs contain nested vertical post-scroll and post-fling overflow inside their surface. Children retain the first opportunity to scroll/fling; unused vertical delta/velocity cannot reach ModalBottomSheet and collapse/dismiss it at a boundary. Horizontal overflow is untouched. Unit coverage checks both signs and scroll sources; an instrumentation regression swipes a real list inside OptionDialog and checks that the sheet stays expanded.
+
+Gesture handoff refinement: containment is per dialog and per pointer gesture. If a gesture has already moved list content, absorb its remaining vertical drag and fling at the boundary until the next pointer down. A fresh gesture starting at the list edge can pass to the sheet and dismiss it. An initial-pass observer resets this state without consuming taps or drags. Unit and dialog instrumentation regressions distinguish reaching the top within one gesture from a subsequent downward gesture at the top.

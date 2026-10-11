@@ -15,7 +15,7 @@ import yos.music.player.R
 
 @Composable
 internal fun PlaybackTransportIcon(playing: Boolean, buffering: Boolean) {
-    if (buffering && playing) {
+    if (buffering) {
         CircularProgressIndicator(
             modifier = Modifier.size(34.dp).semantics { contentDescription = "Buffering" },
             color = Color.White, strokeWidth = 3.dp

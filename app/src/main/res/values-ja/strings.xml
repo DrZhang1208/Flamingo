@@ -100,7 +100,7 @@
     <string name="playlist_shuffle_desc">現在シャッフル再生モードです。</string>
     <string name="page_library_playlists_music_total">%d 曲</string>
     <string name="settings_performance_ui_nowplaying_background_effect">背景の動的効果</string>
-    <string name="settings_performance_ui_nowplaying_background_effect_desc">再生ページの背景の動的効果、パフォーマンスに問題を引き起こす可能性があります。</string>
+    <string name="settings_performance_ui_nowplaying_background_effect_desc">Android 13 以降ではジャケットの色がゆっくり流れます。一時停止中・バックグラウンドでは動きを停止し、旧バージョンでは静止背景を使用します。</string>
     <string name="page_library_playlists_add_title">新しいプレイリストを作成…</string>
     <string name="page_library_playlists_fav_title">お気に入りの曲</string>
     <string name="settings_performance_notification_title">メディア通知</string>
@@ -121,8 +121,6 @@
     <string name="settings_performance_ui_nowplaying_show_volume_bar">音量バーを表示</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">再生画面の下部に音量調節バーを表示します。</string>
     <string name="settings_performance_ui_theme">テーマ</string>
-    <string name="settings_performance_lyric_smart_wbw_lyric">スマートワードバイワード歌詞</string>
-    <string name="settings_performance_lyric_smart_wbw_lyric_desc">ワードバイワード以外の歌詞を線形速度でグラデーション表示し、ワードバイワードに類似した効果を実現します。</string>
     <string name="settings_performance_lyric_timing_offset">歌詞タイミングオフセット</string>
     <string name="settings_performance_lyric_timing_offset_desc">すべての歌詞の表示タイミングを調整します。負の値で遅く、正の値で早くなります。</string>
     <string name="settings_performance_lyric_prefer_embedded">埋め込み歌詞を優先</string>
@@ -148,4 +146,17 @@
     <string name="settings_lyric_coloros_desc">対応する ColorOS ロック画面に同期した曲全体の歌詞を送信します。利用可否はシステムバージョンやアプリのホワイトリストに依存する場合があります。</string>
     <string name="settings_lyric_coloros_provider">ColorOS ロック画面歌詞 v4 Provider</string>
     <string name="settings_lyric_coloros_provider_desc">ColorOS Live Lyrics Bridge v4 Provider 経由で歌詞を送信します。一部のシステムバージョンで互換性が向上する場合があります。</string>
+    <string name="settings_lyric_word_by_word">ワードバイワード歌詞</string>
+    <string name="settings_lyric_word_by_word_desc">単語の時刻情報がある歌詞のみ使用します。オフの場合はすべて行単位で表示します。</string>
+    <string name="page_library_artist_counts">%1$d 曲 · %2$d アルバム</string>
+    <string name="library_sort_title">並べ替え</string>
+    <string name="library_sort_descending">降順</string>
+    <string name="library_sort_artist">アーティスト名</string>
+    <string name="library_sort_songs">曲数</string>
+    <string name="library_sort_albums">アルバム数</string>
+    <string name="library_sort_album">アルバム名</string>
+    <string name="library_sort_year">年</string>
+    <string name="library_sort_updated">更新日時</string>
+    <string name="library_sort_tracks">トラック数</string>
+    <string name="library_sort_ascending">昇順</string>
 </resources>
