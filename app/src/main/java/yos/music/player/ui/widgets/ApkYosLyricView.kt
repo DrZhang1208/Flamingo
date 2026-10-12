@@ -95,7 +95,9 @@ fun YosLyricView(
         return
     }
 
-    val columnState = remember(lyricState.trackKey, entries) { WavyLyricsColumnState() }
+    val columnState = remember(lyricState.trackKey, entries) {
+        WavyLyricsColumnState(document.indices.filter { document[it].line.isCountdown }.toSet())
+    }
     val framePosition = remember(lyricState.trackKey) {
         mutableFloatStateOf(lyricState.effectivePositionMs.toFloat())
     }
@@ -165,7 +167,7 @@ fun YosLyricView(
             columnState.isUserScrolling || columnState.isPreviewing) return@LaunchedEffect
         // One transition, directly to the requested line. Measurement corrections
         // are handled by the column, without delayed jumps or a next-line detour.
-        columnState.jumpTo(
+        columnState.followTo(
             followTargets[followIndex.coerceAtLeast(0)] ?: return@LaunchedEffect,
             animateRows = columnState.waveAnchorIndex >= 0
         )

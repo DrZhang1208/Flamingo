@@ -37,7 +37,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 @Stable
-internal class WavyLyricsColumnState {
+internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = emptySet()) {
     var scrollOffsetPx by mutableFloatStateOf(0f)
         private set
     var viewportHeightPx by mutableIntStateOf(0)
@@ -71,6 +71,7 @@ internal class WavyLyricsColumnState {
         }
     }
     private var returnFromUserScroll = false
+    private var stationaryCountdownIndex = -1
 
     fun updateItemCount(count: Int) {
         itemCount = count.coerceAtLeast(0)
@@ -88,17 +89,33 @@ internal class WavyLyricsColumnState {
     }
 
     fun updateRowHeight(index: Int, heightPx: Int) {
-        if (index !in 0 until itemCount || heightPx < 0 || rowHeights[index] == heightPx) return
+        updateRowHeights(mapOf(index to heightPx))
+    }
 
-        // onSizeChanged runs after the row has already been placed once. Preserve a
-        // visual anchor while replacing the estimate so the following layout does
-        // not move the focused lyric (or the user's first visible row) by the error.
+    fun updateRowHeights(measured: Map<Int, Int>) {
+        if (measured.none { (index, height) ->
+                index in 0 until itemCount && height >= 0 && rowHeights[index] != height
+            }) return
+        // Commit the batch before placement, preserving one visual anchor for all
+        // measured rows. A post-placement callback would display stale prefix
+        // offsets for one frame whenever a countdown changes height.
+        // Opening a countdown consumes space above the following lyric. Preserve
+        // that lyric even if measurement runs before the follow effect commits.
+        // Closing still uses the countdown anchor for the existing upward handoff.
+        val growingCountdown = countdownIndexes.firstOrNull { index ->
+            index + 1 < itemCount && (index == stationaryCountdownIndex ||
+                waveAnchorIndex >= 0 && index == waveAnchorIndex + 1) &&
+                (measured[index] ?: rowHeight(index)) > rowHeight(index)
+        }
         val layoutAnchor = when {
+            !isPreviewing && waveAnchorIndex >= 0 && growingCountdown != null -> growingCountdown + 1
             !isPreviewing && waveAnchorIndex in 0 until itemCount -> waveAnchorIndex
             else -> firstVisibleIndex()
         }
         val anchorTopBefore = rowTop(layoutAnchor)
-        rowHeights[index] = heightPx
+        measured.forEach { (index, height) ->
+            if (index in 0 until itemCount && height >= 0) rowHeights[index] = height
+        }
         val anchorCorrection = rowTop(layoutAnchor) - anchorTopBefore
         scrollOffsetPx = (scrollOffsetPx + anchorCorrection).coerceIn(minOffset(), maxOffset())
     }
@@ -130,8 +147,21 @@ internal class WavyLyricsColumnState {
         isPreviewing = false
     }
 
+    /** Natural countdown entry changes focus without scrolling the lyrics below it. */
+    fun followTo(index: Int, animateRows: Boolean): Float {
+        if (!isPreviewing && !returnFromUserScroll && viewportHeightPx > 0 &&
+            index in countdownIndexes && index in 0 until itemCount && waveAnchorIndex >= 0 &&
+            (waveAnchorIndex == index || waveAnchorIndex == index - 1)) {
+            if (waveAnchorIndex == index - 1) stationaryCountdownIndex = index
+            waveAnchorIndex = index
+            return 0f
+        }
+        return jumpTo(index, animateRows)
+    }
+
     fun jumpTo(index: Int, animateRows: Boolean): Float {
         if (isPreviewing || index !in 0 until itemCount || viewportHeightPx <= 0) return 0f
+        stationaryCountdownIndex = -1
         val target = (rowTop(index) - viewportHeightPx * TARGET_Y_RATIO)
             .coerceIn(minOffset(), maxOffset())
         val travel = target - scrollOffsetPx
@@ -296,6 +326,11 @@ internal fun WavyLyricsColumn(
                 )
             }.single().measure(loose)
         }
+        // Commit row heights before placement so countdown growth cannot expose
+        // one frame with stale offsets for the following lyrics.
+        Snapshot.withoutReadObservation {
+            state.updateRowHeights(placeables.mapValues { it.value.height })
+        }
         val width = constraints.maxWidth
         val height = constraints.maxHeight
         layout(width, height) {
@@ -323,7 +358,6 @@ private fun WavyLyricsRow(
     }
     Box(
         modifier = Modifier
-            .onSizeChanged { state.updateRowHeight(index, it.height) }
             .graphicsLayer {
                 translationY = motion.displacement(stableKey,
                     state.waveCumulativeTravelPx, state.waveResetGeneration, index, springParams)
