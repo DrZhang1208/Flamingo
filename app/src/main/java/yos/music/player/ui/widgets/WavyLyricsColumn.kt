@@ -70,6 +70,10 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
             }
         }
     }
+    // Collapsed countdowns at the end must not become an empty scroll target.
+    private val lastContentIndex by derivedStateOf {
+        (itemCount - 1 downTo 0).firstOrNull { rowHeight(it) > 0 } ?: -1
+    }
     private var returnFromUserScroll = false
     private var stationaryCountdownIndex = -1
 
@@ -190,6 +194,12 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
 
     fun rowHeight(index: Int): Int = rowHeights[index] ?: ESTIMATED_ROW_HEIGHT_PX.toInt()
 
+    // The spring is a second scroll coordinate, applied after layout. Clamping
+    // only scrollOffsetPx allows an unfinished follow/seek to drag the rendered
+    // first row below the viewport even though the logical list is at its start.
+    fun boundedDisplacement(displacementPx: Float): Float = scrollOffsetPx -
+        (scrollOffsetPx - displacementPx).coerceIn(minOffset(), maxOffset())
+
     fun visibleIndexes(overscanPx: Float, offsetPx: Float = scrollOffsetPx): IntRange {
         if (itemCount == 0) return IntRange.EMPTY
         val offsets = rowOffsets
@@ -221,8 +231,15 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
 
     private fun minOffset(): Float = -viewportHeightPx * TARGET_Y_RATIO
 
-    private fun maxOffset(): Float =
-        maxOf(minOffset(), totalHeight() - viewportHeightPx * TARGET_Y_RATIO)
+    private fun maxOffset(): Float {
+        val last = lastContentIndex
+        if (last < 0) return minOffset()
+        val anchor = viewportHeightPx * TARGET_Y_RATIO
+        // Keep the last ordinary row at the same readable anchor as auto-follow.
+        // A paragraph taller than the viewport may still scroll to its bottom.
+        return maxOf(minOffset(), rowTop(last) - anchor,
+            totalHeight() - viewportHeightPx + anchor)
+    }
 
     private fun resetRowAnimations() {
         waveTravelPx = 0f
@@ -247,13 +264,18 @@ internal fun WavyLyricsColumn(
     state: WavyLyricsColumnState,
     modifier: Modifier = Modifier,
     userScrollEnabled: Boolean = true,
+    renderActive: Boolean = true,
     itemKey: (Int) -> Any = { it },
     rowSpringParams: (Int) -> WavySpringParams,
     content: @Composable (Int) -> Unit
 ) {
     SideEffect { state.updateItemCount(itemCount) }
     val motion = remember(state) { NativeLyricScrollMotion() }
-    LaunchedEffect(motion, state.waveGeneration) {
+    LaunchedEffect(motion, state.waveGeneration, renderActive) {
+        if (!renderActive) {
+            motion.settle(state.waveCumulativeTravelPx, state.waveResetGeneration, state.waveAnchorIndex)
+            return@LaunchedEffect
+        }
         // Start and sample from the same display clock. A wall-clock start can
         // fall after the current frame timestamp and skip the first sample.
         withFrameNanos { now ->
@@ -290,7 +312,8 @@ internal fun WavyLyricsColumn(
             buildSet {
                 addAll(state.visibleIndexes(OVERSCAN_PX))
                 motion.visibleDisplacements(state.waveCumulativeTravelPx, state.waveResetGeneration).forEach { displacement ->
-                    addAll(state.visibleIndexes(OVERSCAN_PX, state.scrollOffsetPx - displacement))
+                    addAll(state.visibleIndexes(OVERSCAN_PX,
+                        state.scrollOffsetPx - state.boundedDisplacement(displacement)))
                 }
                 if (state.waveAnchorIndex in 0 until itemCount) {
                     val start = (state.waveAnchorIndex - ACTIVE_ROW_RADIUS).coerceAtLeast(0)
@@ -326,8 +349,8 @@ internal fun WavyLyricsColumn(
                 )
             }.single().measure(loose)
         }
-        // Commit row heights before placement so countdown growth cannot expose
-        // one frame with stale offsets for the following lyrics.
+        // Internal measurement bookkeeping must not subscribe this measure pass
+        // to the state it just wrote. Placement below reads the updated offsets.
         Snapshot.withoutReadObservation {
             state.updateRowHeights(placeables.mapValues { it.value.height })
         }
@@ -359,8 +382,8 @@ private fun WavyLyricsRow(
     Box(
         modifier = Modifier
             .graphicsLayer {
-                translationY = motion.displacement(stableKey,
-                    state.waveCumulativeTravelPx, state.waveResetGeneration, index, springParams)
+                translationY = state.boundedDisplacement(motion.displacement(stableKey,
+                    state.waveCumulativeTravelPx, state.waveResetGeneration, index, springParams))
             }
     ) {
         content(index)

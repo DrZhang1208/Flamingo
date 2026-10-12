@@ -7,8 +7,14 @@ internal class SeekDragSession(positionMs: Float, private val durationMs: Float,
     var cancelled = false
         private set
 
-    fun move(deltaX: Float, inCancelArea: Boolean) {
-        positionMs = (positionMs + deltaX / widthPx.coerceAtLeast(1f) * durationMs).coerceIn(0f, durationMs)
+    fun move(deltaX: Float, inCancelArea: Boolean, livePositionMs: Float) {
+        positionMs = when {
+            // Discard both the old tentative seek and all travel inside the arc.
+            // The exit event also becomes an anchor, not a horizontal seek delta:
+            // it can contain movement sampled on either side of the boundary.
+            inCancelArea || cancelled -> livePositionMs.coerceIn(0f, durationMs)
+            else -> (positionMs + deltaX / widthPx.coerceAtLeast(1f) * durationMs).coerceIn(0f, durationMs)
+        }
         cancelled = inCancelArea
     }
 

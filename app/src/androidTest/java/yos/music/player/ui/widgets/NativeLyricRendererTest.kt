@@ -42,7 +42,8 @@ class NativeLyricRendererTest {
     }
 
     private fun render(paragraph: NativeLyricParagraph, time: Float, reference: Boolean = false, rise: Float = 4f,
-        lineHighlight: NativeLineHighlight? = null, ttmlEffects: Boolean = false, uniformColor: Boolean = false): Bitmap {
+        lineHighlight: NativeLineHighlight? = null, ttmlEffects: Boolean = false, uniformColor: Boolean = false,
+        effectStrength: Float = 1f): Bitmap {
         val bitmap = Bitmap.createBitmap(paragraph.layout.size.width + 20,
             paragraph.layout.size.height + 20, Bitmap.Config.ARGB_8888)
         CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(bitmap.asImageBitmap()),
@@ -50,9 +51,25 @@ class NativeLyricRendererTest {
             if (reference) drawText(paragraph.layout, color = if (time < 0f) dim else Color.White,
                 topLeft = Offset(0f, if (time < 0f) 0f else -rise),
                 drawStyle = androidx.compose.ui.graphics.drawscope.Fill, shadow = Shadow.None)
-            else drawNativeLyricParagraph(paragraph, time, Color.White, if (uniformColor) Color.White else dim, rise, lineHighlight = lineHighlight, ttmlEffects = ttmlEffects)
+            else drawNativeLyricParagraph(paragraph, time, Color.White, if (uniformColor) Color.White else dim, rise,
+                lineHighlight = lineHighlight, ttmlEffects = ttmlEffects, effectStrength = effectStrength)
         }
         return bitmap
+    }
+
+    @Test fun heldEmphasizedLyricUsesStableFilledGlyphsWithoutAccentOrRise() {
+        val text = "Held note 长音"
+        val paragraph = nativeLyricParagraph(measurer.measure(text, TextStyle(fontSize = 32.sp),
+            constraints = Constraints(maxWidth = 220)), listOf(YosLyricToken(1000f, 4000f, text)))
+        assertTrue(paragraph.layout.lineCount > 1)
+        for (time in listOf(1800f, 3000f, 4100f)) {
+            val held = render(paragraph, time, rise = 0f, ttmlEffects = true,
+                uniformColor = true, effectStrength = 0f)
+            val baseline = render(paragraph, time, rise = 0f, uniformColor = true)
+            assertTrue("Held words must share one stable filled baseline at $time", held.sameAs(baseline))
+            held.recycle()
+            baseline.recycle()
+        }
     }
 
     @Test fun quietParagraphFastPathPreservesFutureAndFinishedPixels() {

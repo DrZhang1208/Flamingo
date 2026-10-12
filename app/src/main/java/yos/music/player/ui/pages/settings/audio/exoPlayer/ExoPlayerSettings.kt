@@ -40,6 +40,8 @@ fun ExoPlayerSettings(navController: NavController) =
                                 onClick = {
                                     SettingsLibrary.AudioAttributes =
                                         !SettingsLibrary.AudioAttributes
+                                    yos.music.player.code.YosPlaybackService.instance
+                                        ?.updateAudioFocusHandling(SettingsLibrary.AudioAttributes)
                                 },
                                 checkedLambda = { SettingsLibrary.AudioAttributes }
                             )

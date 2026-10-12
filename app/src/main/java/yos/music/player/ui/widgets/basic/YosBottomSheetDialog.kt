@@ -25,6 +25,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalAbsoluteTonalElevation
+import androidx.compose.material3.LocalTonalElevationEnabled
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetDefaults
 import androidx.compose.material3.ModalBottomSheetProperties
@@ -33,13 +35,16 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -58,6 +63,9 @@ import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.withNight
+
+/** Actual painted Surface colour, including inherited Material tonal elevation. */
+internal val LocalDialogContainerColor = staticCompositionLocalOf { Color.Unspecified }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,6 +100,7 @@ private fun YosBottomSheetDialog(
     val scope = rememberCoroutineScope()
     val elasticLimit = with(LocalDensity.current) { 48.dp.toPx() }
     val elastic = remember(scope, elasticLimit) { DialogElasticMotion(scope, elasticLimit) }
+    val containerColor = Color.White withNight Color.Black
 
     ModalBottomSheet(
         // Translate above Material's Surface clipping, so the entire sheet outline
@@ -118,16 +127,22 @@ private fun YosBottomSheetDialog(
                     clip = true
                 }
                 /*.navigationBarsPadding()*/,
-                color = Color.White withNight Color.Black,
+                color = containerColor,
                 contentColor = Color.Black withNight Color.White,
                 content = {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 26.dp, top = 26.dp, end = 26.dp, bottom = bottomContentPadding)
-                            .then(if (scrollContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                    ) {
-                        content()
+                    val scheme = MaterialTheme.colorScheme
+                    val paintedColor = if (containerColor == scheme.surface && LocalTonalElevationEnabled.current)
+                        scheme.surfaceColorAtElevation(LocalAbsoluteTonalElevation.current)
+                    else containerColor
+                    CompositionLocalProvider(LocalDialogContainerColor provides paintedColor) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 26.dp, top = 26.dp, end = 26.dp, bottom = bottomContentPadding)
+                                .then(if (scrollContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                        ) {
+                            content()
+                        }
                     }
                 }
             )

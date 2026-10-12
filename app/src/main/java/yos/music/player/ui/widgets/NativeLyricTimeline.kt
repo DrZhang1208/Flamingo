@@ -7,12 +7,17 @@ internal class NativeLyricClock(initialPositionMs: Float) {
     var positionMs = initialPositionMs
         private set
     private var previousFrameMs = -1L
+    private var synchronizeReport = false
     private var seekTarget: Float? = null
     private var seekDeadline = 0L
 
-    fun restartFrames() { previousFrameMs = -1L }
+    fun restartFrames() {
+        previousFrameMs = -1L
+        synchronizeReport = true
+    }
 
     fun seek(position: Float, nowMs: Long) {
+        synchronizeReport = false
         positionMs = position
         seekTarget = position
         seekDeadline = nowMs + 2000L
@@ -28,6 +33,13 @@ internal class NativeLyricClock(initialPositionMs: Float) {
             if (reportedPositionMs != null && abs(reportedPositionMs - target) <= 250f || nowMs >= seekDeadline) {
                 seekTarget = null
             } else return positionMs
+        }
+        if (synchronizeReport && reportedPositionMs != null) {
+            // On returning from a covered page, small gaps are real elapsed
+            // playback, not sample jitter. Do not spend seconds chasing them.
+            positionMs = reportedPositionMs
+            synchronizeReport = false
+            return positionMs
         }
         if (playing) positionMs += elapsed * speed.coerceAtLeast(0f)
         if (reportedPositionMs != null) {

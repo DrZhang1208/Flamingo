@@ -6,6 +6,23 @@ import org.junit.Test
 class NativeLyricSeekMotionTest {
     private val params = WavySpringParams(0.9f, 24f, 170f)
 
+    @Test fun coveringThePageSettlesOldMotionAndOnlyTheNextFollowIsAnimated() {
+        val motion = NativeLyricScrollMotion()
+        motion.register("row", 4, params, 0f, 0)
+        motion.retarget(900f, 0, 4, 0L)
+        motion.frame(120_000_000L)
+        assertTrue(motion.displacement("row", 900f, 0) > 0f)
+        motion.settle(900f, 0, 4)
+        assertFalse(motion.frame(160_000_000L))
+        assertEquals(0f, motion.displacement("row", 900f, 0), 0f)
+        motion.register("new", 5, params, 900f, 0)
+        assertEquals(0f, motion.displacement("new", 900f, 0), 0f)
+        motion.retarget(1000f, 0, 5, 200_000_000L)
+        assertEquals(100f, motion.displacement("row", 1000f, 0), 0f)
+        motion.frame(216_666_666L)
+        assertTrue(motion.displacement("row", 1000f, 0) in 0f..99.99f)
+    }
+
     @Test fun rowsEnteringDuringForwardSeekJoinTheMovingViewport() {
         val motion = NativeLyricScrollMotion()
         motion.retarget(900f, 0, 4, 0L)

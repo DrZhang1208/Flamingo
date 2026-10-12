@@ -380,6 +380,26 @@ private class TickerMediaNotificationProvider(
 }
 
 class YosPlaybackService : MediaSessionService() {
+    private val audioFocusResume = yos.music.player.code.utils.player.AudioFocusResumePolicy()
+    private var focusPlayer: ExoPlayer? = null
+
+    @OptIn(UnstableApi::class)
+    fun updateAudioFocusHandling(enabled: Boolean) {
+        audioFocusResume.explicitCommand(focusPlayer?.playWhenReady == true)
+        focusPlayer?.let { it.setAudioAttributes(it.audioAttributes, enabled) }
+    }
+
+    /** Transient loss is resumed by ExoPlayer. Permanent loss needs a foreground request. */
+    fun resumeAfterAudioFocusLoss() {
+        val player = focusPlayer ?: return
+        if (audioFocusResume.consumeForegroundResume(player.currentMediaItem?.mediaId,
+                SettingsLibrary.AudioAttributes, player.playWhenReady,
+                player.playbackState == Player.STATE_ENDED) && !FadeExo.isPausePending) {
+            audioFocusResume.explicitCommand(true)
+            player.fadePlay()
+        }
+    }
+
     private val notificationID = 1145
     private val channelID = "YosMediaControllerChannel"
 
@@ -633,14 +653,27 @@ class YosPlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        focusPlayer = player
 
         val forwardingPlayer = object : ForwardingPlayer(player) {
             override fun play() {
+                audioFocusResume.explicitCommand(true)
                 player.fadePlay()
             }
 
             override fun pause() {
+                audioFocusResume.explicitCommand(false)
                 player.fadePause()
+            }
+
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                audioFocusResume.explicitCommand(playWhenReady)
+                super.setPlayWhenReady(playWhenReady)
+            }
+
+            override fun stop() {
+                audioFocusResume.explicitCommand(false)
+                super.stop()
             }
 
             override fun isPlaying(): Boolean {
@@ -851,6 +884,7 @@ class YosPlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    audioFocusResume.trackChanged(mediaItem?.mediaId)
                     cancelNetworkPlaybackRetry()
                     yos.music.player.data.remote.RemoteRetryManager.onTrackChanged(
                         mediaItem?.localConfiguration?.uri?.toString()
@@ -1056,6 +1090,15 @@ class YosPlaybackService : MediaSessionService() {
                     }
                 }
 
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    audioFocusResume.playWhenReadyChanged(playWhenReady,
+                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS,
+                        player.currentMediaItem?.mediaId, FadeExo.isPausePending)
+                    if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+                        SleepTimerManager.onManualPause()
+                    }
+                }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     super.onIsPlayingChanged(isPlaying)
                     // 只在主动暂停时（playWhenReady=false）同步 UI，避免切歌/缓冲/拖进度条误触发
@@ -1066,10 +1109,6 @@ class YosPlaybackService : MediaSessionService() {
                         )) return
                     MediaViewModelObject.isPlaying.value = isPlaying
                     
-                    // 定时关闭: 手动暂停时检测
-                    if (!isPlaying) {
-                        SleepTimerManager.onManualPause()
-                    }
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -1350,6 +1389,8 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        focusPlayer = null
+        audioFocusResume.explicitCommand(false)
         cancelNetworkPlaybackRetry()
         if (::statusBarLyricsPublisher.isInitialized) statusBarLyricsPublisher.stop()
         localLyricsLoader.cancel()

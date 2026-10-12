@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeLyricTimelineTest {
+    @Test fun returningFromShareSynchronizesSmallAndLargePlaybackGapsOnTheFirstFrame() {
+        for (gap in listOf(80f, 250f, 499f, 5000f)) {
+            val clock = NativeLyricClock(1000f)
+            clock.frame(0, true, 1f, 1000f)
+            clock.restartFrames()
+            assertEquals(1000f + gap, clock.frame(10_000, true, 1f, 1000f + gap), 0.001f)
+            assertEquals(1008f + gap, clock.frame(10_008, true, 1f, null), 0.001f)
+        }
+    }
+
+    @Test fun restartWaitsForAReportAndDoesNotOverrideAnExplicitSeek() {
+        val clock = NativeLyricClock(1000f)
+        clock.restartFrames()
+        clock.frame(10_000, true, 1f, null)
+        assertEquals(1250f, clock.frame(10_008, true, 1f, 1250f), 0f)
+        clock.restartFrames()
+        clock.seek(500f, 20_000)
+        assertEquals(500f, clock.frame(20_008, true, 1f, 1500f), 0f)
+        assertEquals(508f, clock.frame(20_016, true, 1f, 500f), 0f)
+    }
     @Test fun standaloneTimedSpaceSurvivesBothDisplayModes() {
         val line = yos.music.player.code.utils.lrc.YosLrcFactory().formatLrcEntries(
             "[00:01.000]Hello[00:02.000] [00:02.000]world[00:03.000]"

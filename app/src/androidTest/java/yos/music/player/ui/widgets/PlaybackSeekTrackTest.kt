@@ -31,8 +31,8 @@ class PlaybackSeekTrackTest {
     private fun showTrack() {
         compose.setContent {
             Box(Modifier.fillMaxWidth().height(380.dp).testTag("surface")) {
-                PlaybackSeekTrack("track", { position.floatValue }, { 180_000L }, dragging.value,
-                    { cancelTop.floatValue },
+                PlaybackSeekTrack("track", { position.floatValue }, { 180_000L }, { live.floatValue }, dragging.value,
+                    { it.y >= cancelTop.floatValue },
                     onStart = { dragging.value = true },
                     onPreview = { preview, cancel ->
                         cancelled.value = cancel
@@ -83,7 +83,7 @@ class PlaybackSeekTrackTest {
             moveTo(Offset(start.x + 80f, cancel.y))
             moveTo(start + Offset(80f, 0f)); up()
         }
-        compose.runOnIdle { assertEquals(1, seeks.size); assertTrue(seeks.single() > 30_000f) }
+        compose.runOnIdle { assertEquals(1, seeks.size); assertEquals(30_000f, seeks.single(), 0f) }
     }
 
     @Test fun systemCancelledGestureNeverSeeks() {
@@ -92,6 +92,35 @@ class PlaybackSeekTrackTest {
             down(center); moveBy(Offset(80f, 0f)); cancel()
         }
         compose.runOnIdle { assertTrue(seeks.isEmpty()); assertFalse(dragging.value) }
+    }
+
+    @Test fun sidewaysTravelInCancelAreaIsDiscardedAndNewTravelStartsAtLiveProgress() {
+        showTrack()
+        val root = compose.onNodeWithTag("surface")
+        val origin = root.fetchSemanticsNode().boundsInRoot.topLeft
+        val track = compose.onNodeWithTag("track").fetchSemanticsNode().boundsInRoot
+        val start = track.center - origin
+        val cancelY = compose.onNodeWithTag("cancel").fetchSemanticsNode().boundsInRoot.center.y - origin.y
+        for (side in listOf(-1f, 1f)) {
+            root.performTouchInput {
+                down(start)
+                moveTo(start + Offset(80f, 0f))
+                moveTo(Offset(start.x + 80f, cancelY))
+                moveTo(Offset(start.x + side * 120f, cancelY))
+            }
+            compose.runOnIdle { live.floatValue = 34_000f }
+            val exit = Offset(start.x + side * 160f, start.y)
+            root.performTouchInput { moveTo(exit) }
+            compose.runOnIdle {
+                assertFalse(cancelled.value)
+                assertEquals(34_000f, position.floatValue, 0.01f)
+            }
+            root.performTouchInput { moveTo(exit + Offset(-20f, 0f)); up() }
+            compose.runOnIdle {
+                assertEquals(34_000f - 20f / track.width * 180_000f, seeks.last(), 0.1f)
+            }
+        }
+        compose.runOnIdle { assertEquals(2, seeks.size) }
     }
 
     @Test fun touchAboveVisibleTrackStillAllowsSeeking() {

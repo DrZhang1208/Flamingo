@@ -5,13 +5,16 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
@@ -32,6 +35,7 @@ import androidx.compose.ui.unit.*
 import yos.music.player.code.utils.lrc.YosLyricLine
 import yos.music.player.code.utils.lrc.YosLyricToken
 import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.ui.theme.YosRoundedCornerShape
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -162,7 +166,7 @@ private fun NativeLyricGlyph.highlightProgress(timeMs: Float): Float =
 internal fun DrawScope.drawNativeLyricParagraph(
     paragraph: NativeLyricParagraph, timeMs: Float, bright: Color, dim: Color,
     upliftPx: Float, highlight: Boolean = true, feathered: Boolean = true,
-    lineHighlight: NativeLineHighlight? = null, ttmlEffects: Boolean = false
+    lineHighlight: NativeLineHighlight? = null, ttmlEffects: Boolean = false, effectStrength: Float = 1f
 ) {
     // Settled rows have one colour and one vertical offset. Draw the shaped
     // paragraph once instead of clipping/redrawing it for each visual row/word.
@@ -209,9 +213,9 @@ internal fun DrawScope.drawNativeLyricParagraph(
                 (!ttmlEffects || (glyphs[end].motion == first.motion &&
                     glyphs[end].emphasisDelayMs == first.emphasisDelayMs))) end++
             val glow = if (ttmlEffects && highlight && lineHighlight == null)
-                nativeTtmlGlowStrength(first.motion.startMs, first.motion.endMs, timeMs) else 0f
+                nativeTtmlGlowStrength(first.motion.startMs, first.motion.endMs, timeMs) * effectStrength else 0f
             val lift = if (ttmlEffects && highlight && lineHighlight == null)
-                nativeTtmlLiftStrength(first.motion.startMs, first.motion.endMs, timeMs - first.emphasisDelayMs) else 0f
+                nativeTtmlLiftStrength(first.motion.startMs, first.motion.endMs, timeMs - first.emphasisDelayMs) * effectStrength else 0f
             val visualRise = rise + if (upliftPx > 0f) nativeTtmlExtraRiseDp(lift).dp.toPx() else 0f
             // Transform the already partitioned shaped word, including its clip.
             // Scaling the text without transforming the clip cuts off its edges;
@@ -271,10 +275,11 @@ private fun NativeLyricText(
     tokens: List<YosLyricToken>, style: TextStyle, measurer: TextMeasurer,
     time: () -> Float, bright: Color, dim: Color, staticText: Boolean,
     highlight: Boolean, feathered: Boolean, uplift: Boolean,
-    lineHighlight: NativeLineHighlight?, ttmlEffects: Boolean
+    lineHighlight: NativeLineHighlight?, ttmlEffects: Boolean, feedback: () -> Float
 ) {
     val cache = remember { NativeParagraphCache() }
     val timeRef = rememberUpdatedState(time)
+    val feedbackRef = rememberUpdatedState(feedback)
     val text = remember(tokens) { tokens.joinToString("") { it.text } }
     val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
     val density = LocalDensity.current
@@ -285,8 +290,14 @@ private fun NativeLyricText(
             val paragraph = cache.paragraph ?: return@Canvas
             translate(top = risePx) {
                 if (staticText) drawText(paragraph.layout, color = bright)
-                else drawNativeLyricParagraph(paragraph, timeRef.value(), bright, dim,
-                    if (uplift) risePx else 0f, highlight, feathered, lineHighlight, ttmlEffects)
+                else {
+                    val held = feedbackRef.value().coerceIn(0f, 1f)
+                    // Hover is a readable whole line. Playback timing continues underneath,
+                    // while individual word rise/stroke blend gently back to the baseline.
+                    drawNativeLyricParagraph(paragraph, timeRef.value(), bright, lerp(dim, bright, held),
+                        if (uplift) risePx * (1f - held) else 0f,
+                        highlight, feathered, lineHighlight, ttmlEffects, effectStrength = 1f - held)
+                }
             }
         }
     }) { children, constraints ->
@@ -312,8 +323,21 @@ internal fun NativeLyricRow(
     seekRevision: Int = 0, nextIsCountdown: Boolean = false,
     time: () -> Float, showTranslation: Boolean, mainColor: Color, subColor: Color,
     measurer: TextMeasurer, fontFamily: FontFamily?, onClick: () -> Unit, onLongClick: () -> Unit,
-    interactionEnabled: Boolean = true
+    interactionEnabled: Boolean = true, onPressChanged: (Boolean) -> Unit = {}
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val feedbackEnabled = interactionEnabled && !line.isCountdown
+    val holding = feedbackEnabled && (pressed || hovered)
+    val onPressChangedRef = rememberUpdatedState(onPressChanged)
+    LaunchedEffect(feedbackEnabled, pressed) { onPressChangedRef.value(feedbackEnabled && pressed) }
+    DisposableEffect(interactionSource) {
+        onDispose { onPressChangedRef.value(false) }
+    }
+    val hoverShape = remember { YosRoundedCornerShape(14.dp) }
+    val feedback = animateFloatAsState(if (holding) 1f else 0f,
+        spring(dampingRatio = 1f, stiffness = 650f), label = "NativeLyricPress")
     val focus by animateFloatAsState(if (focused) 1f else 0f,
         spring(dampingRatio = 0.9f, stiffness = 320f), label = "NativeLyricFocus")
     // A seek changes the sweep immediately. Reset emphasis in the same composition
@@ -343,12 +367,31 @@ internal fun NativeLyricRow(
         .graphicsLayer {
             // Keep the leading baseline fixed through emphasis. Growth is
             // reserved at the other edge, so layout and wrapping stay stable.
-            scaleX = if (line.isCountdown || staticText) 1f else 1f + focus * (NATIVE_LYRIC_FOCUS_SCALE - 1f)
+            val focusScale = if (line.isCountdown || staticText) 1f else 1f + focus * (NATIVE_LYRIC_FOCUS_SCALE - 1f)
+            // Stay inside the existing emphasis margins; pressing must not reflow text.
+            scaleX = focusScale * (1f - feedback.value * 0.012f)
             scaleY = scaleX
+            translationY = -1.5.dp.toPx() * feedback.value
             transformOrigin = TransformOrigin(if (side) 1f else 0f, 0.5f)
         }
-        .then(if (blur > 0f && !staticText) Modifier.blur(blur.dp, BlurredEdgeTreatment.Unbounded) else Modifier)
-        .combinedClickable(enabled = interactionEnabled, indication = null, interactionSource = remember { MutableInteractionSource() },
+        .drawWithCache {
+            val inset = 8.dp.toPx()
+            val outline = hoverShape.createOutline(Size(size.width + inset * 2f, size.height), layoutDirection, this)
+            onDrawBehind {
+                val strength = feedback.value
+                if (strength > 0f) translate(left = -inset) {
+                    drawOutline(outline, mainColor.copy(alpha = 0.09f * strength))
+                }
+            }
+        }
+        .graphicsLayer {
+            // Keep this node in place. Removing a blur modifier during DOWN can
+            // detach/cancel the click recognizer on quiet, blurred rows.
+            renderEffect = if (blur > 0f && !staticText && !holding)
+                BlurEffect(blur.dp.toPx(), blur.dp.toPx(), TileMode.Decal) else null
+        }
+        .hoverable(interactionSource, enabled = feedbackEnabled)
+        .combinedClickable(enabled = interactionEnabled, indication = null, interactionSource = interactionSource,
             onClick = onClick, onLongClick = onLongClick)
         .padding(top = 10.dp, bottom = 14.dp)) {
         if (line.isCountdown) {
@@ -356,16 +399,21 @@ internal fun NativeLyricRow(
                 drawNativeCountdown(time(), line.startMs, end, mainColor)
             }
         } else {
-            Box(Modifier.graphicsLayer { this.alpha = if (staticText || lineByLine) 1f else alpha }) {
+            Box(Modifier.graphicsLayer {
+                val playbackAlpha = if (staticText || lineByLine) 1f else alpha
+                this.alpha = playbackAlpha + (1f - playbackAlpha) * feedback.value
+            }) {
                 NativeLyricText(tokens, style, measurer, time, mainColor, mainColor.copy(alpha = 0.28f),
-                    staticText, highlight, feathered, uplift, lineHighlight, line.ttmlEffects)
+                    staticText, highlight, feathered, uplift, lineHighlight, line.ttmlEffects,
+                    feedback = { feedback.value })
             }
             if (showTranslation && line.translation.isNotBlank()) {
                 Text(line.translation, fontSize = (SettingsLibrary.TranslationFontSize * scale).sp,
                     lineHeight = (SettingsLibrary.TranslationFontSize * scale + 5f).sp,
                     color = subColor, fontFamily = fontFamily, textAlign = style.textAlign,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp).graphicsLayer {
-                        this.alpha = 0.35f + focus * 0.4f
+                        val playbackAlpha = 0.35f + focus * 0.4f
+                        this.alpha = playbackAlpha + (1f - playbackAlpha) * feedback.value
                     })
             }
         }

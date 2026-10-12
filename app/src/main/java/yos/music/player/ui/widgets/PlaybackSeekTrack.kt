@@ -27,8 +27,9 @@ internal fun PlaybackSeekTrack(
     gestureKey: Any?,
     position: () -> Float,
     duration: () -> Long,
+    livePosition: () -> Float,
     dragging: Boolean,
-    cancelAreaTop: () -> Float,
+    cancelAreaContains: (androidx.compose.ui.geometry.Offset) -> Boolean,
     onStart: () -> Unit,
     onPreview: (Float, Boolean) -> Unit,
     onFinish: (Float?) -> Unit,
@@ -37,7 +38,8 @@ internal fun PlaybackSeekTrack(
     val coordinates = remember { mutableStateOf<LayoutCoordinates?>(null) }
     val positionRef = rememberUpdatedState(position)
     val durationRef = rememberUpdatedState(duration)
-    val cancelTopRef = rememberUpdatedState(cancelAreaTop)
+    val livePositionRef = rememberUpdatedState(livePosition)
+    val cancelContainsRef = rememberUpdatedState(cancelAreaContains)
     val startRef = rememberUpdatedState(onStart)
     val previewRef = rememberUpdatedState(onPreview)
     val finishRef = rememberUpdatedState(onFinish)
@@ -58,19 +60,19 @@ internal fun PlaybackSeekTrack(
                     var released = false
                     startRef.value()
                     try {
-                        fun preview(deltaX: Float, localY: Float) {
+                        fun preview(deltaX: Float, localPosition: androidx.compose.ui.geometry.Offset) {
                             val layout = coordinates.value
-                            val rootY = if (layout?.isAttached == true)
-                                layout.localToRoot(androidx.compose.ui.geometry.Offset(0f, localY)).y else Float.NEGATIVE_INFINITY
-                            session.move(deltaX, rootY >= cancelTopRef.value())
+                            val inCancelArea = layout?.isAttached == true &&
+                                cancelContainsRef.value(layout.localToRoot(localPosition))
+                            session.move(deltaX, inCancelArea, livePositionRef.value())
                             previewRef.value(session.positionMs, session.cancelled)
                         }
-                        preview(initialDelta, slop.position.y)
+                        preview(initialDelta, slop.position)
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == slop.id } ?: break
                             if (change.isConsumed) break
                             // Include the last pointer position on UP; no last-frame cancellation race.
-                            preview(change.positionChange().x, change.position.y)
+                            preview(change.positionChange().x, change.position)
                             change.consume()
                             if (!change.pressed) {
                                 released = true

@@ -48,9 +48,10 @@ class NativeLyricCountdownTest {
             assertTrue("All three dots must breathe in sync: $heights", heights.max() - heights.min() <= 1)
         }
         val entering = render(1180f)
-        val leaving = render(100840f)
+        val leaving = render(100380f)
         assertTrue(entering.width < contracted.width * 0.75f)
-        assertTrue(leaving.width < contracted.width * 0.75f)
+        assertTrue(leaving.width < expanded.width)
+        assertTrue("Exit should fade before collapsing to a tiny dot", leaving.width > contracted.width * 0.5f)
         assertTrue(entering.alpha < contracted.alpha)
         assertTrue(leaving.alpha < expanded.alpha)
     }

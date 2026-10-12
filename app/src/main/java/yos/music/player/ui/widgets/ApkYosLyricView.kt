@@ -65,7 +65,8 @@ fun YosLyricView(
     onLineLongPress: (Int) -> Unit = {},
     onBackClick: () -> Unit
 ) {
-    val interactionAllowed = androidx.compose.runtime.rememberUpdatedState(interactionEnabled)
+    val canInteract = interactionEnabled && renderActive
+    val interactionAllowed = androidx.compose.runtime.rememberUpdatedState(canInteract)
     val lyricState = lyricStateLambda()
     val entries = lyricState.entries
     val document = remember(entries) { nativeLyricDocument(entries) }
@@ -84,7 +85,7 @@ fun YosLyricView(
                 .fillMaxHeight(if (weightLambda()) 0.56f else 1f)
                 .fillMaxWidth()
                 .clickable(
-                    enabled = interactionEnabled,
+                    enabled = canInteract,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                     onClick = onBackClick
@@ -97,6 +98,11 @@ fun YosLyricView(
 
     val columnState = remember(lyricState.trackKey, entries) {
         WavyLyricsColumnState(document.indices.filter { document[it].line.isCountdown }.toSet())
+    }
+    val pressedRows = remember(columnState) { androidx.compose.runtime.mutableStateMapOf<YosLyricLine, Boolean>() }
+    val holdingLyric = renderActive && pressedRows.isNotEmpty()
+    LaunchedEffect(renderActive, pressedRows) {
+        if (!renderActive) pressedRows.clear()
     }
     val framePosition = remember(lyricState.trackKey) {
         mutableFloatStateOf(lyricState.effectivePositionMs.toFloat())
@@ -111,7 +117,14 @@ fun YosLyricView(
         columnState.resumeFollowing()
         val now = SystemClock.uptimeMillis()
         seekRevision.intValue++
-        clock.seek((target + effectiveLyricTimingOffsetMs()).toFloat(), now)
+        // Capture the travel while an active countdown still occupies its slot.
+        // Updating playback first can collapse that slot during measurement,
+        // leaving the later follow effect with zero distance to animate.
+        val presentationTime = (target + effectiveLyricTimingOffsetMs()).toFloat()
+        followTargets[lyricVisualFollowIndex(entries, presentationTime)]?.let {
+            columnState.jumpTo(it, animateRows = columnState.waveAnchorIndex >= 0)
+        }
+        clock.seek(presentationTime, now)
         framePosition.floatValue = clock.positionMs
         LyricsController.updatePosition(lyricState.trackKey, startMs)
         mediaEvent.onSeek(target)
@@ -132,8 +145,14 @@ fun YosLyricView(
                         (controller?.currentPosition?.toFloat() ?: liveTimeLambda().toFloat()) +
                             effectiveLyricTimingOffsetMs()
                     } else null
-                    framePosition.floatValue = clock.frame(frameTime, controller?.isPlaying == true,
+                    val position = clock.frame(frameTime, controller?.isPlaying == true,
                         controller?.playbackParameters?.speed ?: 1f, report)
+                    if (pressedRows.isEmpty() && abs(position - framePosition.floatValue) > SEEK_BACKWARD_JITTER_MS) {
+                        followTargets[lyricVisualFollowIndex(entries, position)]?.let {
+                            columnState.jumpTo(it, animateRows = columnState.waveAnchorIndex >= 0)
+                        }
+                    }
+                    framePosition.floatValue = position
                 }
             }
         }
@@ -151,10 +170,12 @@ fun YosLyricView(
     val showTranslation = translationLambda()
     LaunchedEffect(
         columnState,
+        renderActive,
         followIndex,
         columnState.viewportHeightPx,
         columnState.isUserScrolling,
         columnState.isPreviewing,
+        holdingLyric,
         showTranslation,
         fontFamily,
         SettingsLibrary.LyricFontSize,
@@ -163,8 +184,8 @@ fun YosLyricView(
         SettingsLibrary.LyricFontScale,
         SettingsLibrary.LyricLineBalance
     ) {
-        if (columnState.viewportHeightPx == 0 ||
-            columnState.isUserScrolling || columnState.isPreviewing) return@LaunchedEffect
+        if (!renderActive || columnState.viewportHeightPx == 0 ||
+            columnState.isUserScrolling || columnState.isPreviewing || holdingLyric) return@LaunchedEffect
         // One transition, directly to the requested line. Measurement corrections
         // are handled by the column, without delayed jumps or a next-line detour.
         columnState.followTo(
@@ -185,7 +206,8 @@ fun YosLyricView(
     WavyLyricsColumn(
         itemCount = document.size,
         state = columnState,
-        userScrollEnabled = userScrollEnabled && interactionEnabled,
+        userScrollEnabled = userScrollEnabled && canInteract,
+        renderActive = renderActive,
         itemKey = { index ->
             val line = document[index].line
             "${lyricState.trackKey}|$index|${line.agent}|${line.startMs}|${line.endMs}|${line.text}"
@@ -198,7 +220,7 @@ fun YosLyricView(
                 translationY = (1f - entrance.value) * 8.dp.toPx()
             }
             .clickable(
-                    enabled = interactionEnabled,
+                    enabled = canInteract,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onBackClick
@@ -219,7 +241,7 @@ fun YosLyricView(
             nextStart ?: (line.startMs + LAST_LINE_DURATION_MS),
             line.startMs + 1f
         )
-        val browsing = columnState.isUserScrolling || columnState.isPreviewing
+        val browsing = columnState.isUserScrolling || columnState.isPreviewing || holdingLyric
         val blur = if (browsing || !blurLambda() || !supportsBlur || active) 0f
         else (abs(row.sourceIndex - followIndex) * 2.5f).coerceAtMost(8f)
 
@@ -243,7 +265,10 @@ fun YosLyricView(
                     subColor = subColor,
                     measurer = measurer,
                     fontFamily = fontFamily,
-                    interactionEnabled = interactionEnabled,
+                    interactionEnabled = canInteract,
+                    onPressChanged = { pressed ->
+                        if (pressed) pressedRows[line] = true else pressedRows.remove(line)
+                    },
                     onClick = {
                         if (!interactionAllowed.value) return@RenderNativeLyricRow
                         Vibrator.doubleClick(context)
@@ -273,7 +298,10 @@ fun YosLyricView(
                         subColor = subColor,
                         measurer = measurer,
                         fontFamily = fontFamily,
-                        interactionEnabled = interactionEnabled,
+                        interactionEnabled = canInteract,
+                        onPressChanged = { pressed ->
+                            if (pressed) pressedRows[background] = true else pressedRows.remove(background)
+                        },
                         onClick = { seekToLyric(background.startMs) },
                         onLongClick = { if (interactionAllowed.value) onLineLongPress(row.sourceIndex) }
                     )
@@ -305,7 +333,8 @@ private fun RenderNativeLyricRow(
     fontFamily: FontFamily?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    interactionEnabled: Boolean = true
+    interactionEnabled: Boolean = true,
+    onPressChanged: (Boolean) -> Unit = {}
 ) {
     val committedBlur by animateFloatAsState(
         targetValue = blur,
@@ -337,7 +366,8 @@ private fun RenderNativeLyricRow(
         active = active, focused = focused, past = lineState == LineState.Past, seekRevision = seekRevision, blur = if (browsing) 0f else committedBlur, nextStart = nextStart, nextIsCountdown = nextIsCountdown,
         time = { rowTime.value }, showTranslation = showTranslation,
         mainColor = mainColor, subColor = subColor, measurer = measurer,
-        fontFamily = fontFamily, onClick = onClick, onLongClick = onLongClick, interactionEnabled = interactionEnabled
+        fontFamily = fontFamily, onClick = onClick, onLongClick = onLongClick, interactionEnabled = interactionEnabled,
+        onPressChanged = onPressChanged
     )
 }
 

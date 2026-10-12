@@ -852,20 +852,12 @@ internal fun Modifier.lyricCountdownLayout(
 ): Modifier =
     clipToBounds().layout { measurable, constraints ->
         val child = measurable.measure(constraints.copy(minHeight = 0))
-        val fraction = countdownEmphasis(positionMs(), startMs, endMs)
+        val fraction = countdownLayoutFraction(positionMs(), startMs, endMs)
         val height = (child.height * fraction).toInt()
         layout(child.width, height) {
             child.placeRelative(0, if (centerContent) (height - child.height) / 2 else 0)
         }
     }
-
-/** One playback envelope drives both marker visibility and its occupied height. */
-internal fun countdownEmphasis(positionMs: Float, startMs: Float, endMs: Float): Float {
-    if (endMs <= startMs || positionMs <= startMs || positionMs >= endMs) return 0f
-    val enter = smoothStep((positionMs - startMs) / 360f)
-    val exit = smoothStep((endMs - positionMs) / 320f)
-    return minOf(enter, exit)
-}
 
 internal fun DrawScope.drawLyricHighlightText(
     layout: TextLayoutResult,

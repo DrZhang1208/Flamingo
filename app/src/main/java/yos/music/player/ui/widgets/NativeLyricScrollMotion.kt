@@ -39,6 +39,21 @@ internal class NativeLyricScrollMotion {
     }
     fun unregister(key: Any) { rows.remove(key) }
 
+    /** Hidden pages retain shaped rows, but neither run nor replay old springs. */
+    fun settle(travel: Float, reset: Int, anchor: Int) {
+        this.anchor = anchor
+        (rows.values + viewport).forEach { row ->
+            row.offset = 0f
+            row.velocity = 0f
+            row.origin = 0f
+            row.originVelocity = 0f
+            row.consumedTravel = travel
+            row.consumedReset = reset
+            row.moving = false
+        }
+        revision.intValue++
+    }
+
     fun displacement(key: Any, travel: Float, reset: Int,
         index: Int? = null, params: WavySpringParams? = null): Float {
         revision.intValue // One draw-layer invalidation source for every row.
