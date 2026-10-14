@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -20,6 +21,39 @@ class NativeLyricRendererTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val measurer = TextMeasurer(createFontFamilyResolver(context), density, LayoutDirection.Ltr)
     private val dim = Color(0x47FFFFFF)
+
+    @Test fun heldWordRiseRemainsContinuousBelowOnePixel() {
+        val text = "MMMM"
+        val paragraph = nativeLyricParagraph(measurer.measure(text, TextStyle(fontSize = 48.sp)),
+            listOf(YosLyricToken(1000f, 6000f, text)))
+        fun centerOfInk(bitmap: Bitmap): Double {
+            var mass = 0.0
+            var moment = 0.0
+            for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                val alpha = android.graphics.Color.alpha(bitmap.getPixel(x, y)).toDouble()
+                mass += alpha
+                moment += alpha * y
+            }
+            assertTrue(mass > 0.0)
+            return moment / mass
+        }
+        var previousY = Double.NaN
+        var previousRise = Float.NaN
+        for (time in 3300..3800 step 100) {
+            val frame = render(paragraph, time.toFloat(), rise = 4f, uniformColor = true)
+            val y = centerOfInk(frame)
+            val rise = paragraph.glyphs.first().upliftMotion.uplift(time.toFloat()) * 4f
+            if (!previousY.isNaN()) {
+                val step = (rise - previousRise).toDouble()
+                assertTrue("This regression must exercise subpixel steps", step > 0.0 && step < 0.1)
+                assertTrue("Held word must not stick to the previous baseline", y < previousY)
+                assertEquals("Rendered movement must track continuous note timing", step, previousY - y, 0.015)
+            }
+            frame.recycle()
+            previousY = y
+            previousRise = rise
+        }
+    }
 
     @Test fun standaloneZeroDurationSpaceKeepsWidthAndFollowsAdjacentWordMotion() {
         val line = yos.music.player.code.utils.lrc.YosLrcFactory().formatLrcEntries(
@@ -79,7 +113,9 @@ class NativeLyricRendererTest {
         assertTrue(paragraph.layout.lineCount > 1)
         assertEquals(0f, paragraph.quietBeforeMs)
         assertEquals(5000f, paragraph.quietAfterMs)
-        for (time in listOf(-1f, 5000f)) {
+        // Long-note emphasis outlives the note itself; its tail keeps its own window.
+        assertTrue(paragraph.emphasisQuietAfterMs > paragraph.quietAfterMs)
+        for (time in listOf(-1f, paragraph.emphasisQuietAfterMs + 1f)) {
             val actual = render(paragraph, time, ttmlEffects = true)
             val expected = render(paragraph, time, reference = true)
             assertTrue("Quiet fast path must retain shaped fill and settled rise at $time", actual.sameAs(expected))
@@ -95,8 +131,19 @@ class NativeLyricRendererTest {
         val letters = paragraph.glyphs.filter { !it.whitespace }
         assertEquals(3, letters.size)
         assertTrue(letters.zipWithNext().all { it.second.emphasisDelayMs > it.first.emphasisDelayMs })
-        val lift = letters.map { nativeTtmlLiftStrength(it.motion.startMs, it.motion.endMs, 3160f - it.emphasisDelayMs) }
-        assertTrue(lift.zipWithNext().all { it.second > it.first })
+        // The note reaches the paragraph's last end, so glyphs stagger inside a
+        // terminal envelope whose length follows the sung duration.
+        val duration = nativeTtmlEmphasisDurationMs(2000f, terminal = true)
+        assertEquals(duration, nativeTtmlGlyphStepMs(2000f, letters.size, terminal = true) * 2.5f * letters.size, 0.001f)
+        for (index in letters.indices) {
+            val peak = 1000f + letters[index].emphasisDelayMs + duration * 0.5f
+            val strengths = letters.map { nativeTtmlGlowStrength(it.motion.startMs, it.motion.endMs,
+                peak - it.emphasisDelayMs, terminal = true) }
+            assertEquals(1f, strengths[index], 0.00001f)
+            assertTrue(strengths.filterIndexed { other, _ -> other != index }.all { it < 1f })
+            assertTrue("Neighbouring glyphs must still overlap while handing over",
+                strengths.filterIndexed { other, _ -> kotlin.math.abs(other - index) == 1 }.all { it > 0.25f })
+        }
     }
 
     @Test fun heldNoteNeverOutlinesUnplayedDimText() {
@@ -115,7 +162,7 @@ class NativeLyricRendererTest {
         frame.recycle()
     }
 
-    @Test fun heldNoteOutlineKeepsSolidGlyphInteriorsAndRestoresPaintOnReusedLayout() {
+    @Test fun heldNoteBloomKeepsSolidGlyphInteriorsAndRestoresPaintOnReusedLayout() {
         val text = "MMMM MMMM MMMM"
         val paragraph = nativeLyricParagraph(measurer.measure(text, TextStyle(fontSize = 38.sp),
             constraints = Constraints(maxWidth = 220)), listOf(YosLyricToken(1000f, 4000f, text)))
@@ -128,7 +175,7 @@ class NativeLyricRendererTest {
         }
         val plain = render(paragraph, 2500f, rise = 0f, uniformColor = true)
         val emphasized = render(paragraph, 2500f, rise = 0f, uniformColor = true, ttmlEffects = true)
-        assertTrue("Outline is an accent, glyph interiors must remain filled",
+        assertTrue("Bloom is an accent, glyph interiors must remain filled",
             opaquePixels(emphasized) >= opaquePixels(plain) * 0.9f)
         fun horizontalInkBounds(bitmap: Bitmap): Pair<Int, Int> {
             var left = bitmap.width; var right = -1
@@ -144,21 +191,66 @@ class NativeLyricRendererTest {
             assertTrue("Emphasis must preserve opaque fill throughout its envelope at $time",
                 opaquePixels(frame) >= opaquePixels(plain) * 0.9f)
             val bounds = horizontalInkBounds(frame)
-            assertEquals("Long-note emphasis must not move the left edge", baselineBounds.first.toFloat(), bounds.first.toFloat(), 1f)
-            assertEquals("Long-note emphasis must not move the right edge", baselineBounds.second.toFloat(), bounds.second.toFloat(), 1f)
+            val permittedGrowth = paragraph.fontSizePx * 0.25f
+            assertEquals("Swell must stay within its reserved horizontal margin", baselineBounds.first.toFloat(), bounds.first.toFloat(), permittedGrowth)
+            assertEquals("Swell must not duplicate neighbouring shaped text", baselineBounds.second.toFloat(), bounds.second.toFloat(), permittedGrowth)
             frame.recycle()
         }
-        val after = render(paragraph, 5000f, rise = 0f, ttmlEffects = true)
-        val reference = render(paragraph, 5000f, reference = true, rise = 0f)
+        val settled = paragraph.emphasisQuietAfterMs + 1f
+        val after = render(paragraph, settled, rise = 0f, ttmlEffects = true)
+        val reference = render(paragraph, settled, reference = true, rise = 0f)
         assertTrue("Stroke and shadow must not leak through the cached paragraph paint", after.sameAs(reference))
         listOf(plain, emphasized, after, reference).forEach { it.recycle() }
     }
 
-    @Test fun heldNoteOutlineAndScaleDisappearAfterTheNote() {
+    @Test fun emphasizedWordMergesSyllableTimingAndReusesItsSoftHalosAcrossSeeks() {
+        val text = "  Holding  future"
+        val tokens = listOf(YosLyricToken(1000f, 1600f, "  Hold"),
+            YosLyricToken(1600f, 3000f, "ing"), YosLyricToken(5000f, 5500f, "  future"))
+        val paragraph = nativeLyricParagraph(measurer.measure(text, TextStyle(fontSize = 38.sp)), tokens)
+        val word = paragraph.glyphs.filter { it.textOffset in 2..8 && !it.whitespace }
+        assertTrue(word.isNotEmpty())
+        assertTrue(word.all { it.emphasisMotion == word.first().emphasisMotion })
+        assertTrue(word.last().emphasisDelayMs > word.first().emphasisDelayMs)
+        val baseline = render(paragraph, 1900f, rise = 0f, uniformColor = true)
+        val peak = render(paragraph, 1900f, rise = 0f, uniformColor = true, ttmlEffects = true)
+        assertFalse("Long-note swell must be visible", baseline.sameAs(peak))
+        render(paragraph, 1800f, rise = 0f, ttmlEffects = true).recycle()
+        val cached = paragraph.surface.cachedEmphasisFragmentCount
+        assertTrue(cached > 0)
+        assertTrue(paragraph.surface.cachedEmphasisPixelCount <= 2_097_152L)
+        repeat(4) {
+            render(paragraph, 1800f, rise = 0f, ttmlEffects = true).recycle()
+            render(paragraph, 1900f, rise = 0f, uniformColor = true, ttmlEffects = true).also {
+                assertTrue("Seeking back must reproduce identical ink", it.sameAs(peak))
+                it.recycle()
+            }
+            assertEquals("No per-frame halo rasterization", cached, paragraph.surface.cachedEmphasisFragmentCount)
+        }
+        // A soft halo adds low-alpha pixels around the ink, not another solid fill.
+        fun haloPixels(bitmap: Bitmap): Int {
+            var count = 0
+            for (y in 0 until bitmap.height) for (x in 0 until bitmap.width)
+                if (android.graphics.Color.alpha(bitmap.getPixel(x, y)) in 1..40) count++
+            return count
+        }
+        assertTrue("Use soft bloom rather than only a hard outline", haloPixels(peak) > haloPixels(baseline))
+        val directory = java.io.File(context.cacheDir, "emphasis-preview").apply { mkdirs() }
+        for (time in listOf(800f, 1300f, 1900f, 2400f, 3200f, 3600f)) {
+            val frame = render(paragraph, time, ttmlEffects = true)
+            java.io.File(directory, "frame-${time.toInt()}.png").outputStream().use {
+                frame.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            frame.recycle()
+        }
+        baseline.recycle(); peak.recycle()
+    }
+
+    @Test fun heldNoteBloomAndScaleDisappearAfterTheNote() {
         val tokens = listOf(YosLyricToken(1000f, 3000f, "  Hold  "))
         val paragraph = nativeLyricParagraph(measurer.measure("  Hold  ", TextStyle(fontSize = 38.sp),
             constraints = Constraints(maxWidth = 300)), tokens)
-        for (time in listOf(0f, 4000f)) {
+        for (time in listOf(0f, paragraph.emphasisQuietAfterMs + 1f)) {
             val plain = render(paragraph, time)
             val effect = render(paragraph, time, ttmlEffects = true)
             assertTrue("Emphasis must leave no duplicate/stroke after its envelope at $time", plain.sameAs(effect))
@@ -170,7 +262,251 @@ class NativeLyricRendererTest {
         plain.recycle(); effect.recycle()
     }
 
-    @Test fun disabledWordModeHighlightsTheWholeWrappedLineTogether() {
+    @Test fun finalHeldGlyphSustainsItsEmphasisThroughItsLongNote() {
+        val paragraph = nativeLyricParagraph(measurer.measure("啊", TextStyle(fontSize = 38.sp)),
+            listOf(YosLyricToken(1000f, 9000f, "啊")))
+        val duration = nativeTtmlEmphasisDurationMs(8000f, terminal = true)
+        for (time in listOf(1000f + duration * 0.1f, 1000f + duration * 0.5f, 1000f + duration * 0.9f)) {
+            val plain = render(paragraph, time)
+            val effect = render(paragraph, time, ttmlEffects = true)
+            assertFalse("The held glyph must keep its emphasis while sung at $time", plain.sameAs(effect))
+            plain.recycle(); effect.recycle()
+        }
+        val settled = paragraph.emphasisQuietAfterMs + 1f
+        val plain = render(paragraph, settled)
+        val effect = render(paragraph, settled, ttmlEffects = true)
+        assertTrue("Emphasis must return to ordinary drawing once its envelope ends", plain.sameAs(effect))
+        plain.recycle(); effect.recycle()
+    }
+
+    @Test fun denseWaveFramesHaveNoInkJumpAtGlyphHandoffs() {
+        val text = "WAVES"
+        val paragraph = nativeLyricParagraph(measurer.measure(text, TextStyle(fontSize = 48.sp)),
+            listOf(YosLyricToken(1000f, 3000f, text)))
+        val directory = java.io.File(context.cacheDir, "emphasis-preview/dense").apply { mkdirs() }
+        var previous = render(paragraph, 800f, rise = 0f, uniformColor = true, ttmlEffects = true)
+        var largestChange = 0.0
+        for (time in 808..4700 step 8) {
+            val current = render(paragraph, time.toFloat(), rise = 0f, uniformColor = true, ttmlEffects = true)
+            var difference = 0L
+            var ink = 0L
+            for (y in 0 until current.height) for (x in 0 until current.width) {
+                val before = android.graphics.Color.alpha(previous.getPixel(x, y))
+                val after = android.graphics.Color.alpha(current.getPixel(x, y))
+                difference += kotlin.math.abs(after - before)
+                ink += after
+            }
+            val change = difference.toDouble() / ink.coerceAtLeast(1L)
+            largestChange = maxOf(largestChange, change)
+            assertTrue("Wave ink must remain continuous at $time ms: $change", change < 0.04)
+            if ((time - 808) % 40 == 0) {
+                java.io.File(directory, "frame-$time.png").outputStream().use {
+                    current.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            previous.recycle()
+            previous = current
+        }
+        previous.recycle()
+        assertTrue("The checked frames must include visible motion", largestChange > 0.0005)
+    }
+
+    @Test fun independentlyRaisedItalicLetterNeverContainsItsNeighboursInk() {
+        val style = nativeIndependentGlyphStyle(TextStyle(fontSize = 60.sp,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+            letterSpacing = (-3).sp))
+        for (text in listOf("fW", "jT", "AV", "fi", "fl")) {
+            val paragraph = nativeLyricParagraph(measurer.measure(text, style),
+                listOf(YosLyricToken(1000f, 3000f, text)))
+            val first = paragraph.glyphs.first { !it.whitespace }
+            assertTrue(first.independentInk)
+            val ownedText = text.substring(first.textOffset, first.textEnd)
+            // Ground truth is the renderer's own isolated grapheme layout, drawn
+            // through its vector fallback so positioning matches the cached
+            // fragment exactly regardless of italic bearings or letter spacing.
+            val isolated = NativeLyricSurface(paragraph.layout, emphasisPixelLimit = 0L)
+            for (rise in listOf(0f, 0.25f, 3.5f, 8f)) {
+                val actual = Bitmap.createBitmap(220, 120, Bitmap.Config.ARGB_8888)
+                val expected = actual.copy(Bitmap.Config.ARGB_8888, true)
+                for ((bitmap, alone) in listOf(actual to false, expected to true)) {
+                    CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(bitmap.asImageBitmap()),
+                        Size(bitmap.width.toFloat(), bitmap.height.toFloat())) {
+                        translate(left = 40f, top = 16f) {
+                            if (alone) isolated.drawEmphasized(this, first, null, Color.White,
+                                Color.White, rise, 0f)
+                            else paragraph.surface.drawEmphasized(this, first, null, Color.White,
+                                Color.White, rise, 0f)
+                        }
+                    }
+                }
+                // Ownership check: align both renders by their alpha centroid, then
+                // every solid fragment pixel must land on isolated ink. Subpixel
+                // antialiasing spill (vector text snaps fractional baselines, the
+                // cached mask filters them) stays below the solid threshold.
+                var massA = 0.0; var mxA = 0.0; var myA = 0.0
+                var massE = 0.0; var mxE = 0.0; var myE = 0.0
+                for (y in 0 until actual.height) for (x in 0 until actual.width) {
+                    val a = android.graphics.Color.alpha(actual.getPixel(x, y)).toDouble()
+                    val e = android.graphics.Color.alpha(expected.getPixel(x, y)).toDouble()
+                    if (a > 0) { massA += a; mxA += a * x; myA += a * y }
+                    if (e > 0) { massE += e; mxE += e * x; myE += e * y }
+                }
+                assertTrue("Both renders must contain ink at rise=$rise", massA > 0 && massE > 0)
+                val dx = Math.round(mxA / massA - mxE / massE).toInt()
+                val dy = Math.round(myA / massA - myE / massE).toInt()
+                for (y in 0 until actual.height) for (x in 0 until actual.width) {
+                    if (android.graphics.Color.alpha(actual.getPixel(x, y)) <= 80) continue
+                    var supported = false
+                    for (sy in dy - 1..dy + 1) for (sx in dx - 1..dx + 1) {
+                        val px = x - sx; val py = y - sy
+                        if (px in 0 until expected.width && py in 0 until expected.height &&
+                            android.graphics.Color.alpha(expected.getPixel(px, py)) > 0) supported = true
+                    }
+                    assertTrue("$text leaked foreign ink at rise=$rise, pixel=$x,$y", supported)
+                }
+                actual.recycle(); expected.recycle()
+            }
+        }
+    }
+
+    @Test fun independentlyAnimatedLatinLettersKeepLigatureLettersAndCombiningMarksIntact() {
+        for (text in listOf("office", "affine", "fluffy", "cafe\u0301")) {
+            val style = nativeIndependentGlyphStyle(TextStyle(fontSize = 48.sp))
+            val paragraph = nativeLyricParagraph(measurer.measure(text, style),
+                listOf(YosLyricToken(1000f, 3000f, text)))
+            val letters = paragraph.glyphs.filter { !it.whitespace }
+            assertEquals("Every grapheme must get its own nonzero geometry", lyricGraphemeRanges(text).size,
+                letters.size)
+            assertTrue(letters.all { it.independentInk && it.right > it.left })
+            if (text.endsWith("e\u0301")) {
+                assertEquals("The accent must move with its base letter", "e\u0301",
+                    text.substring(letters.last().textOffset, letters.last().textEnd))
+            }
+        }
+    }
+
+    @Test fun wrappedIndependentLettersKeepOneMonotonicHighlightSweepPerRow() {
+        val text = "MMMM ".repeat(12).trimEnd()
+        val layout = measurer.measure(text, nativeIndependentGlyphStyle(TextStyle(fontSize = 38.sp)),
+            constraints = Constraints(maxWidth = 240))
+        val paragraph = nativeLyricParagraph(layout, listOf(YosLyricToken(1000f, 13000f, text)))
+        assertTrue(layout.lineCount >= 3)
+        var partialRows = 0
+        for (time in listOf(4600f, 7700f, 10100f)) {
+            val frame = Bitmap.createBitmap(layout.size.width + 20, layout.size.height + 20, Bitmap.Config.ARGB_8888)
+            CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(frame.asImageBitmap()),
+                Size(frame.width.toFloat(), frame.height.toFloat())) {
+                drawNativeLyricParagraph(paragraph, time, Color.White, dim, 0f,
+                    ttmlEffects = true, effectStrength = 0f)
+            }
+            for (row in paragraph.rows) {
+                val brightness = row.glyphs.filter { !it.whitespace }.map { glyph ->
+                    var peak = 0
+                    for (y in glyph.top.toInt().coerceAtLeast(0) until glyph.bottom.toInt().coerceAtMost(frame.height))
+                        for (x in kotlin.math.ceil(glyph.left).toInt().coerceAtLeast(0) until
+                            kotlin.math.floor(glyph.right).toInt().coerceAtMost(frame.width))
+                            peak = maxOf(peak, android.graphics.Color.alpha(frame.getPixel(x, y)))
+                    peak
+                }
+                for ((before, after) in brightness.zipWithNext())
+                    assertTrue("Highlight must not brighten again farther along a row at $time: $brightness",
+                        after <= before + 3)
+                if (brightness.isNotEmpty() && brightness.max() - brightness.min() > 80) partialRows++
+            }
+            frame.recycle()
+        }
+        assertTrue("The regression must include a real bright-to-dim transition", partialRows > 0)
+    }
+
+    @Test fun transparentOverhangPaddingDoesNotExhaustTheHaloCacheOnLongEnglishLines() {
+        val text = "lilili ".repeat(12).trimEnd()
+        val layout = measurer.measure(text, nativeIndependentGlyphStyle(TextStyle(fontSize = 120.sp)),
+            constraints = Constraints(maxWidth = 1100))
+        val paragraph = nativeLyricParagraph(layout, listOf(YosLyricToken(1000f, 61000f, text)))
+        val frame = Bitmap.createBitmap(layout.size.width + 40, layout.size.height + 40, Bitmap.Config.ARGB_8888)
+        CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(frame.asImageBitmap()),
+            Size(frame.width.toFloat(), frame.height.toFloat())) {
+            for (glyph in paragraph.glyphs) paragraph.surface.drawEmphasized(this, glyph,
+                null, Color.White, Color.White, 0f, 1f)
+        }
+        assertEquals("Later letters must retain cached halos too", paragraph.glyphs.size,
+            paragraph.surface.cachedEmphasisFragmentCount)
+        assertTrue(paragraph.surface.cachedEmphasisPixelCount <= 2_097_152L)
+        frame.recycle()
+    }
+
+    @Test fun exhaustedHaloCacheStillDrawsTheEmphasisGlow() {
+        val layout = measurer.measure("M", nativeIndependentGlyphStyle(TextStyle(fontSize = 48.sp)))
+        val glyph = nativeLyricParagraph(layout, listOf(YosLyricToken(1000f, 3000f, "M"))).glyphs.single()
+        val surface = NativeLyricSurface(layout, emphasisPixelLimit = 0L)
+        val plain = Bitmap.createBitmap(140, 140, Bitmap.Config.ARGB_8888)
+        val glowing = plain.copy(Bitmap.Config.ARGB_8888, true)
+        for ((bitmap, glow) in listOf(plain to 0f, glowing to 1f)) {
+            CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(bitmap.asImageBitmap()),
+                Size(bitmap.width.toFloat(), bitmap.height.toFloat())) {
+                translate(left = 32f, top = 24f) {
+                    surface.drawEmphasized(this, glyph, null, Color.White, Color.White, 0f, glow)
+                }
+            }
+        }
+        var halo = 0
+        for (y in 0 until glowing.height) for (x in 0 until glowing.width) {
+            if (android.graphics.Color.alpha(plain.getPixel(x, y)) == 0 &&
+                android.graphics.Color.alpha(glowing.getPixel(x, y)) >= 8) halo++
+        }
+        assertTrue("Fallback must keep visible glow outside its own ink: $halo", halo > 20)
+        assertEquals(0L, surface.cachedEmphasisPixelCount)
+        plain.recycle(); glowing.recycle()
+    }
+
+    @Test fun travellingEmphasisScalesEachLetterWithoutHorizontalDrift() {
+        val text = "MMMMM"
+        val layout = measurer.measure(text, nativeIndependentGlyphStyle(TextStyle(
+            fontSize = 48.sp, letterSpacing = 8.sp)))
+        val paragraph = nativeLyricParagraph(layout, listOf(YosLyricToken(1000f, 9000f, text)))
+        fun centres(frame: Bitmap): List<Double> = paragraph.glyphs.map { glyph ->
+            var mass = 0L
+            var moment = 0.0
+            for (y in 0 until frame.height) for (x in kotlin.math.ceil(glyph.left).toInt().coerceAtLeast(0)
+                until kotlin.math.floor(glyph.right).toInt().coerceAtMost(frame.width)) {
+                val alpha = android.graphics.Color.alpha(frame.getPixel(x, y))
+                if (alpha >= 245) { mass += alpha; moment += alpha * x.toDouble() }
+            }
+            assertTrue("Each glyph must contain solid ink", mass > 0)
+            moment / mass
+        }
+        // The envelope now spans the whole note: anchor each letter before the
+        // note starts, then check the swell stays centred from onset to crest.
+        val settled = render(paragraph, 808f, rise = 0f, uniformColor = true, ttmlEffects = true)
+        val anchors = centres(settled)
+        val duration = nativeTtmlEmphasisDurationMs(8000f, terminal = true)
+        for (time in listOf(2400f, 1000f + duration * 0.3f, 1000f + duration * 0.5f, 1000f + duration * 0.8f)) {
+            val frame = render(paragraph, time, rise = 0f, uniformColor = true, ttmlEffects = true)
+            centres(frame).forEachIndexed { index, centre ->
+                assertEquals("Glyph $index must swell around its own anchor at $time", anchors[index], centre, 1.25)
+            }
+            frame.recycle()
+        }
+        settled.recycle()
+    }
+
+    @Test fun lineHighlightKeepsWrappedGlyphsOnTheirOriginalBaseline() {
+        val text = "逐行歌词保持基线 Long line"
+        val paragraph = nativeLyricParagraph(measurer.measure(text, TextStyle(fontSize = 38.sp),
+            constraints = Constraints(maxWidth = 230)), listOf(YosLyricToken(1000f, 5000f, text)))
+        assertTrue(paragraph.layout.lineCount > 1)
+        val timing = nativePlaybackLineHighlight(1000f, 6000f)
+        val reference = render(paragraph, 5000f, reference = true, rise = 0f)
+        for (time in listOf(700f, 900f, 1500f, 5000f, 8000f)) {
+            val frame = render(paragraph, time, rise = 6f, lineHighlight = timing,
+                uniformColor = true, ttmlEffects = true)
+            assertTrue("Line highlighting must not move the paragraph at $time", frame.sameAs(reference))
+            frame.recycle()
+        }
+        reference.recycle()
+    }
+
+    @Test fun disabledWordModeCrossfadesTheWholeWrappedLineTogether() {
         val line = yos.music.player.code.utils.lrc.YosLyricLine(1000f, 5000f, listOf(
             YosLyricToken(1000f, 2500f, "MMMM 歌词 "), YosLyricToken(2500f, 5000f, "MMMM 下一行")))
         val tokens = nativeDisplayTokens(line, wordByWord = false)
@@ -181,13 +517,33 @@ class NativeLyricRendererTest {
         val timing = nativePlaybackLineHighlight(line.startMs, 6000f)
         val before = render(paragraph, 759f, rise = 0f, lineHighlight = timing)
         val expectedBefore = render(paragraph, -1f, reference = true, rise = 0f)
-        val after = render(paragraph, 760f, rise = 0f, lineHighlight = timing)
+        val beginning = render(paragraph, 760f, rise = 0f, lineHighlight = timing)
+        val halfway = render(paragraph, 900f, rise = 0f, lineHighlight = timing)
+        val after = render(paragraph, 1040f, rise = 0f, lineHighlight = timing)
         val expectedAfter = render(paragraph, 5000f, reference = true, rise = 0f)
         assertTrue("Future line must remain dim", before.sameAs(expectedBefore))
-        assertTrue("All wrapped fragments must highlight together", after.sameAs(expectedAfter))
-        val ended = render(paragraph, 5760f, rise = 0f, lineHighlight = timing)
-        assertTrue("Previous line dims exactly at the next timestamp", ended.sameAs(expectedBefore))
-        listOf(before, expectedBefore, after, expectedAfter, ended).forEach { it.recycle() }
+        assertTrue("The first focused frame must not jump to bright", beginning.sameAs(expectedBefore))
+        assertTrue("All wrapped fragments must finish highlighting together", after.sameAs(expectedAfter))
+        for (row in 0 until layout.lineCount) {
+            fun coverage(bitmap: Bitmap): Long {
+                var total = 0L
+                for (y in layout.getLineTop(row).toInt() until layout.getLineBottom(row).toInt())
+                    for (x in 0 until bitmap.width) total += android.graphics.Color.alpha(bitmap.getPixel(x, y))
+                return total
+            }
+            val low = coverage(before)
+            val high = coverage(after)
+            assertTrue(high > low)
+            assertEquals("Every visual row must share the same intermediate colour", 0.5,
+                (coverage(halfway) - low).toDouble() / (high - low), 0.015)
+        }
+        val leaving = render(paragraph, 5760f, rise = 0f, lineHighlight = timing)
+        val fading = render(paragraph, 5900f, rise = 0f, lineHighlight = timing)
+        val ended = render(paragraph, 6040f, rise = 0f, lineHighlight = timing)
+        assertTrue("The outgoing line must preserve its first frame", leaving.sameAs(expectedAfter))
+        assertTrue("Outgoing fade must remain alive beyond the paragraph quiet window", fading.sameAs(halfway))
+        assertTrue("Previous line finishes dimming after the transition", ended.sameAs(expectedBefore))
+        listOf(before, expectedBefore, beginning, halfway, after, expectedAfter, leaving, fading, ended).forEach { it.recycle() }
     }
 
     @Test fun completeWrappedTextHasOnlyTheRaisedParagraphSurface() {
@@ -257,6 +613,10 @@ class NativeLyricRendererTest {
         val paragraph = nativeLyricParagraph(layout, tokens)
         val letters = paragraph.glyphs.filter { !it.whitespace }
         assertEquals(1, letters.map { it.upliftMotion }.distinct().size)
+        // Compare clipping against one complete shaped surface translated with
+        // filtering. Re-rasterizing vector text at each fractional baseline is
+        // the snapping behaviour this renderer intentionally avoids now.
+        val wholeWord = NativeLyricSurface(layout)
         for (time in listOf(150f, 300f, 500f, 750f)) {
             val actual = Bitmap.createBitmap(layout.size.width + 20, layout.size.height + 20, Bitmap.Config.ARGB_8888)
             val expected = actual.copy(Bitmap.Config.ARGB_8888, true)
@@ -264,12 +624,14 @@ class NativeLyricRendererTest {
             for ((bitmap, reference) in listOf(actual to false, expected to true)) {
                 CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(bitmap.asImageBitmap()),
                     Size(bitmap.width.toFloat(), bitmap.height.toFloat())) {
-                    if (reference) drawText(layout, color = Color.White, topLeft = Offset(0f, -rise))
+                    if (reference) wholeWord.drawSolid(this, Color.White, rise)
                     else drawNativeLyricParagraph(paragraph, time, Color.White, Color.White, 6f)
                 }
             }
             for (y in 0 until actual.height) for (x in 0 until actual.width) {
-                assertEquals("Word edge clipped at $x,$y during $time", expected.getPixel(x,y), actual.getPixel(x,y))
+                assertEquals("Word edge clipped at $x,$y during $time",
+                    android.graphics.Color.alpha(expected.getPixel(x,y)).toFloat(),
+                    android.graphics.Color.alpha(actual.getPixel(x,y)).toFloat(), 1f)
             }
             actual.recycle(); expected.recycle()
         }

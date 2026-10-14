@@ -391,10 +391,12 @@ private fun RenderNativeLyricRow(
         else nativeDisplayTokens(line, SettingsLibrary.EnableWordByWordLyric)
     }
     // Stationary past/future rows must not repaint for every playback tick.
-    // Keep a conservative margin for preroll and overlapping uplift at each edge.
+    // Keep a conservative margin for preroll and overlapping uplift at each edge,
+    // and let long-note emphasis tails finish before the row freezes.
     val renderWindow = remember(line, displayTokens) {
         (minOf(line.startMs, displayTokens.minOfOrNull { it.startMs } ?: line.startMs) - 1000f) to
-            (maxOf(line.endMs, displayTokens.maxOfOrNull { it.endMs } ?: line.endMs) + 1000f)
+            maxOf(maxOf(line.endMs, displayTokens.maxOfOrNull { it.endMs } ?: line.endMs) + 1000f,
+                nativeLyricEmphasisEndMs(displayTokens))
     }
     val lineHighlight = remember(line.startMs, nextStart, nextIsCountdown, line.hasWordTiming, SettingsLibrary.EnableWordByWordLyric) {
         if (!SettingsLibrary.EnableWordByWordLyric || !line.hasWordTiming) nativePlaybackLineHighlight(line.startMs, nextStart, nextIsCountdown) else null
@@ -424,10 +426,30 @@ internal fun shouldRenderStaticLyric(line: YosLyricLine, documentSize: Int): Boo
     val timedWords = line.tokens.count { it.text.isNotBlank() && it.endMs > it.startMs }
     return timedWords <= 1 && (documentSize == 1 || line.text.length > 160)
 }
-internal fun lyricVisualFollowIndex(entries: List<YosLyricLine>, positionMs: Float): Int =
-    entries.indexOfLast { line ->
-        positionMs >= nativeLyricVisualStartMs(line.startMs, line.isCountdown)
+/**
+ * A line whose timeline overlaps the previous one must not scroll it away
+ * mid-note: while the held line is still being sung nothing scrolls, and an
+ * interleaved line — one that began before the held line finished — only
+ * takes the viewport after its own time has ended. Countdown tickers and
+ * other-side vocals never hold, so long background vocals cannot freeze the
+ * flow or eat the next line's preroll.
+ */
+internal fun lyricVisualFollowIndex(entries: List<YosLyricLine>, positionMs: Float): Int {
+    var held = -1
+    for (index in entries.indices) {
+        val line = entries[index]
+        if (positionMs < nativeLyricVisualStartMs(line.startMs, line.isCountdown)) continue
+        val keeper = entries.getOrNull(held)
+        if (keeper != null && !keeper.isCountdown && !keeper.otherSide) {
+            if (positionMs < keeper.endMs + lyricBoundaryExtraMs(keeper.tokens)) continue
+            if (line.startMs < keeper.endMs &&
+                positionMs < line.endMs + lyricBoundaryExtraMs(line.tokens)
+            ) continue
+        }
+        held = index
     }
+    return held
+}
 private const val SEEK_BACKWARD_JITTER_MS = 500f
 internal fun reconcileLyricClock(previous: Float, reported: Float): Float =
     if (abs(reported - previous) > SEEK_BACKWARD_JITTER_MS) reported else maxOf(previous, reported)

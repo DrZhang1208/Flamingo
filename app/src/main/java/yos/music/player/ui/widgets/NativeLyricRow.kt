@@ -81,6 +81,42 @@ internal data class NativeLyricParagraph(val layout: TextLayoutResult, val glyph
         if (layout.layoutInput.style.fontSize.isSp) layout.layoutInput.style.fontSize.toPx() else 16.sp.toPx()
     }
     val lastNoteEnd = glyphs.maxOfOrNull { it.motion.endMs } ?: 0f
+    val emphasisQuietAfterMs = maxOf(quietAfterMs, glyphs.asSequence()
+        .filter { !it.whitespace && !it.rtl }
+        .maxOfOrNull {
+            nativeTtmlEmphasisEndMs(it.emphasisMotion.startMs, it.emphasisMotion.endMs,
+                it.emphasisCount, it.emphasisMotion.endMs >= lastNoteEnd - 1f)
+        } ?: quietAfterMs)
+}
+
+private val nativeLatinWords = Regex("[\\p{IsLatin}\\p{M}\\p{N}]+(?:['’\\-][\\p{IsLatin}\\p{M}\\p{N}]+)*")
+
+/** Before layout, source-token bounds also cover words joined across syllable tokens. */
+internal fun nativeLyricEmphasisEndMs(tokens: List<YosLyricToken>): Float {
+    val lastNoteEnd = tokens.maxOfOrNull { it.endMs } ?: return Float.NEGATIVE_INFINITY
+    var end = lastNoteEnd
+    var offset = 0
+    val sources = tokens.map { token ->
+        val range = offset until offset + token.text.length
+        offset += token.text.length
+        val count = lyricGraphemeRanges(token.text).count { part ->
+            token.text.substring(part.first, part.last + 1).any { !it.isWhitespace() }
+        }
+        if (count > 0) end = maxOf(end, nativeTtmlEmphasisEndMs(token.startMs, token.endMs,
+            count, token.endMs >= lastNoteEnd - 1f))
+        range to token
+    }
+    for (word in nativeLatinWords.findAll(tokens.joinToString("") { it.text })) {
+        val contributing = sources.filter { (range, _) -> range.first <= word.range.last && range.last >= word.range.first }
+        if (contributing.isEmpty()) continue
+        val start = contributing.minOf { it.second.startMs }
+        val finish = contributing.maxOf { it.second.endMs }
+        val count = contributing.sumOf { (range, token) ->
+            lyricGraphemeRanges(token.text).count { range.first + it.first in word.range }
+        }
+        end = maxOf(end, nativeTtmlEmphasisEndMs(start, finish, count, finish >= lastNoteEnd - 1f))
+    }
+    return end
 }
 
 /** Geometry is built only when text, font or constraints change. Shaping remains paragraph based. */
@@ -89,6 +125,7 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
     val glyphs = ArrayList<NativeLyricGlyph>()
     var tokenOffset = 0
     var previousEnd = Float.NEGATIVE_INFINITY
+    val lastNoteEnd = tokens.maxOfOrNull { max(it.endMs, it.startMs + 1f) } ?: 0f
     tokens.forEach { token ->
         val startOffset = tokenOffset
         tokenOffset += token.text.length
@@ -125,7 +162,8 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
         val emphasisWidth = emphasizedGlyphs.sumOf { (glyphs[it].right - glyphs[it].left).toDouble() }.toFloat()
         emphasizedGlyphs.forEachIndexed { index, glyphIndex ->
             glyphs[glyphIndex] = glyphs[glyphIndex].copy(
-                emphasisDelayMs = nativeTtmlGlyphDelayMs(index, emphasizedGlyphs.size, motion.endMs - motion.startMs),
+                emphasisDelayMs = nativeTtmlGlyphDelayMs(index, emphasizedGlyphs.size, motion.endMs - motion.startMs,
+                    terminal = motion.endMs >= lastNoteEnd - 1f),
                 emphasisIndex = index, emphasisCount = emphasizedGlyphs.size, emphasisWordWidth = emphasisWidth)
         }
         val total = (firstGlyph until glyphs.size).sumOf { (glyphs[it].right - glyphs[it].left).toDouble() }.toFloat()
@@ -145,8 +183,7 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
     }
     // Latin letters must retain one shaped surface while moving. Source timing can
     // split a word into multiple tokens, so group by paragraph text instead.
-    val latinWords = Regex("[\\p{IsLatin}\\p{M}\\p{N}]+(?:['’\\-][\\p{IsLatin}\\p{M}\\p{N}]+)*")
-    for (word in latinWords.findAll(text)) {
+    for (word in nativeLatinWords.findAll(text)) {
         val indices = glyphs.indices.filter { glyphs[it].textOffset in word.range }
         if (indices.isEmpty()) continue
         val start = indices.minOf { glyphs[it].upliftMotion.startMs }
@@ -155,7 +192,8 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
         val wordWidth = indices.sumOf { (glyphs[it].right - glyphs[it].left).toDouble() }.toFloat()
         for ((order, index) in indices.withIndex()) glyphs[index] = glyphs[index].copy(
             upliftMotion = motion, emphasisMotion = motion, independentInk = true,
-            emphasisDelayMs = nativeTtmlGlyphDelayMs(order, indices.size, end - start),
+            emphasisDelayMs = nativeTtmlGlyphDelayMs(order, indices.size, end - start,
+                terminal = end >= lastNoteEnd - 1f),
             emphasisIndex = order, emphasisCount = indices.size, emphasisWordWidth = wordWidth)
     }
     // Split whitespace at its centre and let each half move with its neighbour.
@@ -231,8 +269,11 @@ internal fun DrawScope.drawNativeLyricParagraph(
     }
     // Settled rows have one colour and one vertical offset. Draw the shaped
     // paragraph once instead of clipping/redrawing it for each visual row/word.
-    if (timeMs <= paragraph.quietBeforeMs || timeMs >= paragraph.quietAfterMs) {
-        val finished = timeMs >= paragraph.quietAfterMs
+    // Emphasis tails can outlive the note, so wait for their envelope too.
+    val settledAfterMs = if (ttmlEffects && highlight && effectStrength > 0f)
+        paragraph.emphasisQuietAfterMs else paragraph.quietAfterMs
+    if (timeMs <= paragraph.quietBeforeMs || timeMs >= settledAfterMs) {
+        val finished = timeMs >= settledAfterMs
         val lit = highlight && finished
         paragraph.surface.drawSolid(this, if (lit) bright else dim, if (finished) upliftPx else 0f)
         return
@@ -277,14 +318,17 @@ internal fun DrawScope.drawNativeLyricParagraph(
                 (!ttmlEffects || (glyphs[end].motion == first.motion &&
                     glyphs[end].emphasisDelayMs == first.emphasisDelayMs))) end++
             val noteTime = timeMs - first.emphasisDelayMs
-            val glow = if (emphasize) nativeTtmlGlowStrength(note.startMs, note.endMs, noteTime, first.emphasisCount,
-                terminal = note.endMs >= paragraph.lastNoteEnd - 1f) * effectStrength else 0f
-            val lift = glow
+            val terminal = note.endMs >= paragraph.lastNoteEnd - 1f
+            val glow = if (emphasize) nativeTtmlGlowStrength(note.startMs, note.endMs, noteTime,
+                terminal) * effectStrength else 0f
+            // Lift runs on its own longer envelope so the rise keeps breathing
+            // after the crest has passed, instead of snapping back with it.
+            val lift = if (emphasize) nativeTtmlLiftStrength(note.startMs, note.endMs, noteTime,
+                terminal) * effectStrength else 0f
             val visualRise = rise + if (upliftPx > 0f) nativeTtmlExtraRiseDp(lift).dp.toPx() else 0f
             val solid = if (complete) bright else dim
             if (separateInk || glow > 0f || lift > 0f) {
-                val zoom = nativeTtmlEmphasisScale(glow, noteDuration,
-                    note.endMs >= paragraph.lastNoteEnd - 1f,
+                val zoom = nativeTtmlEmphasisScale(glow, noteDuration, terminal,
                     first.emphasisWordWidth / paragraph.fontSizePx.coerceAtLeast(1f))
                 scale(zoom, zoom, pivot = Offset(first.emphasisCenterX,
                     (first.top + first.bottom) * 0.5f - visualRise)) {

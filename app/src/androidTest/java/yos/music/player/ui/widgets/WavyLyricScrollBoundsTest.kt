@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -19,6 +20,70 @@ import org.junit.Test
 
 class WavyLyricScrollBoundsTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun progressPreviewMovesAllRowsTogetherInsteadOfReplacingTheAnchoredLine() {
+        val state = WavyLyricsColumnState()
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            WavyLyricsColumn(20, state, Modifier.size(320.dp, 400.dp).testTag("lyrics"),
+                animationsEnabled = false,
+                rowSpringParams = { WavySpringParams(0.9f, 15f, 90f) }) { index ->
+                Box(Modifier.fillMaxWidth().height(72.dp).testTag("row$index")) { Text("Lyric $index") }
+            }
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnIdle { state.jumpTo(2, false) }
+        compose.mainClock.advanceTimeByFrame()
+        fun top(index: Int) = compose.onNodeWithTag("row$index").fetchSemanticsNode().boundsInRoot.top
+        val before3 = top(3)
+        val before4 = top(4)
+        val rowHeight = before4 - before3
+        for (fraction in listOf(0f, 0.25f, 0.5f, 0.75f, 1f, 0.5f, 0f)) {
+            compose.runOnIdle { state.previewAt(LyricSeekScrollTarget(2, 3, fraction)) }
+            compose.mainClock.advanceTimeByFrame()
+            assertEquals(before3 - rowHeight * fraction, top(3), 2f)
+            assertEquals(before3 - top(3), before4 - top(4), 2f)
+            val held = top(3)
+            compose.mainClock.advanceTimeBy(160)
+            assertEquals("A stationary finger must not leave a tween running", held, top(3), 1f)
+        }
+        compose.runOnIdle { state.previewAt(LyricSeekScrollTarget(2, 3, 1f)) }
+        compose.mainClock.advanceTimeByFrame()
+        val boundary = top(3)
+        compose.runOnIdle { state.previewAt(LyricSeekScrollTarget(3, 4, 0f)) }
+        compose.mainClock.advanceTimeByFrame()
+        assertEquals(boundary, top(3), 1f)
+    }
+
+    @Test fun directPreviewPlacesEachTargetOnTheFirstFrameWithoutSpringDisplacement() {
+        val state = WavyLyricsColumnState()
+        val animated = mutableStateOf(true)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            WavyLyricsColumn(40, state, Modifier.size(320.dp, 400.dp).testTag("lyrics"),
+                animationsEnabled = animated.value,
+                rowSpringParams = { WavySpringParams(0.9f, 15f, 90f) }) { index ->
+                Box(Modifier.fillMaxWidth().height(72.dp).testTag("row$index")) { Text("Lyric $index") }
+            }
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnIdle { state.jumpTo(0, false) }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnIdle { state.jumpTo(12, true) }
+        compose.mainClock.advanceTimeBy(64)
+        compose.runOnIdle { animated.value = false }
+        for (target in listOf(12, 25, 3, 30, 0)) {
+            compose.runOnIdle { state.jumpTo(target, false) }
+            compose.mainClock.advanceTimeByFrame()
+            val top = compose.onNodeWithTag("lyrics").fetchSemanticsNode().boundsInRoot.top
+            for (elapsed in listOf(0L, 80L, 300L)) {
+                compose.mainClock.advanceTimeBy(elapsed)
+                assertEquals("Target must not chase a spring during a progress preview",
+                    top + state.viewportHeightPx * 0.0618f,
+                    compose.onNodeWithTag("row$target").fetchSemanticsNode().boundsInRoot.top, 2f)
+            }
+        }
+    }
 
     @Test fun repeatedDownwardDragsDuringAnUnfinishedFollowKeepTheFirstLyricAtTheTop() {
         val state = WavyLyricsColumnState()
