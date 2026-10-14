@@ -34,7 +34,7 @@ class LyricFollowTimingTest {
         assertEquals(1, lyricVisualFollowIndex(lines, 4000f))
     }
 
-    @Test fun interleavedLineWaitsForItsOwnDisplayTailToo() {
+    @Test fun interleavedLineWaitsUntilBothLinesHaveEnded() {
         val lines = listOf(
             YosLyricLine(1000f, 3000f, listOf(YosLyricToken(1000f, 3000f, "啊"))),
             YosLyricLine(2000f, 4000f, emptyList())
@@ -43,6 +43,16 @@ class LyricFollowTimingTest {
         assertEquals(0, lyricVisualFollowIndex(lines, 3499f))
         assertEquals(0, lyricVisualFollowIndex(lines, 3999f))
         assertEquals(1, lyricVisualFollowIndex(lines, 4000f))
+    }
+
+    @Test fun adjacentLinesKeepThePrerollScroll() {
+        val lines = listOf(
+            YosLyricLine(1000f, 3000f, emptyList()),
+            YosLyricLine(3000f, 5000f, emptyList())
+        )
+        assertEquals(0, lyricVisualFollowIndex(lines, 2759f))
+        assertEquals("Line-by-line lyrics must keep their preroll scroll",
+            1, lyricVisualFollowIndex(lines, 2760f))
     }
 
     @Test fun linesAfterARealGapKeepTheirPreroll() {

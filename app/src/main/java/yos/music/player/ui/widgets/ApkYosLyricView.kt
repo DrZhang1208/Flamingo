@@ -427,12 +427,11 @@ internal fun shouldRenderStaticLyric(line: YosLyricLine, documentSize: Int): Boo
     return timedWords <= 1 && (documentSize == 1 || line.text.length > 160)
 }
 /**
- * A line whose timeline overlaps the previous one must not scroll it away
- * mid-note: while the held line is still being sung nothing scrolls, and an
- * interleaved line — one that began before the held line finished — only
- * takes the viewport after its own time has ended. Countdown tickers and
- * other-side vocals never hold, so long background vocals cannot freeze the
- * flow or eat the next line's preroll.
+ * A line whose timeline truly interleaves with the held one — it begins before
+ * the held line finishes — must not scroll it away mid-note: the viewport
+ * moves only after both lines' times have ended. Lines that start after the
+ * held line ends keep the original preroll scroll, and countdown tickers or
+ * other-side vocals never hold, so background vocals cannot freeze the flow.
  */
 internal fun lyricVisualFollowIndex(entries: List<YosLyricLine>, positionMs: Float): Int {
     var held = -1
@@ -440,12 +439,10 @@ internal fun lyricVisualFollowIndex(entries: List<YosLyricLine>, positionMs: Flo
         val line = entries[index]
         if (positionMs < nativeLyricVisualStartMs(line.startMs, line.isCountdown)) continue
         val keeper = entries.getOrNull(held)
-        if (keeper != null && !keeper.isCountdown && !keeper.otherSide) {
-            if (positionMs < keeper.endMs + lyricBoundaryExtraMs(keeper.tokens)) continue
-            if (line.startMs < keeper.endMs &&
-                positionMs < line.endMs + lyricBoundaryExtraMs(line.tokens)
-            ) continue
-        }
+        if (keeper != null && !keeper.isCountdown && !keeper.otherSide &&
+            line.startMs < keeper.endMs &&
+            positionMs < maxOf(line.endMs, keeper.endMs)
+        ) continue
         held = index
     }
     return held
