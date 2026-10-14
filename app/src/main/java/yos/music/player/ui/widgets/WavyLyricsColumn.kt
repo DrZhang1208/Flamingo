@@ -54,6 +54,10 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
         private set
     var isUserScrolling by mutableStateOf(false)
         private set
+    var isSeekScrollActive by mutableStateOf(false)
+        private set
+    private var seekScrollMotion = LyricSeekScrollMotion()
+    private var seekScrollTarget: LyricSeekScrollTarget? = null
 
     var isPreviewing by mutableStateOf(false)
         private set
@@ -76,12 +80,15 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
     }
     private var returnFromUserScroll = false
     private var stationaryCountdownIndex = -1
+    private var countdownWaveHeights by mutableStateOf<Map<Int, Int>>(emptyMap())
 
     fun updateItemCount(count: Int) {
         itemCount = count.coerceAtLeast(0)
         rowHeights.keys.filter { it >= itemCount }.forEach(rowHeights::remove)
         if (waveAnchorIndex >= itemCount && waveAnchorIndex >= 0) {
             waveAnchorIndex = -1
+            seekScrollTarget = null
+            isSeekScrollActive = false
             resetRowAnimations()
         }
         scrollOffsetPx = scrollOffsetPx.coerceIn(minOffset(), maxOffset())
@@ -89,7 +96,8 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
 
     fun updateViewport(heightPx: Int) {
         viewportHeightPx = heightPx
-        scrollOffsetPx = scrollOffsetPx.coerceIn(minOffset(), maxOffset())
+        scrollOffsetPx = seekScrollTarget?.let(::seekTargetOffset)
+            ?: scrollOffsetPx.coerceIn(minOffset(), maxOffset())
     }
 
     fun updateRowHeight(index: Int, heightPx: Int) {
@@ -112,6 +120,7 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
                 (measured[index] ?: rowHeight(index)) > rowHeight(index)
         }
         val layoutAnchor = when {
+            isSeekScrollActive -> firstVisibleIndex()
             !isPreviewing && waveAnchorIndex >= 0 && growingCountdown != null -> growingCountdown + 1
             !isPreviewing && waveAnchorIndex in 0 until itemCount -> waveAnchorIndex
             else -> firstVisibleIndex()
@@ -121,11 +130,18 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
             if (index in 0 until itemCount && height >= 0) rowHeights[index] = height
         }
         val anchorCorrection = rowTop(layoutAnchor) - anchorTopBefore
-        scrollOffsetPx = (scrollOffsetPx + anchorCorrection).coerceIn(minOffset(), maxOffset())
+        val previousOffset = scrollOffsetPx
+        val seekTarget = seekScrollTarget
+        scrollOffsetPx = if (seekTarget != null) seekTargetOffset(seekTarget)
+            else (scrollOffsetPx + anchorCorrection).coerceIn(minOffset(), maxOffset())
+        if (isSeekScrollActive && seekTarget == null) seekScrollMotion.shiftBy(scrollOffsetPx - previousOffset)
     }
 
     fun startUserScroll() {
         if (isUserScrolling) return
+        isSeekScrollActive = false
+        seekScrollTarget = null
+        countdownWaveHeights = emptyMap()
         isUserScrolling = true
         isPreviewing = true
         previewInteractionGeneration++
@@ -165,17 +181,26 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
 
     fun jumpTo(index: Int, animateRows: Boolean): Float {
         if (isPreviewing || index !in 0 until itemCount || viewportHeightPx <= 0) return 0f
+        isSeekScrollActive = false
+        seekScrollTarget = null
         stationaryCountdownIndex = -1
         val target = (rowTop(index) - viewportHeightPx * TARGET_Y_RATIO)
             .coerceIn(minOffset(), maxOffset())
         val travel = target - scrollOffsetPx
         if (index == waveAnchorIndex && abs(travel) < 0.5f) {
             returnFromUserScroll = false
+            // Taking over at the current line must also remove an unfinished wave.
+            if (!animateRows && (waveTravelPx != 0f || waveCumulativeTravelPx != 0f || countdownWaveHeights.isNotEmpty())) {
+                resetRowAnimations()
+            }
             return 0f
         }
 
         val shouldAnimateRows = animateRows && waveAnchorIndex >= 0 &&
             (index != waveAnchorIndex || returnFromUserScroll)
+        countdownWaveHeights = if (shouldAnimateRows && waveAnchorIndex in countdownIndexes) {
+            countdownIndexes.filter { it < index }.associateWith(::rowHeight)
+        } else emptyMap()
         scrollOffsetPx = target
         waveAnchorIndex = index
         if (shouldAnimateRows) {
@@ -189,6 +214,42 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
         return travel
     }
 
+    /** The same pointer time always gives the same position, with no tween chasing it. */
+    fun previewAt(target: LyricSeekScrollTarget) {
+        if (isPreviewing || target.fromIndex !in 0 until itemCount ||
+            target.toIndex !in 0 until itemCount || viewportHeightPx <= 0) return
+        if (!isSeekScrollActive) {
+            seekScrollMotion = LyricSeekScrollMotion()
+            resetRowAnimations()
+        }
+        stationaryCountdownIndex = -1
+        seekScrollTarget = target
+        scrollOffsetPx = seekTargetOffset(target)
+        waveAnchorIndex = target.fromIndex
+        returnFromUserScroll = false
+        isSeekScrollActive = true
+    }
+
+    private fun seekTargetOffset(target: LyricSeekScrollTarget): Float {
+        val from = rowTop(target.fromIndex)
+        val to = rowTop(target.toIndex)
+        return (from + (to - from) * target.fraction.coerceIn(0f, 1f) - viewportHeightPx * TARGET_Y_RATIO)
+            .coerceIn(minOffset(), maxOffset())
+    }
+
+    /** Only release/cancellation uses a short handoff back to ordinary playback. */
+    fun settleSeekPreviewTo(index: Int, nowMs: Long) {
+        if (isPreviewing || index !in 0 until itemCount || viewportHeightPx <= 0) return
+        seekScrollTarget = null
+        stationaryCountdownIndex = -1
+        val target = (rowTop(index) - viewportHeightPx * TARGET_Y_RATIO).coerceIn(minOffset(), maxOffset())
+        scrollOffsetPx = seekScrollMotion.frame(scrollOffsetPx, target, nowMs)
+            .coerceIn(minOffset(), maxOffset())
+        waveAnchorIndex = index
+        returnFromUserScroll = false
+        isSeekScrollActive = !seekScrollMotion.finished
+    }
+
     fun rowTop(index: Int): Float = rowOffsets[index.coerceIn(0, itemCount)] +
         (index - itemCount).coerceAtLeast(0) * ESTIMATED_ROW_HEIGHT_PX
 
@@ -197,8 +258,16 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
     // The spring is a second scroll coordinate, applied after layout. Clamping
     // only scrollOffsetPx allows an unfinished follow/seek to drag the rendered
     // first row below the viewport even though the logical list is at its start.
-    fun boundedDisplacement(displacementPx: Float): Float = scrollOffsetPx -
-        (scrollOffsetPx - displacementPx).coerceIn(minOffset(), maxOffset())
+    fun boundedDisplacement(displacementPx: Float): Float {
+        // A seek can remove the opening countdown while its scroll is still in
+        // flight. Retain exactly that removed slot's space until the wave settles;
+        // otherwise the new first-row bound clips all of the intended animation.
+        val removedCountdownHeight = countdownWaveHeights.entries.sumOf { (index, height) ->
+            (height - rowHeight(index)).coerceAtLeast(0)
+        }.toFloat()
+        return scrollOffsetPx - (scrollOffsetPx - displacementPx)
+            .coerceIn(minOffset() - removedCountdownHeight, maxOffset())
+    }
 
     fun visibleIndexes(overscanPx: Float, offsetPx: Float = scrollOffsetPx): IntRange {
         if (itemCount == 0) return IntRange.EMPTY
@@ -242,6 +311,7 @@ internal class WavyLyricsColumnState(private val countdownIndexes: Set<Int> = em
     }
 
     private fun resetRowAnimations() {
+        countdownWaveHeights = emptyMap()
         waveTravelPx = 0f
         waveCumulativeTravelPx = 0f
         waveGeneration++
@@ -265,14 +335,15 @@ internal fun WavyLyricsColumn(
     modifier: Modifier = Modifier,
     userScrollEnabled: Boolean = true,
     renderActive: Boolean = true,
+    animationsEnabled: Boolean = true,
     itemKey: (Int) -> Any = { it },
     rowSpringParams: (Int) -> WavySpringParams,
     content: @Composable (Int) -> Unit
 ) {
     SideEffect { state.updateItemCount(itemCount) }
     val motion = remember(state) { NativeLyricScrollMotion() }
-    LaunchedEffect(motion, state.waveGeneration, renderActive) {
-        if (!renderActive) {
+    LaunchedEffect(motion, state.waveGeneration, renderActive, animationsEnabled) {
+        if (!renderActive || !animationsEnabled) {
             motion.settle(state.waveCumulativeTravelPx, state.waveResetGeneration, state.waveAnchorIndex)
             return@LaunchedEffect
         }
@@ -307,11 +378,11 @@ internal fun WavyLyricsColumn(
 
     // Fractional motion invalidates drawing each frame, but should only
     // invalidate measurement when virtualization actually needs different rows.
-    val requestedIndexes = remember(state, motion, itemCount) {
+    val requestedIndexes = remember(state, motion, itemCount, animationsEnabled) {
         derivedStateOf(structuralEqualityPolicy()) {
             buildSet {
                 addAll(state.visibleIndexes(OVERSCAN_PX))
-                motion.visibleDisplacements(state.waveCumulativeTravelPx, state.waveResetGeneration).forEach { displacement ->
+                if (animationsEnabled) motion.visibleDisplacements(state.waveCumulativeTravelPx, state.waveResetGeneration).forEach { displacement ->
                     addAll(state.visibleIndexes(OVERSCAN_PX,
                         state.scrollOffsetPx - state.boundedDisplacement(displacement)))
                 }
@@ -344,6 +415,7 @@ internal fun WavyLyricsColumn(
                     stableKey = itemKeys[index],
                     state = state,
                     motion = motion,
+                    animationsEnabled = animationsEnabled,
                     springParams = rowSpringParams(index),
                     content = content
                 )
@@ -371,6 +443,7 @@ private fun WavyLyricsRow(
     stableKey: Any,
     state: WavyLyricsColumnState,
     motion: NativeLyricScrollMotion,
+    animationsEnabled: Boolean,
     springParams: WavySpringParams,
     content: @Composable (Int) -> Unit
 ) {
@@ -382,8 +455,8 @@ private fun WavyLyricsRow(
     Box(
         modifier = Modifier
             .graphicsLayer {
-                translationY = state.boundedDisplacement(motion.displacement(stableKey,
-                    state.waveCumulativeTravelPx, state.waveResetGeneration, index, springParams))
+                translationY = if (animationsEnabled) state.boundedDisplacement(motion.displacement(stableKey,
+                    state.waveCumulativeTravelPx, state.waveResetGeneration, index, springParams)) else 0f
             }
     ) {
         content(index)

@@ -63,7 +63,8 @@ fun YosLyricView(
     interactionEnabled: Boolean = true,
     renderActive: Boolean = true,
     onLineLongPress: (Int) -> Unit = {},
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    seekPreviewState: LyricSeekPreviewState? = null
 ) {
     val canInteract = interactionEnabled && renderActive
     val interactionAllowed = androidx.compose.runtime.rememberUpdatedState(canInteract)
@@ -74,6 +75,7 @@ fun YosLyricView(
     val followTargets = remember(document) {
         document.withIndex().groupBy { it.value.sourceIndex }.mapValues { it.value.first().index }
     }
+    val seekTimeline = remember(entries, followTargets) { LyricSeekTimeline(entries, followTargets) }
     val context = LocalContext.current
     val mainColor = Color(uiConfig.mainTextBasicColor)
     val subColor = Color(uiConfig.subTextBasicColor)
@@ -107,10 +109,17 @@ fun YosLyricView(
     val framePosition = remember(lyricState.trackKey) {
         mutableFloatStateOf(lyricState.effectivePositionMs.toFloat())
     }
+    val visualPosition = remember(lyricState.trackKey) {
+        mutableFloatStateOf(lyricState.effectivePositionMs.toFloat())
+    }
     val clock = remember(lyricState.trackKey, lyricState.generation) {
         NativeLyricClock(lyricState.effectivePositionMs.toFloat())
     }
     val seekRevision = remember(lyricState.trackKey) { mutableIntStateOf(0) }
+    val previewStateRef = androidx.compose.runtime.rememberUpdatedState(seekPreviewState)
+    val isSeekPreview by remember(seekPreviewState) {
+        derivedStateOf { seekPreviewState?.positionMs != null }
+    }
     val seekToLyric: (Float) -> Unit = seek@{ startMs ->
         if (!interactionAllowed.value) return@seek
         val target = startMs.toInt()
@@ -126,18 +135,35 @@ fun YosLyricView(
         }
         clock.seek(presentationTime, now)
         framePosition.floatValue = clock.positionMs
+        visualPosition.floatValue = clock.visualPositionMs
         LyricsController.updatePosition(lyricState.trackKey, startMs)
         mediaEvent.onSeek(target)
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner, lyricState.trackKey, lyricState.generation, renderActive) {
+    LaunchedEffect(lifecycleOwner, lyricState.trackKey, lyricState.generation, columnState, renderActive) {
         if (!renderActive) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             clock.restartFrames()
             var nextSampleAt = 0L
+            var lastCommit = previewStateRef.value?.committedSeek
+            var wasSeekPreview = false
             while (isActive) {
                 withFrameMillis { frameTime ->
                     val controller = MediaController.mediaControl
+                    val preview = previewStateRef.value
+                    val commit = preview?.committedSeek
+                    if (commit != null && commit != lastCommit) {
+                        lastCommit = commit
+                        clock.seek(commit.positionMs + effectiveLyricTimingOffsetMs(), frameTime)
+                        seekRevision.intValue++
+                        columnState.resumeFollowing()
+                    }
+                    val previewPosition = preview?.positionMs?.plus(effectiveLyricTimingOffsetMs())
+                    if (previewPosition != null && !wasSeekPreview) {
+                        seekRevision.intValue++
+                        columnState.resumeFollowing()
+                    }
+                    wasSeekPreview = previewPosition != null
                     // Player position is sampled at 12.5 Hz. The frame clock interpolates
                     // presentation time; it does not query the player 120 times per second.
                     val report = if (frameTime >= nextSampleAt) {
@@ -145,14 +171,24 @@ fun YosLyricView(
                         (controller?.currentPosition?.toFloat() ?: liveTimeLambda().toFloat()) +
                             effectiveLyricTimingOffsetMs()
                     } else null
-                    val position = clock.frame(frameTime, controller?.isPlaying == true,
+                    val livePosition = clock.frame(frameTime, controller?.isPlaying == true,
                         controller?.playbackParameters?.speed ?: 1f, report)
-                    if (pressedRows.isEmpty() && abs(position - framePosition.floatValue) > SEEK_BACKWARD_JITTER_MS) {
+                    // Preview is sampled every display frame, without player polling,
+                    // report jitter filtering or resume smoothing delaying the finger.
+                    val position = previewPosition ?: livePosition
+                    if (previewPosition != null) {
+                        seekTimeline.resolve(previewPosition)?.let(columnState::previewAt)
+                    } else if (columnState.isSeekScrollActive) {
+                        followTargets[lyricVisualFollowIndex(entries, position).coerceAtLeast(0)]?.let {
+                            columnState.settleSeekPreviewTo(it, frameTime)
+                        }
+                    } else if (pressedRows.isEmpty() && abs(position - framePosition.floatValue) > SEEK_BACKWARD_JITTER_MS) {
                         followTargets[lyricVisualFollowIndex(entries, position)]?.let {
                             columnState.jumpTo(it, animateRows = columnState.waveAnchorIndex >= 0)
                         }
                     }
                     framePosition.floatValue = position
+                    visualPosition.floatValue = previewPosition ?: clock.visualPositionMs
                 }
             }
         }
@@ -176,6 +212,8 @@ fun YosLyricView(
         columnState.isUserScrolling,
         columnState.isPreviewing,
         holdingLyric,
+        isSeekPreview,
+        columnState.isSeekScrollActive,
         showTranslation,
         fontFamily,
         SettingsLibrary.LyricFontSize,
@@ -185,13 +223,12 @@ fun YosLyricView(
         SettingsLibrary.LyricLineBalance
     ) {
         if (!renderActive || columnState.viewportHeightPx == 0 ||
-            columnState.isUserScrolling || columnState.isPreviewing || holdingLyric) return@LaunchedEffect
+            columnState.isUserScrolling || columnState.isPreviewing || holdingLyric ||
+            isSeekPreview || columnState.isSeekScrollActive) return@LaunchedEffect
         // One transition, directly to the requested line. Measurement corrections
         // are handled by the column, without delayed jumps or a next-line detour.
-        columnState.followTo(
-            followTargets[followIndex.coerceAtLeast(0)] ?: return@LaunchedEffect,
-            animateRows = columnState.waveAnchorIndex >= 0
-        )
+        val target = followTargets[followIndex.coerceAtLeast(0)] ?: return@LaunchedEffect
+        columnState.followTo(target, animateRows = columnState.waveAnchorIndex >= 0)
     }
 
     // A new document arrives gently; playback frames never restart this entrance.
@@ -208,6 +245,7 @@ fun YosLyricView(
         state = columnState,
         userScrollEnabled = userScrollEnabled && canInteract,
         renderActive = renderActive,
+        animationsEnabled = !isSeekPreview && !columnState.isSeekScrollActive,
         itemKey = { index ->
             val line = document[index].line
             "${lyricState.trackKey}|$index|${line.agent}|${line.startMs}|${line.endMs}|${line.text}"
@@ -230,7 +268,8 @@ fun YosLyricView(
         val line = row.line
         val nextLine = entries.getOrNull(row.sourceIndex + 1)
         val nextStart = nextLine?.startMs
-        val active = row.sourceIndex in lyricState.activeLineIndexes || row.sourceIndex == followIndex
+        val active = row.sourceIndex == followIndex ||
+            (!isSeekPreview && row.sourceIndex in lyricState.activeLineIndexes)
         val lineState = when {
             active -> LineState.Active
             row.sourceIndex < followIndex -> LineState.Past
@@ -241,7 +280,7 @@ fun YosLyricView(
             nextStart ?: (line.startMs + LAST_LINE_DURATION_MS),
             line.startMs + 1f
         )
-        val browsing = columnState.isUserScrolling || columnState.isPreviewing || holdingLyric
+        val browsing = isSeekPreview || columnState.isUserScrolling || columnState.isPreviewing || holdingLyric
         val blur = if (browsing || !blurLambda() || !supportsBlur || active) 0f
         else (abs(row.sourceIndex - followIndex) * 2.5f).coerceAtMost(8f)
 
@@ -259,7 +298,9 @@ fun YosLyricView(
                     displayEnd = displayEnd,
                     blur = blur,
                     browsing = browsing,
-                    liveTime = { framePosition.floatValue },
+                    animationsEnabled = !isSeekPreview && !columnState.isSeekScrollActive,
+                    seekPreview = isSeekPreview,
+                    liveTime = { visualPosition.floatValue },
                     showTranslation = showTranslation,
                     mainColor = mainColor,
                     subColor = subColor,
@@ -292,7 +333,9 @@ fun YosLyricView(
                         displayEnd = maxOf(background.endMs, displayEnd),
                         blur = blur,
                         browsing = browsing,
-                        liveTime = { framePosition.floatValue },
+                        animationsEnabled = !isSeekPreview && !columnState.isSeekScrollActive,
+                        seekPreview = isSeekPreview,
+                        liveTime = { visualPosition.floatValue },
                         showTranslation = showTranslation,
                         mainColor = mainColor,
                         subColor = subColor,
@@ -325,6 +368,8 @@ private fun RenderNativeLyricRow(
     displayEnd: Float,
     blur: Float,
     browsing: Boolean,
+    animationsEnabled: Boolean,
+    seekPreview: Boolean,
     liveTime: () -> Float,
     showTranslation: Boolean,
     mainColor: Color,
@@ -364,6 +409,8 @@ private fun RenderNativeLyricRow(
     NativeLyricRow(
         line = line, tokens = displayTokens, staticText = staticText,
         active = active, focused = focused, past = lineState == LineState.Past, seekRevision = seekRevision, blur = if (browsing) 0f else committedBlur, nextStart = nextStart, nextIsCountdown = nextIsCountdown,
+        animationsEnabled = animationsEnabled,
+        seekPreview = seekPreview,
         time = { rowTime.value }, showTranslation = showTranslation,
         mainColor = mainColor, subColor = subColor, measurer = measurer,
         fontFamily = fontFamily, onClick = onClick, onLongClick = onLongClick, interactionEnabled = interactionEnabled,

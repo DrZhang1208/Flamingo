@@ -13,22 +13,14 @@ import androidx.compose.ui.graphics.TransformOrigin
 import yos.music.player.ui.widgets.playerHeaderModifier
 import yos.music.player.ui.widgets.clipPlayerLyrics
 
-import android.Manifest
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothClass
-import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
 import android.widget.Toast
-import android.media.MediaRouter2
 import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.ui.draw.shadow
 import androidx.compose.animation.AnimatedContent
 import android.graphics.drawable.Drawable
@@ -71,7 +63,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
@@ -117,7 +108,6 @@ import androidx.compose.material.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.SliderPositions
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -140,9 +130,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.withFrameMillis
 import kotlinx.coroutines.isActive
 import yos.music.player.ui.widgets.PlaybackSeekTrack
-import yos.music.player.ui.widgets.drawPlaybackProgress
-import yos.music.player.ui.widgets.NativeLyricClock
-import yos.music.player.ui.widgets.SeekProgressPresentation
+import yos.music.player.ui.widgets.PlayerProgressState
+import yos.music.player.ui.widgets.VolumeSliderState
+import yos.music.player.ui.widgets.PlaybackVolumeTrack
 import yos.music.player.ui.widgets.SeekCancelArc
 import yos.music.player.ui.widgets.SeekCancelArcHitRegion
 import androidx.compose.ui.geometry.CornerRadius
@@ -180,7 +170,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastMap
-import androidx.core.app.ActivityCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.Player.REPEAT_MODE_ALL
@@ -204,12 +193,18 @@ import yos.music.player.code.MediaController.playingMusicList
 import yos.music.player.code.MediaController.shuffleEnabled
 import yos.music.player.code.MediaController.toggleShuffle
 import yos.music.player.code.SystemMediaControlResolver
+import yos.music.player.ui.widgets.PlaybackOutputButton
+import yos.music.player.ui.widgets.PlaybackOutputDialog
+import yos.music.player.ui.widgets.rememberPlaybackAudioOutput
+import yos.music.player.code.PlaybackAudioOutput
 import yos.music.player.code.VolumeChangeReceiver
 import yos.music.player.code.YosPlaybackService
 import yos.music.player.code.utils.lrc.YosMediaEvent
 import yos.music.player.code.utils.lrc.YosLyricLine
 import yos.music.player.code.utils.lrc.YosUIConfig
 import yos.music.player.code.utils.lrc.LyricCardExporter
+import yos.music.player.ui.widgets.LyricTranslationButton
+import yos.music.player.ui.widgets.LyricSeekPreviewState
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.code.utils.player.FadeExo.fadePause
 import yos.music.player.code.utils.player.FadeExo.fadePlay
@@ -334,9 +329,20 @@ fun NowPlaying(
         val splitWindow = window.split
         val albumPage = nowPageLambda() == Album
         val context = LocalContext.current
+        val audioOutput = rememberPlaybackAudioOutput()
+        val outputResolver = remember(context) { SystemMediaControlResolver(context) }
+        val showOutputDialog = remember { mutableStateOf(false) }
         val seekCancelRegion = remember { SeekCancelArcHitRegion() }
         val seekDragging = remember(thisMusicPlaying.value?.uri) { mutableStateOf(false) }
         val seekInCancelArea = remember(thisMusicPlaying.value?.uri) { mutableStateOf(false) }
+        val lyricSeekPreview = remember(thisMusicPlaying.value?.uri) { LyricSeekPreviewState() }
+        val progressTrackKey = thisMusicPlaying.value?.uri?.toString()
+        val playerProgress = rememberSaveable(progressTrackKey,
+            key = "NowPlaying_progress_$progressTrackKey", saver = PlayerProgressState.Saver) {
+            val initial = MediaController.playbackProgress()
+            PlayerProgressState(initial.positionMs.toFloat(), initial.durationMs)
+        }
+        val translationVisible by SettingsLibrary.nowPlayingTranslationState
 
         val lyricState: MutableState<NowPlayingLyricState> =
             MediaViewModelObject.nowPlayingLyrics
@@ -471,8 +477,10 @@ fun NowPlaying(
             val lyricRenderActive = remember {
                 derivedStateOf { !showLyricShare.value && (nowPageLambda() == Lyric || alphaAnim.value > 0f) }
             }
-            val translationButtonEnabled = remember("NowPlaying_translationButtonEnabled") {
-                derivedStateOf { showControl.value && alphaAnim.value != 0f }
+            val hasTranslation = remember(lyricState.value.entries) {
+                lyricState.value.entries.any { line ->
+                    line.translation.isNotBlank() || line.otherLrcEntries.any { it.translation.isNotBlank() }
+                }
             }
 
 
@@ -507,7 +515,8 @@ fun NowPlaying(
                         onViewportInsetChanged = { lyricViewportInsetPx.intValue = it },
                         compactWindow = compactWindow,
                         splitWindow = splitWindow,
-                        translationLambda = { SettingsLibrary.NowPlayingTranslation },
+                        translationLambda = { translationVisible },
+                        seekPreviewState = lyricSeekPreview,
                           shouldRenderContent = lyricContentReady.value || nowPageLambda() == Lyric,
                         showMiniPlayer = showMiniPlayer,
                         userScrollEnabled = nowPageLambda() == NowPlayingPage.Lyric && !showMiniPlayer(),
@@ -782,7 +791,18 @@ fun NowPlaying(
                                         targetHeight = { (it / 1.4).toInt() })
                                 ) {
                                     PlayerControl(
+                                        progress = playerProgress,
+                                        audioOutput = audioOutput,
+                                        onOutputDeviceClick = {
+                                            lastClickTime.longValue = TimeUtils.getNowMills()
+                                            Vibrator.click(context)
+                                            if (!outputResolver.intentSystemMediaDialog()) {
+                                                audioOutput.refresh()
+                                                showOutputDialog.value = true
+                                            }
+                                        },
                                         compactWindow = compactWindow,
+                                        seekPreviewState = lyricSeekPreview,
                                         cancelAreaContains = seekCancelRegion::contains,
                                         onSeekGestureChange = { dragging, cancelled ->
                                             seekDragging.value = dragging
@@ -847,22 +867,34 @@ fun NowPlaying(
                         // The APK places MSS as a sibling overlay of the whole
                         // control panel. Its expansion therefore grows upward
                         // without participating in PlayerControl measurement.
-                        if (!compactWindow && showControl.value && nowPageLambda() == Lyric) {
-                            val vocalBottomOffset =
-                                if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
-                            VocalSeparationControl(
-                                context = context,
-                                onSlider = {
-                                    showControl.value = true
-                                    lastClickTime.longValue = TimeUtils.getNowMills()
-                                },
+                        if (showControl.value && nowPageLambda() == Lyric) {
+                            val vocalBottomOffset = if (compactWindow) {
+                                if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 157.5.dp
+                            } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
+                            Row(verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = with(this@playerOverlayBox) {
                                     Modifier.align(Alignment.BottomEnd)
                                 }.offset(
                                     x = -rememberAdaptive(25),
                                     y = -vocalBottomOffset
                                 )
-                            )
+                            ) {
+                                if (hasTranslation) {
+                                    LyricTranslationButton(translationVisible, {
+                                        SettingsLibrary.NowPlayingTranslation = it
+                                        Vibrator.click(context)
+                                        lastClickTime.longValue = TimeUtils.getNowMills()
+                                    })
+                                }
+                                if (!compactWindow) VocalSeparationControl(
+                                    context = context,
+                                    onSlider = {
+                                        showControl.value = true
+                                        lastClickTime.longValue = TimeUtils.getNowMills()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -873,6 +905,10 @@ fun NowPlaying(
         SeekCancelArc(visible = seekDragging.value, cancelled = seekInCancelArea.value,
             compact = compactWindow, region = seekCancelRegion,
             modifier = Modifier.align(Alignment.BottomCenter))
+
+        if (showOutputDialog.value) {
+            PlaybackOutputDialog(audioOutput.devices, onDismiss = { showOutputDialog.value = false })
+        }
 
         // 封面页多歌手选择
         if (showArtistPickerFromAlbum.value && thisMusicPlaying.value != null) {
@@ -921,6 +957,7 @@ fun NowPlaying(
                 entries = lyricState.value.entries,
                 initialIndex = lyricShareInitialIndex.intValue,
                 music = thisMusicPlaying.value,
+                backgroundArtworkUri = backgroundState.value.artworkUri,
                 onDismiss = { showLyricShare.value = false }
             )
         }
@@ -1318,6 +1355,7 @@ private fun Lyric(
     compactWindow: Boolean = false,
     splitWindow: Boolean = false,
     translationLambda: () -> Boolean,
+    seekPreviewState: LyricSeekPreviewState,
     shouldRenderContent: Boolean,
     mainViewModel: MainViewModel,
     mediaViewModel: MediaViewModel,
@@ -1361,6 +1399,7 @@ private fun Lyric(
                           }
                       },
                       translationLambda = translationLambda,
+                      seekPreviewState = seekPreviewState,
                       blurLambda = {
                           SettingsLibrary.LyricBlurEffect
                       },
@@ -1387,6 +1426,7 @@ private fun LyricShareSheet(
     entries: List<YosLyricLine>,
     initialIndex: Int,
     music: YosMediaItem?,
+    backgroundArtworkUri: Uri?,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1415,7 +1455,8 @@ private fun LyricShareSheet(
             title = music?.title,
             artist = music?.artists,
             artworkUri = music?.thumb,
-            includeTranslation = SettingsLibrary.NowPlayingTranslation
+            includeTranslation = SettingsLibrary.NowPlayingTranslation,
+            backgroundArtworkUri = backgroundArtworkUri
         )
     }
 
@@ -1871,145 +1912,15 @@ private fun PlayingBar(
 
 }
 
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-fun RowScope.AirPlay(compactWindow: Boolean = false) {
-    val contextCompose = LocalContext.current
-    val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
-    val connectedDevices =
-        remember("AirPlay_connectedDevices") { mutableStateOf<List<BluetoothDevice>>(emptyList()) }
-    val audioDeviceName = remember("AirPlay_audioDeviceName") { mutableStateOf("") }
-    val showName = remember("AirPlay_showName") { mutableStateOf(false) }
-
-    YosWrapper {
-        DisposableEffect(Unit) {
-            val filter = IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED).apply {
-                addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-                addAction("yos.music.player.BLUETOOTH_STATUS_REFRESH")
-            }
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
-                    val action = intent?.action
-                    if (action == BluetoothDevice.ACTION_ACL_CONNECTED || action == BluetoothDevice.ACTION_ACL_DISCONNECTED || action == "yos.music.player.BLUETOOTH_STATUS_REFRESH") {
-                        if (ActivityCompat.checkSelfPermission(
-                                contextCompose,
-                                Manifest.permission.BLUETOOTH_CONNECT
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            return
-                        }
-                        connectedDevices.value =
-                            bluetoothAdapter?.bondedDevices?.toList() ?: emptyList()
-
-                        val thisName =
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                connectedDevices.value.firstOrNull { it.bluetoothClass.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO && it.isConnected() }?.alias
-                            } else {
-                                connectedDevices.value.firstOrNull { it.bluetoothClass.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO && it.isConnected() }?.name
-                            }
-                        showName.value = thisName != null
-                        if (thisName != null) {
-                            audioDeviceName.value = thisName.trim()
-                        }
-                    }
-                }
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                contextCompose.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                contextCompose.registerReceiver(receiver, filter)
-            }
-
-            if (ActivityCompat.checkSelfPermission(
-                    contextCompose,
-                    Manifest.permission.BLUETOOTH_CONNECT
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                connectedDevices.value = bluetoothAdapter?.bondedDevices?.toList() ?: emptyList()
-                val thisName =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        connectedDevices.value.firstOrNull { it.bluetoothClass.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO && it.isConnected() }?.alias
-                    } else {
-                        connectedDevices.value.firstOrNull { it.bluetoothClass.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO && it.isConnected() }?.name
-                    }
-                showName.value = thisName != null
-                if (thisName != null) {
-                    audioDeviceName.value = thisName.trim()
-                }
-            }
-
-            onDispose {
-                runCatching {
-                    contextCompose.unregisterReceiver(receiver)
-                }
-            }
-        }
-    }
-
-    YosWrapper {
-        Column(
-            modifier = Modifier
-                .then(if (compactWindow) Modifier.height(36.dp) else
-                    Modifier.heightIn(min = 53.dp).navigationBarsHeight(48.dp))
-                .weight(1f),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(modifier = Modifier.height(36.dp), contentAlignment = Alignment.Center) {
-                AnimatedContent(targetState = showName.value, transitionSpec = {
-                    (scaleIn(initialScale = 0.3f) + fadeIn()).togetherWith(
-                        scaleOut(
-                            targetScale = 0.3f
-                        ) + fadeOut()
-                    )
-                }, contentAlignment = Alignment.Center) {
-                    if (it) {
-                        Icon(
-                            painterResource(id = R.drawable.ic_earphone),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(27.dp)
-                        )
-                    } else {
-                        Icon(
-                            painterResource(id = R.drawable.ic_nowplaying_airplay),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(21.5.dp)
-                        )
-                    }
-                }
-            }
-
-            AnimatedVisibility(showName.value && !compactWindow, enter = scaleIn(initialScale = 0.3f) + fadeIn(), exit = scaleOut(
-                targetScale = 0.3f
-            ) + fadeOut()) {
-                Text(
-                    text = audioDeviceName.value,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 11.sp,
-                    lineHeight = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-private fun BluetoothDevice.isConnected(): Boolean {
-    return runCatching {
-        val isConnectedMethod =
-            BluetoothDevice::class.java.getMethod("isConnected")
-        isConnectedMethod.isAccessible = true
-        isConnectedMethod.invoke(this) as Boolean
-    }.getOrDefault(false)
-}
-
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayerControl(
+    progress: PlayerProgressState,
+    audioOutput: PlaybackAudioOutput,
+    onOutputDeviceClick: () -> Unit,
     compactWindow: Boolean = false,
+    seekPreviewState: LyricSeekPreviewState,
     cancelAreaContains: (Offset) -> Boolean,
     onSeekGestureChange: (Boolean, Boolean) -> Unit,
     renderActive: Boolean,
@@ -2027,19 +1938,15 @@ private fun PlayerControl(
     modifier: Modifier
 ) {
     val trackKey = musicPlaying.value?.uri?.toString()
-    val restoredStatus = MediaController.restoredPlayStatus.value
-    val initialProgress = remember(trackKey, restoredStatus) { MediaController.playbackProgress() }
-    val playingDuration = remember(trackKey, restoredStatus) { mutableLongStateOf(initialProgress.durationMs) }
     val context = LocalContext.current
-    val playedTime = remember(trackKey, restoredStatus) { mutableStateOf(formatTime(initialProgress.positionMs / 1000L)) }
-    val remainingTime = remember(trackKey, restoredStatus) {
-        mutableStateOf("-${formatTime(((initialProgress.durationMs - initialProgress.positionMs) / 1000L).coerceAtLeast(0L))}")
+    val playedTime = remember(progress) { mutableStateOf(formatTime(progress.positionMs.toLong() / 1000L)) }
+    val remainingTime = remember(progress) {
+        mutableStateOf("-${formatTime(((progress.durationMs - progress.positionMs.toLong()) / 1000L).coerceAtLeast(0L))}")
     }
-    val sliderPosition = remember(trackKey, restoredStatus) { mutableFloatStateOf(initialProgress.positionMs.toFloat()) }
-    val isSliding = remember(trackKey) { mutableStateOf(false) }
-    val seekPresentation = remember(trackKey, restoredStatus) { SeekProgressPresentation(initialProgress.positionMs.toFloat()) }
-    val progressClock = remember(trackKey, restoredStatus) { NativeLyricClock(initialProgress.positionMs.toFloat()) }
     val onWhileRef = rememberUpdatedState(onWhile)
+    DisposableEffect(seekPreviewState) {
+        onDispose { seekPreviewState.update(null) }
+    }
 
     YosWrapper {
         Box(
@@ -2056,13 +1963,12 @@ private fun PlayerControl(
                 // 启动作用
                 YosWrapper {
                     val lifecycleOwner = LocalLifecycleOwner.current
-                    LaunchedEffect(lifecycleOwner, renderActive, trackKey, restoredStatus) {
+                    LaunchedEffect(lifecycleOwner, renderActive, trackKey, progress) {
                         if (!renderActive) return@LaunchedEffect
                         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                            progressClock.restartFrames()
+                            progress.restartFrames()
                             var nextSampleAt = 0L
                             var nextControlsAt = 0L
-                            var trackId = mediaControl?.currentMediaItem?.mediaId
                             var lastSeconds = -1L
                             var lastDuration = -1L
                             while (isActive) {
@@ -2071,29 +1977,22 @@ private fun PlayerControl(
                                 if (frame >= nextSampleAt) {
                                     nextSampleAt = frame + 80L
                                     val sample = MediaController.playbackProgress()
-                                    playingDuration.longValue = sample.durationMs
+                                    progress.durationMs = sample.durationMs
                                     report = sample.positionMs.toFloat()
-                                    val currentTrack = mediaControl?.currentMediaItem?.mediaId
-                                    if (trackId != currentTrack) {
-                                        trackId = currentTrack
-                                        progressClock.seek(report, frame)
-                                    }
                                 }
-                                // The playback clock stays live while the separate preview follows the finger.
-                                val livePosition = progressClock.frame(frame,
-                                    mediaControl?.isPlaying == true,
+                                // Preserve the actual clock while automatic reports animate from
+                                // the last visible progress, including after controls are recreated.
+                                progress.frame(frame, mediaControl?.isPlaying == true,
                                     mediaControl?.playbackParameters?.speed ?: 1f, report)
-                                    .let { position ->
-                                        if (playingDuration.longValue > 0L) position.coerceIn(0f, playingDuration.longValue.toFloat())
-                                        else position.coerceAtLeast(0f)
-                                    }
-                                sliderPosition.floatValue = seekPresentation.frame(frame, livePosition)
-                                val seconds = sliderPosition.floatValue.toLong() / 1000L
-                                if (seconds != lastSeconds || playingDuration.longValue != lastDuration) {
+                                seekPreviewState.update(progress.positionMs.takeIf {
+                                    progress.dragging || progress.isSeekTransitioning
+                                })
+                                val seconds = progress.positionMs.toLong() / 1000L
+                                if (seconds != lastSeconds || progress.durationMs != lastDuration) {
                                     playedTime.value = formatTime(seconds)
-                                    remainingTime.value = "-${formatTime((playingDuration.longValue / 1000L - seconds).coerceAtLeast(0L))}"
+                                    remainingTime.value = "-${formatTime((progress.durationMs / 1000L - seconds).coerceAtLeast(0L))}"
                                     lastSeconds = seconds
-                                    lastDuration = playingDuration.longValue
+                                    lastDuration = progress.durationMs
                                 }
                                 if (frame >= nextControlsAt) {
                                     nextControlsAt = frame + 700L
@@ -2108,32 +2007,32 @@ private fun PlayerControl(
                 YosWrapper {
                     PlaybackSeekTrack(
                         gestureKey = trackKey,
-                        position = { sliderPosition.floatValue },
-                        duration = { playingDuration.longValue },
-                        livePosition = { progressClock.positionMs },
-                        dragging = isSliding.value,
+                        position = { progress.positionMs },
+                        duration = { progress.durationMs },
+                        livePosition = { progress.livePositionMs },
+                        dragging = progress.dragging,
                         cancelAreaContains = cancelAreaContains,
                         onStart = {
-                            seekPresentation.begin()
-                            isSliding.value = true
+                            progress.begin()
+                            seekPreviewState.update(progress.positionMs)
                             onSeekGestureChange(true, false)
                             onSlider()
                         },
                         onPreview = { position, cancelled ->
-                            sliderPosition.floatValue = seekPresentation.preview(
-                                sliderPosition.floatValue, position, cancelled, android.os.SystemClock.uptimeMillis())
+                            progress.preview(position, cancelled, android.os.SystemClock.uptimeMillis())
+                            seekPreviewState.update(progress.positionMs)
                             onSeekGestureChange(true, cancelled)
                             onSlider()
                         },
                         onFinish = { position ->
                             val now = android.os.SystemClock.uptimeMillis()
-                            sliderPosition.floatValue = seekPresentation.finish(sliderPosition.floatValue, position, now)
+                            progress.finish(position, now)
                             if (position != null) {
+                                seekPreviewState.commit(position)
                                 Vibrator.longClick(context)
-                                progressClock.seek(position, now)
                                 onSeek(position)
                             }
-                            isSliding.value = false
+                            seekPreviewState.update(progress.positionMs.takeIf { progress.isSeekTransitioning })
                             onSeekGestureChange(false, false)
                             onSlider()
                         },
@@ -2309,7 +2208,9 @@ private fun PlayerControl(
 
                         Spacer(modifier = Modifier.weight(0.1f))
 
-                        AirPlay(compactWindow = compactWindow)
+                        PlaybackOutputButton(audioOutput.selectedName, audioOutput.externalOutput,
+                            onClick = onOutputDeviceClick, compactWindow = compactWindow,
+                            modifier = Modifier.weight(1f))
 
                         Spacer(modifier = Modifier.weight(0.1f))
 
@@ -2352,7 +2253,7 @@ private fun PlayerControl(
                 /*YosWrapper {
                     Spacer(modifier = Modifier.navigationBarsHeight(5.dp))
                 }*/
-                // 为显示设备名称，迁移到 AirPlay 底部处理
+                // 当前输出设备名称由底部设备按钮显示。
                 }
             }
         }
@@ -2360,7 +2261,7 @@ private fun PlayerControl(
 }
 
 @Composable
-private fun VocalSeparationControl(
+internal fun VocalSeparationControl(
     context: Context,
     onSlider: () -> Unit,
     modifier: Modifier = Modifier
@@ -2425,32 +2326,50 @@ private fun VocalSeparationControl(
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 200f),
         label = "MssControlScale"
     )
-    val controlElevation by animateDpAsState(
-        targetValue = if (pressed && !state.enabled) 24.dp else 0.dp,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 220f),
-        label = "MssControlElevation"
-    )
     val controlAlpha by animateFloatAsState(
         targetValue = if (state.available) 1f else 0f,
         animationSpec = spring(dampingRatio = 1f, stiffness = 405f),
         label = "MssControlVisibility"
     )
     val adjustmentRangePx = with(density) { 60.dp.toPx() }
-    val controlHeight = (34f + 60f * expansion.value).dp
-    val smoothShape = remember { YosRoundedCornerShape(roundSize = 9.dp) }
+    val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f)).dp
+    // The continuous corner reaches beyond its nominal radius. 8dp keeps
+    // adjacent curves apart even in the 34dp square before expansion.
+    val smoothShape = remember { YosRoundedCornerShape(roundSize = 8.dp) }
 
     Box(
         modifier = modifier
             .width(34.dp)
             .height(controlHeight)
+            .overlayEffect(outset = 48.dp)
             .graphicsLayer {
                 scaleX = controlScale
                 scaleY = controlScale
                 alpha = controlAlpha
+                transformOrigin = TransformOrigin(0.5f, 1f)
             }
-            .shadow(controlElevation, smoothShape, clip = false)
-            .clip(smoothShape)
-            .background(Color.White.copy(alpha = 0.10f))
+            .drawWithCache {
+                val outline = smoothShape.createOutline(size, layoutDirection, this)
+                // Cut the inverse path from the isolated additive layer. This
+                // antialiased mask never switches to a hardware round-rect
+                // outline while pressed, fading, expanding or collapsing.
+                val outside = androidx.compose.ui.graphics.Path().apply {
+                    fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+                    // The mask's outer edge must lie beyond the filled rectangle.
+                    // Coincident antialiased edges leave a rectangular hairline
+                    // at fractional screen positions / animated press scales.
+                    val maskOutset = 4.dp.toPx()
+                    addRect(androidx.compose.ui.geometry.Rect(-maskOutset, -maskOutset,
+                        size.width + maskOutset, size.height + maskOutset))
+                    if (outline is androidx.compose.ui.graphics.Outline.Generic) addPath(outline.path)
+                    else reset() // A zero-sized entrance frame has no visible corner to mask.
+                }
+                onDrawWithContent {
+                    drawRect(Color.White.copy(alpha = 0.10f))
+                    drawContent()
+                    drawPath(outside, Color.Transparent, blendMode = BlendMode.Clear)
+                }
+            }
             .pointerInput(state.available, state.enabled) {
                 if (!state.available || !state.enabled) return@pointerInput
                 var dragGain = selectedGainState.value
@@ -2497,13 +2416,14 @@ private fun VocalSeparationControl(
                 .drawWithContent {
                     drawContent()
                     // The same fill boundary clips a second tint of the icon:
-                    // white above the liquid, dark violet within the bright fill.
+                    // White above the liquid; black contributes no colour through
+                    // the parent's additive layer, revealing the page within it.
                     val fillTop = controlHeight.toPx() * (1f - liquidFraction.value.coerceIn(0f, 1f))
                     val iconTop = controlHeight.toPx() - 3.dp.toPx() - size.height
                     val localFillTop = (fillTop - iconTop).coerceIn(0f, size.height)
                     clipRect(top = localFillTop) {
                         drawRect(
-                            color = androidx.compose.ui.graphics.lerp(Color.White, Color(0xFF3C2455), liquidAlpha.value.coerceIn(0f, 1f)),
+                            color = androidx.compose.ui.graphics.lerp(Color.White, Color.Black, liquidAlpha.value.coerceIn(0f, 1f)),
                             blendMode = BlendMode.SrcIn
                         )
                     }
@@ -2515,23 +2435,17 @@ private fun VocalSeparationControl(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
-    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-    val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-    val sliderPosition =
-        remember("VolumeSlider_sliderPosition") { mutableFloatStateOf(currentVolume / maxVolume.toFloat()) }
-    val sliding = remember("VolumeSlider_sliding") {
-        mutableStateOf(false)
+    val volumeState = remember(audioManager, maxVolume) {
+        VolumeSliderState(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC), maxVolume)
     }
-
-    val volumeChangeReceiver = remember("VolumeSlider_volumeChangeReceiver") {
-        VolumeChangeReceiver { newVolume ->
-            sliderPosition.floatValue = newVolume / maxVolume.toFloat()
-        }
+    val volumeChangeReceiver = remember(volumeState) {
+        VolumeChangeReceiver { step -> volumeState.report(step, android.os.SystemClock.uptimeMillis()) }
     }
     val intentFilter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
 
-    DisposableEffect(Unit) {
+    DisposableEffect(context, volumeChangeReceiver) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(
                 volumeChangeReceiver,
@@ -2561,64 +2475,14 @@ private fun VolumeSlider(context: Context, onSlider: () -> Unit) {
             modifier = Modifier.size(20.dp)
         )
 
-        YosWrapper {
-            val trackHeight = animateDpAsState(
-                targetValue = if (sliding.value) 10.dp else 7.dp,
-                animationSpec = tween(150)
-            )
-            val trackWidthPx = remember { mutableFloatStateOf(300f) }
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 1.5.dp, end = 5.dp)
-                    .height(14.dp)
-                    .onSizeChanged { trackWidthPx.floatValue = it.width.toFloat() }
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragStart = {
-                                sliding.value = true
-                            },
-                            onDragEnd = {
-                                val targetStep = ((sliderPosition.floatValue * maxVolume) + 0.5f).toInt().coerceIn(0, maxVolume)
-                                val snapped = targetStep.toFloat() / maxVolume
-                                sliderPosition.floatValue = snapped
-                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetStep, 0)
-                                Vibrator.longClick(context)
-                                sliding.value = false
-                            },
-                            onDragCancel = {
-                                sliding.value = false
-                            },
-                            onHorizontalDrag = { change, dragAmount ->
-                                change.consume()
-                                if (maxVolume <= 0) return@detectHorizontalDragGestures
-                                val rawDelta = dragAmount / trackWidthPx.floatValue.coerceAtLeast(100f)
-                                val rawVolume = (sliderPosition.floatValue + rawDelta).coerceIn(0f, 1f)
-                                sliderPosition.floatValue = rawVolume
-                                val step = ((rawVolume * maxVolume) + 0.5f).toInt().coerceIn(0, maxVolume)
-                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, step, 0)
-                                onSlider()
-                            }
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                val animatedProgress = if (sliding.value) {
-                    sliderPosition.floatValue
-                } else {
-                    animateFloatAsState(
-                        targetValue = sliderPosition.floatValue,
-                        animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
-                        visibilityThreshold = 0.0001f
-                    ).value
-                }
-
-                Canvas(Modifier.fillMaxWidth().height(trackHeight.value)) {
-                    drawPlaybackProgress(animatedProgress)
-                }
-            }
-        }
+        PlaybackVolumeTrack(
+            state = volumeState,
+            readSystemStep = { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) },
+            onStepChange = { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, it, 0) },
+            onInteraction = onSlider,
+            onRelease = { Vibrator.longClick(context) },
+            modifier = Modifier.weight(1f).padding(start = 1.5.dp, end = 5.dp)
+        )
         Icon(
             painter = painterResource(id = R.drawable.ic_nowplaying_volume_full),
             contentDescription = "Max Volume",

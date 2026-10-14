@@ -2,13 +2,14 @@ package yos.music.player.logic.mss
 
 import android.content.Context
 import android.content.res.AssetManager
+import android.util.Log
 import androidx.annotation.Keep
 import java.nio.ByteBuffer
 
 /** JNI surface used by the MSS engine bundled with the same-source APK. */
 @Keep
 class MssNativeBridge(context: Context, useGpu: Boolean) : AutoCloseable {
-    private var handle: Long = nativeCreate(context.assets, useGpu)
+    private var handle: Long = nativeCreate(context.assets, useGpu && gpuRuntimeLoaded)
 
     val isCreated: Boolean get() = handle != 0L
     val status: Int get() = if (handle == 0L) STATUS_RELEASED else nativeGetStatus(handle)
@@ -72,8 +73,23 @@ class MssNativeBridge(context: Context, useGpu: Boolean) : AutoCloseable {
         const val GPU_ACTIVE = 1
         const val GPU_UNAVAILABLE = 2
 
+        // Keep a class-loader-owned reference to both runtimes. The engine's dlclose
+        // on reset must not unload their process-lifetime TLS state: repeated loads
+        // consume pthread keys until LiteRT's emutls initialization calls abort().
+        // GPU loading remains optional, so devices without it can still use CPU.
+        private val gpuRuntimeLoaded: Boolean by lazy {
+            try {
+                System.loadLibrary("LiteRtClGlAccelerator")
+                true
+            } catch (error: UnsatisfiedLinkError) {
+                Log.w("MssNativeBridge", "Unable to load MSS GPU runtime; using CPU", error)
+                false
+            }
+        }
+
         init {
             System.loadLibrary("mss_engine")
+            System.loadLibrary("LiteRt")
         }
     }
 }

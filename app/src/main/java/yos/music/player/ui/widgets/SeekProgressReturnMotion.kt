@@ -28,6 +28,7 @@ internal class SeekProgressReturnMotion {
 /** Keeps the tentative seek separate from both the live clock and displayed progress. */
 internal class SeekProgressPresentation(initialLiveMs: Float) {
     private val motion = SeekProgressReturnMotion()
+    val isTransitioning: Boolean get() = motion.active
     private var liveMs = initialLiveMs
     private var previewMs = initialLiveMs
     private var dragging = false

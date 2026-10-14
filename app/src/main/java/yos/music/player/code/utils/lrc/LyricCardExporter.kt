@@ -6,11 +6,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -28,6 +26,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import yos.music.player.ui.theme.YosRoundedCornerShape
+import yos.music.player.ui.widgets.effects.prepareFlowTexture
 import java.io.File
 
 /** Produces the PNG lyric cards shared by the APK instead of exporting raw text. */
@@ -48,17 +47,23 @@ object LyricCardExporter {
         title: String?,
         artist: String?,
         artworkUri: Uri?,
-        includeTranslation: Boolean
+        includeTranslation: Boolean,
+        backgroundArtworkUri: Uri? = artworkUri
     ): Bitmap {
         val cover = loadArtwork(context, artworkUri)
+        val backgroundSource = if (backgroundArtworkUri == artworkUri) cover
+            else loadArtwork(context, backgroundArtworkUri)
+        val palette = artworkPalette(backgroundSource)
         val cardWidth = CARD_WIDTH - OUTER_MARGIN * 2
         val textWidth = cardWidth - CARD_PADDING * 2
         val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFFFF9E9.toInt()
+            color = palette.textColor
             textSize = 48f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
         }
-        val translationPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xB3FFF9E9.toInt(); textSize = 29f }
+        val translationPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = palette.translationColor; textSize = 29f
+        }
         fun measureLines() = lines.map { line ->
             layout(line.text, lyricPaint, textWidth) to
                 line.translation.takeIf { includeTranslation && it.isNotBlank() }
@@ -86,19 +91,9 @@ object LyricCardExporter {
         bitmap.eraseColor(Color.TRANSPARENT)
         val card = RectF(OUTER_MARGIN.toFloat(), OUTER_VERTICAL.toFloat(),
             (CARD_WIDTH - OUTER_MARGIN).toFloat(), (height - OUTER_VERTICAL).toFloat())
-        val hue = artworkHue(cover)
-        fun tone(saturation: Float, value: Float) = Color.HSVToColor(floatArrayOf(hue, saturation, value))
         canvas.save()
         canvas.clipPath(smoothCardPath(card, 52f))
-        paint.shader = LinearGradient(card.left, card.top, card.right, card.bottom,
-            intArrayOf(tone(0.78f, 0.17f), tone(0.83f, 0.31f), tone(0.8f, 0.19f)), null, Shader.TileMode.CLAMP)
-        canvas.drawRect(card, paint)
-        paint.shader = android.graphics.RadialGradient(card.left + cardWidth * 0.25f,
-            card.top + bodyHeight * 0.75f, cardWidth * 0.85f,
-            intArrayOf(Color.HSVToColor(190, floatArrayOf(hue, 0.85f, 0.52f)), Color.TRANSPARENT),
-            null, Shader.TileMode.CLAMP)
-        canvas.drawRect(card, paint)
-        paint.shader = null
+        drawArtworkBackground(canvas, card, palette, paint)
         val left = card.left + CARD_PADDING
         var y = card.top + 80f
         for ((main, translation) in layouts) {
@@ -112,7 +107,7 @@ object LyricCardExporter {
             y += 30f
         }
         val footerTop = card.top + bodyHeight
-        paint.color = 0x42000000
+        paint.color = if (palette.usesDarkText) 0x18FFFFFF else 0x42000000
         canvas.drawRect(card.left, footerTop, card.right, card.bottom, paint)
         val coverRect = RectF(card.right - CARD_PADDING - COVER_SIZE, footerTop + 48f,
             card.right - CARD_PADDING, footerTop + 48f + COVER_SIZE)
@@ -134,7 +129,9 @@ object LyricCardExporter {
             color = lyricPaint.color; textSize = 32f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
         }
-        val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99FFF9E9.toInt(); textSize = 28f }
+        val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = palette.secondaryColor; textSize = 28f
+        }
         fun info(text: String, textPaint: TextPaint, top: Float, inset: Int = 0) {
             val line = StaticLayout.Builder.obtain(text, 0, text.length, textPaint, infoWidth - inset)
                 .setIncludePad(false).setMaxLines(1)
@@ -162,21 +159,23 @@ object LyricCardExporter {
         return Path(outline.path.asAndroidPath()).apply { offset(bounds.left, bounds.top) }
     }
 
-    private fun artworkHue(bitmap: Bitmap?): Float {
-        if (bitmap == null) return 30f
-        val weights = FloatArray(24)
-        val hues = FloatArray(24)
-        val hsv = FloatArray(3)
-        for (row in 0 until 20) for (column in 0 until 20) {
-            val pixel = bitmap.getPixel(column * bitmap.width / 20, row * bitmap.height / 20)
-            Color.colorToHSV(pixel, hsv)
-            val weight = hsv[1] * hsv[1] * hsv[2] * (Color.alpha(pixel) / 255f)
-            val bucket = (hsv[0] / 15f).toInt().coerceIn(0, 23)
-            weights[bucket] += weight
-            hues[bucket] += hsv[0] * weight
-        }
-        val strongest = weights.indices.maxByOrNull { weights[it] } ?: return 30f
-        return if (weights[strongest] > 0.1f) hues[strongest] / weights[strongest] else 30f
+    private fun artworkPalette(source: Bitmap?): LyricCardPalette {
+        if (source == null) return LyricCardBackground.palette(IntArray(4), 2, 2)
+        // Match the player's saturation and softened colours before averaging away
+        // image detail. The cached source artwork is never modified or recycled.
+        val texture = prepareFlowTexture(source)
+        return try {
+            val pixels = IntArray(texture.width * texture.height)
+            texture.getPixels(pixels, 0, texture.width, 0, 0, texture.width, texture.height)
+            LyricCardBackground.palette(pixels, texture.width, texture.height)
+        } finally { texture.recycle() }
+    }
+
+    private fun drawArtworkBackground(canvas: Canvas, card: RectF, palette: LyricCardPalette, paint: Paint) {
+        val texture = Bitmap.createBitmap(palette.corners, 2, 2, Bitmap.Config.ARGB_8888)
+        try {
+            canvas.drawBitmap(texture, null, card, paint)
+        } finally { texture.recycle() }
     }
 
     fun saveToPictures(context: Context, bitmap: Bitmap): Uri {

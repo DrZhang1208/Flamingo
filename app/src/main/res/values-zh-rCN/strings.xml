@@ -167,4 +167,10 @@
     <string name="library_sort_updated">更新时间</string>
     <string name="library_sort_tracks">曲目数量</string>
     <string name="library_sort_ascending">升序</string>
+    <string name="lyric_translation_show">显示翻译</string>
+    <string name="lyric_translation_hide">隐藏翻译</string>
+    <string name="playback_output_title">播放设备</string>
+    <string name="playback_output_empty">暂无可用的音频输出设备</string>
+    <string name="playback_output_unavailable">此设备当前不可用</string>
+    <string name="playback_output_selected">当前输出</string>
 </resources>

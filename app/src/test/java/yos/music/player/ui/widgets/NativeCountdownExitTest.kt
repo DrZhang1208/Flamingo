@@ -84,4 +84,24 @@ class NativeCountdownExitTest {
                 before, state.rowTop(target) - state.scrollOffsetPx + displacement, 0.001f)
         }
     }
+
+    @Test fun openingCountdownSeekRetainsRenderedMotionAfterTheSlotCollapses() {
+        val state = WavyLyricsColumnState(setOf(0)).apply {
+            updateItemCount(4); updateViewport(1000)
+            updateRowHeights(mapOf(0 to 64, 1 to 100, 2 to 100, 3 to 100))
+            jumpTo(0, false)
+        }
+        val before = state.rowTop(1) - state.scrollOffsetPx
+        val travel = state.waveCumulativeTravelPx
+        val reset = state.waveResetGeneration
+        state.jumpTo(1, true)
+        state.updateRowHeight(0, 0)
+        val raw = resolveWaveOffset(0f, travel, reset,
+            state.waveCumulativeTravelPx, state.waveResetGeneration)
+        assertEquals("The first-row bound must retain the removed countdown's visual space",
+            before, state.rowTop(1) - state.scrollOffsetPx + state.boundedDisplacement(raw), 0.001f)
+        // A finger taking over still gets the ordinary hard start boundary.
+        state.offsetRowBy(-100_000f)
+        assertEquals(0f, state.boundedDisplacement(raw), 0f)
+    }
 }

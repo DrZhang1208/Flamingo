@@ -156,12 +156,12 @@ object SettingsLibrary {
     /**
      * 歌词界面 - 翻译
      */
-    @Stable
-    var NowPlayingTranslation by mutableDataSaverStateOf(
+    val nowPlayingTranslationState = mutableDataSaverStateOf(
         dataSaverInterface = SettingsSaver,
         key = "now_playing_translation",
         initialValue = true
     )
+    var NowPlayingTranslation by nowPlayingTranslationState
 
     /**
      * 每次启动时刷新媒体库

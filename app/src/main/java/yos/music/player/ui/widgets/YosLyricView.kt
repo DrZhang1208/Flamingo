@@ -98,13 +98,27 @@ internal fun wavyRowDelayMs(index: Int, anchorIndex: Int): Long {
     return delayMs.toLong()
 }
 
+private data class CachedLyricFont(val path: String, val modified: Long, val length: Long, val family: FontFamily?)
+private var cachedLyricFont: CachedLyricFont? = null
+
 @Composable
 internal fun rememberLyricFontFamily(): FontFamily? {
     val path = SettingsLibrary.LyricCustomFontPath
     val enabled = SettingsLibrary.LyricCustomFontEnabled
     return remember(path, enabled) {
         if (!enabled || path.isBlank()) null
-        else runCatching { FontFamily(Typeface.createFromFile(File(path))) }.getOrNull()
+        else {
+            val file = File(path)
+            val modified = file.lastModified()
+            val length = file.length()
+            val cached = cachedLyricFont
+            if (cached != null && cached.path == path && cached.modified == modified && cached.length == length) cached.family
+            else runCatching { FontFamily(Typeface.createFromFile(file)) }.getOrNull().also {
+                // Keep only one custom face across player composition disposal;
+                // replacing the file at the same path still invalidates it.
+                cachedLyricFont = CachedLyricFont(path, modified, length, it)
+            }
+        }
     }
 }
 

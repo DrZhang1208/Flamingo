@@ -171,4 +171,10 @@
     <string name="library_sort_updated">Updated</string>
     <string name="library_sort_tracks">Track count</string>
     <string name="library_sort_ascending">Ascending</string>
+    <string name="lyric_translation_show">Show translation</string>
+    <string name="lyric_translation_hide">Hide translation</string>
+    <string name="playback_output_title">Playback device</string>
+    <string name="playback_output_empty">No audio output devices are available</string>
+    <string name="playback_output_unavailable">This device is no longer available</string>
+    <string name="playback_output_selected">Current output</string>
 </resources>

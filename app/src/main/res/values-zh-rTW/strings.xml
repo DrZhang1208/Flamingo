@@ -132,4 +132,10 @@
     <string name="library_sort_updated">更新時間</string>
     <string name="library_sort_tracks">曲目數量</string>
     <string name="library_sort_ascending">升序</string>
+    <string name="lyric_translation_show">顯示翻譯</string>
+    <string name="lyric_translation_hide">隱藏翻譯</string>
+    <string name="playback_output_title">播放裝置</string>
+    <string name="playback_output_empty">暫無可用的音訊輸出裝置</string>
+    <string name="playback_output_unavailable">此裝置目前無法使用</string>
+    <string name="playback_output_selected">目前輸出</string>
 </resources>

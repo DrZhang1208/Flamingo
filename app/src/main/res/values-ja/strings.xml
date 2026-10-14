@@ -159,4 +159,10 @@
     <string name="library_sort_updated">更新日時</string>
     <string name="library_sort_tracks">トラック数</string>
     <string name="library_sort_ascending">昇順</string>
+    <string name="lyric_translation_show">翻訳を表示</string>
+    <string name="lyric_translation_hide">翻訳を非表示</string>
+    <string name="playback_output_title">再生デバイス</string>
+    <string name="playback_output_empty">利用可能な音声出力デバイスがありません</string>
+    <string name="playback_output_unavailable">このデバイスは現在利用できません</string>
+    <string name="playback_output_selected">現在の出力</string>
 </resources>

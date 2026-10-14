@@ -7,8 +7,11 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.PorterDuff
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
+import android.util.LruCache
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -16,10 +19,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -31,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
+import coil.Coil
 import coil.request.ImageRequest
 import com.google.android.renderscript.Toolkit
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +43,7 @@ import yos.music.player.data.objects.NowPlayingBackgroundState
 /**
  * 播放页背景组件。
  * 静态模式：保留相同柔化色场与曝光，停止形变帧循环。
- * 动态模式：预柔化封面纹理 + AGSL 连续形变，不做逐帧大范围模糊。
+ * 动态模式：四层等比封面 + AGSL 扭曲 + GPU 模糊，最后调整曝光并消除色阶。
  */
 @Composable
 fun YosFloatingLight(
@@ -54,13 +56,15 @@ fun YosFloatingLight(
     val context = LocalContext.current
     val dynamicEnabled = NowplayingBackgroundEffect
 
-    val assetCache = remember { mutableStateMapOf<String, BackgroundAssets>() }
-    val settledFrame = remember { mutableStateOf(BackgroundRenderFrame.fallback(trackKey = null)) }
-    val imageLoader = remember { ImageLoader.Builder(context).crossfade(true).build() }
-
     val background = backgroundState()
     val trackKey = background.trackKey
     val requestKey = background.requestKey
+    val settledFrame = remember {
+        mutableStateOf(requestKey?.let { key -> backgroundAssetCache.get(key)?.let {
+            BackgroundRenderFrame.asset(trackKey, key, it)
+        } } ?: BackgroundRenderFrame.fallback(trackKey))
+    }
+    val imageLoader = remember(context.applicationContext) { Coil.imageLoader(context.applicationContext) }
 
     LaunchedEffect(trackKey, requestKey) {
         if (background.artworkUri == null || requestKey == null) {
@@ -68,7 +72,7 @@ fun YosFloatingLight(
             return@LaunchedEffect
         }
 
-        assetCache[requestKey]?.let { cached ->
+        backgroundAssetCache.get(requestKey)?.let { cached ->
             settledFrame.value = BackgroundRenderFrame.asset(trackKey, requestKey, cached)
             return@LaunchedEffect
         }
@@ -81,17 +85,11 @@ fun YosFloatingLight(
         )
 
         if (result != null) {
-            // Bound retained cover textures instead of accumulating every played track.
-            if (assetCache.size >= 6) assetCache.keys.firstOrNull()?.let { assetCache.remove(it) }
-            assetCache[requestKey] = result
+            backgroundAssetCache.put(requestKey, result)
             settledFrame.value = BackgroundRenderFrame.asset(trackKey, requestKey, result)
         } else {
             settledFrame.value = BackgroundRenderFrame.fallback(trackKey)
         }
-    }
-
-    DisposableEffect(imageLoader) {
-        onDispose { imageLoader.shutdown() }
     }
 
     val displayFrame = settledFrame.value
@@ -100,7 +98,7 @@ fun YosFloatingLight(
         if (Build.VERSION.SDK_INT >= 33) {
             // Keep one renderer across track/page changes so its motion never restarts.
             val fallbackTexture = remember {
-                Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888).apply {
+                Bitmap.createBitmap(ARTWORK_TEXTURE_SIZE, ARTWORK_TEXTURE_SIZE, Bitmap.Config.RGBA_F16).apply {
                     eraseColor(android.graphics.Color.rgb(28, 30, 38))
                 }
             }
@@ -114,9 +112,11 @@ fun YosFloatingLight(
             if (texture != null) StaticFlowLayer(texture.asImageBitmap()) else FallbackLayer()
         }
 
-        // Apply the same exposure reduction to dynamic and static artwork.
-        // This sits inside the background, never over controls or cover art.
-        Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.15f)) })
+        // The GPU path applies exposure before its final dither pass. A later
+        // dark overlay would quantize that carefully distributed noise again.
+        if (Build.VERSION.SDK_INT < 33) {
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.15f)) })
+        }
     }
 }
 
@@ -124,7 +124,7 @@ fun YosFloatingLight(
 @Composable
 private fun StaticFlowLayer(bitmap: ImageBitmap) {
     Box(Modifier.fillMaxSize()) {
-        Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.FillBounds,
+        Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().drawBehind {
             drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.22f),
@@ -158,6 +158,10 @@ private data class BackgroundAssets(
     val flow: Bitmap
 )
 
+// Reopening the player reuses unmodified F16 artwork. Evicted textures can still
+// be displayed, so let their owners/GC release them rather than recycling here.
+private val backgroundAssetCache = LruCache<String, BackgroundAssets>(6)
+
 private data class BackgroundRenderFrame(
     val frameKey: String,
     val trackKey: String?,
@@ -183,7 +187,7 @@ private suspend fun loadBackgroundAssets(
     uri: Uri,
     key: String?
 ): BackgroundAssets? {
-    val targetSize = 224
+    val targetSize = ARTWORK_TEXTURE_SIZE
     return withContext(Dispatchers.Default) {
         val request = ImageRequest.Builder(context)
             .data(uri)
@@ -193,21 +197,36 @@ private suspend fun loadBackgroundAssets(
         val source = imageLoader.execute(request).drawable?.toBitmap()
             ?.let { toSoftware(it) } ?: return@withContext null
 
-        val scale = targetSize.toFloat() / maxOf(source.width, source.height)
-        val scaled = Bitmap.createScaledBitmap(
-            source,
-            (source.width * scale).toInt().coerceAtLeast(1),
-            (source.height * scale).toInt().coerceAtLeast(1),
-            true
-        )
         BackgroundAssets(
             key = key,
-            flow = prepareFlowTexture(scaled)
+            flow = if (Build.VERSION.SDK_INT >= 33) prepareArtworkTexture(source)
+                else prepareFlowTexture(source)
         )
     }
 }
 
-/** Compact, opaque colour field: retain cover colours but remove recognisable details. */
+internal const val ARTWORK_TEXTURE_SIZE = 256
+
+/** Keep the original colour detail until the layered GPU field has been blurred.
+ * Center-crop rather than distort non-square artwork. F16 avoids rounding each
+ * resampling / interrupted cover blend back into an 8-bit intermediate bitmap.
+ */
+@RequiresApi(26)
+internal fun prepareArtworkTexture(source: Bitmap): Bitmap {
+    val size = ARTWORK_TEXTURE_SIZE.toFloat()
+    val scale = size / minOf(source.width, source.height)
+    val width = source.width * scale
+    val height = source.height * scale
+    return Bitmap.createBitmap(ARTWORK_TEXTURE_SIZE, ARTWORK_TEXTURE_SIZE, Bitmap.Config.RGBA_F16).apply {
+        Canvas(this).apply {
+            drawColor(android.graphics.Color.rgb(28, 28, 32))
+            drawBitmap(source, null, RectF((size - width) * 0.5f, (size - height) * 0.5f,
+                (size + width) * 0.5f, (size + height) * 0.5f), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+    }
+}
+
+/** Legacy soft colour field also used by the separately tuned lyric share card. */
 internal fun prepareFlowTexture(source: Bitmap): Bitmap {
     val square = Bitmap.createScaledBitmap(source, 96, 96, true)
     val opaque = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)

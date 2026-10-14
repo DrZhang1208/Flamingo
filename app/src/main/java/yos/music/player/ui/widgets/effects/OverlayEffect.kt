@@ -6,6 +6,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * 在 Compose 上实现 Add 的效果。
@@ -15,11 +17,12 @@ import androidx.compose.ui.graphics.Paint
  * —— By Yos-X
  */
 @Composable
-fun Modifier.overlayEffect() = this.drawWithCache {
+fun Modifier.overlayEffect(outset: Dp = 0.dp) = this.drawWithCache {
     val overlayPaint = Paint().apply {
         blendMode = BlendMode.Plus
     }
-    val rect = Rect(0f, 0f, size.width, size.height)
+    val padding = outset.toPx().coerceAtLeast(0f)
+    val rect = Rect(-padding, -padding, size.width + padding, size.height + padding)
 
     onDrawWithContent {
         val canvas = this.drawContext.canvas

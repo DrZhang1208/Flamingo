@@ -6,19 +6,29 @@ import kotlin.math.abs
 internal class NativeLyricClock(initialPositionMs: Float) {
     var positionMs = initialPositionMs
         private set
+    var visualPositionMs = initialPositionMs
+        private set
     private var previousFrameMs = -1L
     private var synchronizeReport = false
+    private var hasPresentedFrame = false
+    private var animateResumeReport = false
+    private var resumeOffsetMs = 0f
+    private var resumeStartedAt = -1L
     private var seekTarget: Float? = null
     private var seekDeadline = 0L
 
     fun restartFrames() {
         previousFrameMs = -1L
         synchronizeReport = true
+        animateResumeReport = hasPresentedFrame && seekTarget == null
     }
 
     fun seek(position: Float, nowMs: Long) {
         synchronizeReport = false
+        animateResumeReport = false
+        resumeStartedAt = -1L
         positionMs = position
+        visualPositionMs = position
         seekTarget = position
         seekDeadline = nowMs + 2000L
         previousFrameMs = -1L
@@ -32,14 +42,19 @@ internal class NativeLyricClock(initialPositionMs: Float) {
         if (target != null) {
             if (reportedPositionMs != null && abs(reportedPositionMs - target) <= 250f || nowMs >= seekDeadline) {
                 seekTarget = null
-            } else return positionMs
+            } else return present(nowMs)
         }
         if (synchronizeReport && reportedPositionMs != null) {
             // On returning from a covered page, small gaps are real elapsed
             // playback, not sample jitter. Do not spend seconds chasing them.
             positionMs = reportedPositionMs
+            if (animateResumeReport) {
+                resumeOffsetMs = visualPositionMs - positionMs
+                resumeStartedAt = nowMs
+            }
+            animateResumeReport = false
             synchronizeReport = false
-            return positionMs
+            return present(nowMs)
         }
         if (playing) positionMs += elapsed * speed.coerceAtLeast(0f)
         if (reportedPositionMs != null) {
@@ -49,6 +64,18 @@ internal class NativeLyricClock(initialPositionMs: Float) {
                 error > 0f -> positionMs += if (playing) minOf(error * 0.2f, 12f) else error
             }
         }
+        return present(nowMs)
+    }
+
+    private fun present(nowMs: Long): Float {
+        hasPresentedFrame = true
+        val progress = if (resumeStartedAt < 0L) 1f else
+            ((nowMs - resumeStartedAt) / 300f).coerceIn(0f, 1f)
+        // Follow the latest line immediately, but let its highlight catch up in
+        // a bounded transition. Normal playback jitter filtering must not turn
+        // this into seconds of lag, nor should resuming snap the glyph progress.
+        visualPositionMs = positionMs + resumeOffsetMs * (1f - nativeSmoothStep(progress))
+        if (progress >= 1f) resumeStartedAt = -1L
         return positionMs
     }
 }
@@ -89,16 +116,28 @@ internal fun nativeLineHighlightEdge(left: Float, right: Float, cursor: Float, f
     return left - feather + fraction * (right - left + 2f * feather)
 }
 
+internal const val NATIVE_LINE_HIGHLIGHT_FADE_MS = 280f
+
 /** Line emphasis follows playback time, independently of focus/scroll spring state. */
 internal data class NativeLineHighlight(val startMs: Float, val nextStartMs: Float?) {
     fun activeAt(timeMs: Float): Boolean = timeMs >= startMs &&
         (nextStartMs == null || nextStartMs <= startMs || timeMs < nextStartMs)
 
+    // Evaluate from playback time, so pausing or scrubbing never leaves an animation
+    // chasing the pointer. Incoming and outgoing lines crossfade at one boundary.
+    fun strengthAt(timeMs: Float): Float {
+        val incoming = nativeSmoothStep((timeMs - startMs) / NATIVE_LINE_HIGHLIGHT_FADE_MS)
+        val end = nextStartMs?.takeIf { it > startMs } ?: return incoming
+        val outgoing = 1f - nativeSmoothStep((timeMs - end) / NATIVE_LINE_HIGHLIGHT_FADE_MS)
+        return incoming * outgoing
+    }
+
     // Keep quiet rows cached, but never clamp away the next line's time boundary.
     fun renderTime(timeMs: Float, window: Pair<Float, Float>): Float {
         val clamped = timeMs.coerceIn(window.first, window.second)
         val end = nextStartMs
-        return if (end != null && end > startMs && timeMs >= end) maxOf(clamped, end) else clamped
+        return if (end != null && end > startMs && timeMs >= end)
+            maxOf(clamped, minOf(timeMs, end + NATIVE_LINE_HIGHLIGHT_FADE_MS)) else clamped
     }
 }
 

@@ -172,11 +172,6 @@ var mediaController = yos.music.player.code.MediaController*/
 
 class MainActivity : androidx.activity.ComponentActivity() {
 
-    override fun onResume() {
-        super.onResume()
-        yos.music.player.code.YosPlaybackService.instance?.resumeAfterAudioFocusLoss()
-    }
-
     private val mediaViewModel: MediaViewModel by viewModels()
     private val mainViewModel: MainViewModel by viewModels()
 

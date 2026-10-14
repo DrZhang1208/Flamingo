@@ -36,7 +36,7 @@ class SeekCancelArcTest {
         val bounds = compose.onNodeWithTag("arc").fetchSemanticsNode().boundsInRoot
         val centerTop = Offset(bounds.center.x, bounds.top + 5f)
         val edgeTop = Offset(bounds.left + 5f, bounds.top + 5f)
-        val liftedCentre = Offset(bounds.center.x, bounds.top - 3f)
+        val liftedCentre = Offset(bounds.center.x, bounds.top - with(compose.density) { 18.dp.toPx() })
         compose.runOnIdle {
             assertTrue(region.contains(centerTop))
             assertFalse(region.contains(edgeTop))
@@ -44,12 +44,20 @@ class SeekCancelArcTest {
             assertFalse(region.contains(liftedCentre))
         }
         compose.onNodeWithText("移入此处，放弃本次调整").assertDoesNotExist()
+        val surfaceBounds = compose.onNodeWithTag("surface").fetchSemanticsNode().boundsInRoot
+        val liftedX = (liftedCentre.x - surfaceBounds.left).toInt()
+        val liftedY = (liftedCentre.y - surfaceBounds.top).toInt()
+        val restingSurface = compose.onNodeWithTag("surface").captureToImage().toPixelMap()
+        assertEquals(0f, restingSurface[liftedX, liftedY].red, 0.01f)
         val before = compose.onNodeWithTag("arc").captureToImage().toPixelMap()
         assertTrue("The arc's upper corners must reveal the background", before[2, 2].green > 0.9f)
         compose.runOnIdle { cancelled.value = true }
         val after = compose.onNodeWithTag("arc").captureToImage().toPixelMap()
         compose.onNodeWithText("松开手指，继续原进度播放").assertDoesNotExist()
         compose.runOnIdle { assertTrue(region.contains(liftedCentre)) }
+        val activatedSurface = compose.onNodeWithTag("surface").captureToImage().toPixelMap()
+        assertTrue("The larger lift must actually paint above the original arc bounds",
+            activatedSurface[liftedX, liftedY].red > 0.8f)
         // Activation changes the small undo affordance, not the entire surface colour.
         assertEquals(before[before.width / 2, 4], after[after.width / 2, 4])
         compose.runOnIdle { background.value = Color.Magenta }

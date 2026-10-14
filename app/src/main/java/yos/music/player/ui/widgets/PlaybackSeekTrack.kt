@@ -19,7 +19,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import yos.music.player.code.utils.others.Vibrator
 
 /** Start with horizontal intent, then track both axes, including vertical-only cancellation. */
 @Composable
@@ -35,6 +37,7 @@ internal fun PlaybackSeekTrack(
     onFinish: (Float?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val coordinates = remember { mutableStateOf<LayoutCoordinates?>(null) }
     val positionRef = rememberUpdatedState(position)
     val durationRef = rememberUpdatedState(duration)
@@ -64,6 +67,7 @@ internal fun PlaybackSeekTrack(
                             val layout = coordinates.value
                             val inCancelArea = layout?.isAttached == true &&
                                 cancelContainsRef.value(layout.localToRoot(localPosition))
+                            if (inCancelArea && !session.cancelled) Vibrator.click(context)
                             session.move(deltaX, inCancelArea, livePositionRef.value())
                             previewRef.value(session.positionMs, session.cancelled)
                         }

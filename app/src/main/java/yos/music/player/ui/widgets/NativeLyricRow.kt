@@ -2,6 +2,7 @@ package yos.music.player.ui.widgets
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -15,12 +16,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
@@ -45,16 +43,44 @@ internal data class NativeLyricGlyph(
     val motion: NativeWordMotion, val whitespace: Boolean,
     val highlightStart: Float = 0f, val highlightEnd: Float = 1f,
     val upliftMotion: NativeWordMotion = motion, val rtl: Boolean = false,
-    val textOffset: Int = 0, val emphasisDelayMs: Float = 0f
+    val textOffset: Int = 0, val emphasisDelayMs: Float = 0f,
+    val emphasisMotion: NativeWordMotion = motion,
+    val emphasisIndex: Int = 0, val emphasisCount: Int = 1,
+    val emphasisCenterX: Float = (left + right) * 0.5f,
+    val emphasisWordWidth: Float = right - left,
+    val textEnd: Int = textOffset + 1,
+    val inkLeft: Float = left, val baseline: Float = bottom,
+    val independentInk: Boolean = false
 )
 
 internal data class NativeLyricVisualRow(val glyphs: List<NativeLyricGlyph>, val left: Float,
-    val right: Float, val feather: Float, val rtl: Boolean)
+    val right: Float, val feather: Float, val rtl: Boolean) {
+    private var gradient: android.graphics.LinearGradient? = null
+    private var fromColor = 0
+    private var toColor = 0
+    private val fieldPlacement = android.graphics.Matrix()
+    fun colorField(edge: Float, feather: Float, from: Int, to: Int): android.graphics.Shader {
+        if (gradient == null || fromColor != from || toColor != to) {
+            fromColor = from; toColor = to
+            gradient = android.graphics.LinearGradient(0f, 0f, 1f, 0f,
+                from, to, android.graphics.Shader.TileMode.CLAMP)
+        }
+        fieldPlacement.setScale(feather * 2f, 1f)
+        fieldPlacement.postTranslate(edge - feather, 0f)
+        gradient!!.setLocalMatrix(fieldPlacement)
+        return gradient!!
+    }
+}
 internal data class NativeLyricParagraph(val layout: TextLayoutResult, val glyphs: List<NativeLyricGlyph>,
     val rows: List<NativeLyricVisualRow> = emptyList()) {
+    val surface by lazy(LazyThreadSafetyMode.NONE) { NativeLyricSurface(layout) }
     // Prepared with shaping, rather than scanned for every frame/redraw.
     val quietBeforeMs = glyphs.minOfOrNull { it.motion.startMs }?.minus(1000f) ?: Float.NEGATIVE_INFINITY
     val quietAfterMs = glyphs.maxOfOrNull { it.motion.endMs }?.plus(1000f) ?: Float.POSITIVE_INFINITY
+    val fontSizePx = with(layout.layoutInput.density) {
+        if (layout.layoutInput.style.fontSize.isSp) layout.layoutInput.style.fontSize.toPx() else 16.sp.toPx()
+    }
+    val lastNoteEnd = glyphs.maxOfOrNull { it.motion.endMs } ?: 0f
 }
 
 /** Geometry is built only when text, font or constraints change. Shaping remains paragraph based. */
@@ -88,14 +114,19 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
             if (right > left) glyphs += NativeLyricGlyph(left, right, layout.getLineTop(visualLine),
                 layout.getLineBottom(visualLine), motion,
                 token.text.substring(range.first, range.last + 1).all(Char::isWhitespace),
-                rtl = layout.getBidiRunDirection(offset) == ResolvedTextDirection.Rtl, textOffset = offset)
+                rtl = layout.getBidiRunDirection(offset) == ResolvedTextDirection.Rtl, textOffset = offset,
+                textEnd = (startOffset + range.last + 1).coerceAtMost(text.length),
+                inkLeft = left, baseline = layout.getLineBaseline(visualLine),
+                independentInk = token.text.substring(range.first, range.last + 1).any { it.code in 33..126 })
         }
         // A source word can span spaces and visual lines. Allocate its sweep over
         // measured advances while keeping one uplift envelope for the whole word.
         val emphasizedGlyphs = (firstGlyph until glyphs.size).filter { !glyphs[it].whitespace }
+        val emphasisWidth = emphasizedGlyphs.sumOf { (glyphs[it].right - glyphs[it].left).toDouble() }.toFloat()
         emphasizedGlyphs.forEachIndexed { index, glyphIndex ->
             glyphs[glyphIndex] = glyphs[glyphIndex].copy(
-                emphasisDelayMs = nativeTtmlGlyphDelayMs(index, emphasizedGlyphs.size))
+                emphasisDelayMs = nativeTtmlGlyphDelayMs(index, emphasizedGlyphs.size, motion.endMs - motion.startMs),
+                emphasisIndex = index, emphasisCount = emphasizedGlyphs.size, emphasisWordWidth = emphasisWidth)
         }
         val total = (firstGlyph until glyphs.size).sumOf { (glyphs[it].right - glyphs[it].left).toDouble() }.toFloat()
         var advance = 0f
@@ -121,7 +152,11 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
         val start = indices.minOf { glyphs[it].upliftMotion.startMs }
         val end = indices.maxOf { glyphs[it].upliftMotion.endMs }
         val motion = NativeWordMotion(start, end, glyphs[indices.first()].upliftMotion.leadMs)
-        for (index in indices) glyphs[index] = glyphs[index].copy(upliftMotion = motion)
+        val wordWidth = indices.sumOf { (glyphs[it].right - glyphs[it].left).toDouble() }.toFloat()
+        for ((order, index) in indices.withIndex()) glyphs[index] = glyphs[index].copy(
+            upliftMotion = motion, emphasisMotion = motion, independentInk = true,
+            emphasisDelayMs = nativeTtmlGlyphDelayMs(order, indices.size, end - start),
+            emphasisIndex = order, emphasisCount = indices.size, emphasisWordWidth = wordWidth)
     }
     // Split whitespace at its centre and let each half move with its neighbour.
     // Cuts now fall in empty space, preserving j/f overhangs and word-edge ink.
@@ -135,10 +170,22 @@ internal fun nativeLyricParagraph(layout: TextLayoutResult, tokens: List<YosLyri
                 val fraction = (glyph.highlightStart + glyph.highlightEnd) / 2f
                 listOf(glyph.copy(right = middle, highlightEnd = fraction,
                     upliftMotion = (before ?: after)?.upliftMotion ?: glyph.upliftMotion,
-                    emphasisDelayMs = (before ?: after)?.emphasisDelayMs ?: glyph.emphasisDelayMs),
+                    independentInk = (before ?: after)?.independentInk ?: false,
+                    emphasisDelayMs = (before ?: after)?.emphasisDelayMs ?: glyph.emphasisDelayMs,
+                    emphasisMotion = (before ?: after)?.emphasisMotion ?: glyph.emphasisMotion,
+                    emphasisCenterX = (before ?: after)?.emphasisCenterX ?: glyph.emphasisCenterX,
+                    emphasisIndex = (before ?: after)?.emphasisIndex ?: glyph.emphasisIndex,
+                    emphasisCount = (before ?: after)?.emphasisCount ?: glyph.emphasisCount,
+                    emphasisWordWidth = (before ?: after)?.emphasisWordWidth ?: glyph.emphasisWordWidth),
                     glyph.copy(left = middle, highlightStart = fraction,
                         upliftMotion = (after ?: before)?.upliftMotion ?: glyph.upliftMotion,
-                        emphasisDelayMs = (after ?: before)?.emphasisDelayMs ?: glyph.emphasisDelayMs))
+                        independentInk = (after ?: before)?.independentInk ?: false,
+                        emphasisDelayMs = (after ?: before)?.emphasisDelayMs ?: glyph.emphasisDelayMs,
+                        emphasisMotion = (after ?: before)?.emphasisMotion ?: glyph.emphasisMotion,
+                        emphasisCenterX = (after ?: before)?.emphasisCenterX ?: glyph.emphasisCenterX,
+                        emphasisIndex = (after ?: before)?.emphasisIndex ?: glyph.emphasisIndex,
+                        emphasisCount = (after ?: before)?.emphasisCount ?: glyph.emphasisCount,
+                        emphasisWordWidth = (after ?: before)?.emphasisWordWidth ?: glyph.emphasisWordWidth))
             }
         }
     }
@@ -168,24 +215,33 @@ internal fun DrawScope.drawNativeLyricParagraph(
     upliftPx: Float, highlight: Boolean = true, feathered: Boolean = true,
     lineHighlight: NativeLineHighlight? = null, ttmlEffects: Boolean = false, effectStrength: Float = 1f
 ) {
+    if (lineHighlight != null) {
+        // Line-only lyrics share one colour across all wrapped fragments. Keep
+        // this before the quiet-row shortcut: a long gap can outlive word timing
+        // while the outgoing line still needs its full brightness transition.
+        val strength = if (highlight) lineHighlight.strengthAt(timeMs) else 0f
+        val color = when {
+            strength <= 0f -> dim
+            strength >= 1f -> bright
+            else -> lerp(dim, bright, strength)
+        }
+        // Line timing changes only the colour; keep the whole paragraph's baseline fixed.
+        paragraph.surface.drawSolid(this, color, 0f)
+        return
+    }
     // Settled rows have one colour and one vertical offset. Draw the shaped
     // paragraph once instead of clipping/redrawing it for each visual row/word.
     if (timeMs <= paragraph.quietBeforeMs || timeMs >= paragraph.quietAfterMs) {
         val finished = timeMs >= paragraph.quietAfterMs
-        val lit = highlight && (lineHighlight?.activeAt(timeMs) ?: finished)
-        drawText(paragraph.layout, color = if (lit) bright else dim,
-            topLeft = Offset(0f, if (finished) -upliftPx else 0f),
-            alpha = 1f, drawStyle = Fill, shadow = Shadow.None)
+        val lit = highlight && finished
+        paragraph.surface.drawSolid(this, if (lit) bright else dim, if (finished) upliftPx else 0f)
         return
     }
     for (row in paragraph.rows) {
         val glyphs = row.glyphs
         val feather = if (feathered) max(row.feather, 8.dp.toPx()) else 0.1f
         var cursor = if (row.rtl) row.right else row.left
-        if (highlight && lineHighlight != null && lineHighlight.activeAt(timeMs)) {
-            cursor = if (row.rtl) row.left else row.right
-        }
-        if (highlight && lineHighlight == null) for (glyph in glyphs) {
+        if (highlight) for (glyph in glyphs) {
             val start = glyph.motion.startMs + (glyph.motion.endMs - glyph.motion.startMs) * glyph.highlightStart
             if (timeMs < start) continue
             val progress = glyph.highlightProgress(timeMs)
@@ -200,64 +256,44 @@ internal fun DrawScope.drawNativeLyricParagraph(
         val untouched = if (row.rtl) cursor >= row.right else cursor <= row.left
         // Solid endpoints also avoid shader/solid alpha rounding differences in
         // antialiased text. The animated field approaches these colours continuously.
-        val brush = if (complete || untouched) null else
-            Brush.horizontalGradient(if (row.rtl) listOf(dim, bright) else listOf(bright, dim),
-                edge - feather, edge + feather)
+        val colorField = if (complete || untouched) null else
+            row.colorField(edge, feather,
+                if (row.rtl) dim.toArgb() else bright.toArgb(),
+                if (row.rtl) bright.toArgb() else dim.toArgb())
         var index = 0
         while (index < glyphs.size) {
             val first = glyphs[index]
             val rise = first.upliftMotion.uplift(timeMs) * upliftPx
+            val note = first.emphasisMotion
+            val noteDuration = note.endMs - note.startMs
+            // Keep joined RTL scripts on their existing shaped-word path.
+            val emphasize = ttmlEffects && highlight && effectStrength > 0f && !first.rtl &&
+                noteDuration >= NATIVE_TTML_MIN_NOTE_MS
+            val separateInk = ttmlEffects && first.independentInk && !first.rtl
             var end = index + 1
-            while (end < glyphs.size &&
+            while (!separateInk && !emphasize && end < glyphs.size &&
+                !(ttmlEffects && glyphs[end].independentInk && !glyphs[end].rtl) &&
                 abs(glyphs[end].upliftMotion.uplift(timeMs) * upliftPx - rise) <= 0.01f &&
                 (!ttmlEffects || (glyphs[end].motion == first.motion &&
                     glyphs[end].emphasisDelayMs == first.emphasisDelayMs))) end++
-            val glow = if (ttmlEffects && highlight && lineHighlight == null)
-                nativeTtmlGlowStrength(first.motion.startMs, first.motion.endMs, timeMs) * effectStrength else 0f
-            val lift = if (ttmlEffects && highlight && lineHighlight == null)
-                nativeTtmlLiftStrength(first.motion.startMs, first.motion.endMs, timeMs - first.emphasisDelayMs) * effectStrength else 0f
+            val noteTime = timeMs - first.emphasisDelayMs
+            val glow = if (emphasize) nativeTtmlGlowStrength(note.startMs, note.endMs, noteTime, first.emphasisCount,
+                terminal = note.endMs >= paragraph.lastNoteEnd - 1f) * effectStrength else 0f
+            val lift = glow
             val visualRise = rise + if (upliftPx > 0f) nativeTtmlExtraRiseDp(lift).dp.toPx() else 0f
-            // Transform the already partitioned shaped word, including its clip.
-            // Scaling the text without transforming the clip cuts off its edges;
-            // widening a clip instead would expose neighbouring paragraph glyphs.
-            val emphasisScale = nativeTtmlEmphasisScale(lift)
-            scale(1f, emphasisScale,
-                pivot = Offset((first.left + glyphs[end - 1].right) / 2f,
-                    (first.top + first.bottom) / 2f - visualRise)) {
-                // The source is a whole shaped paragraph: never extend the
-                // clip into another visual row, even to accommodate bloom.
-                clipRect(first.left, first.top - visualRise,
-                    glyphs[end - 1].right, first.bottom - visualRise) {
-                    if (glow > 0f && !untouched) {
-                        // Stroke is centred on glyph contours. Remove the complete
-                        // glyph silhouette in an isolated layer, leaving only its
-                        // outside edge, and never stroke the unplayed dim text.
-                        val accent = if (complete) Brush.linearGradient(listOf(bright, bright)) else
-                            Brush.horizontalGradient(
-                                if (row.rtl) listOf(Color.Transparent, bright) else listOf(bright, Color.Transparent),
-                                edge - feather, edge + feather)
-                        val canvas = drawContext.canvas
-                        canvas.saveLayer(Rect(first.left, first.top - visualRise,
-                            glyphs[end - 1].right, first.bottom - visualRise), Paint())
-                        try {
-                            drawText(paragraph.layout, brush = accent, alpha = 1f,
-                                topLeft = Offset(0f, -visualRise),
-                                drawStyle = Stroke(width = 0.9.dp.toPx() * glow, join = StrokeJoin.Round),
-                                shadow = Shadow.None)
-                            drawText(paragraph.layout, color = Color.White, alpha = 1f,
-                                topLeft = Offset(0f, -visualRise), drawStyle = Fill,
-                                shadow = Shadow.None, blendMode = BlendMode.DstOut)
-                        } finally {
-                            canvas.restore()
-                        }
-                    }
-                    // The ordinary filled surface is always the final pass, with
-                    // its original sweep colour and opacity, independent of accents.
-                    if (brush == null) drawText(paragraph.layout,
-                        color = if (complete) bright else dim, topLeft = Offset(0f, -visualRise),
-                        alpha = 1f, drawStyle = Fill, shadow = Shadow.None)
-                    else drawText(paragraph.layout, brush = brush, alpha = 1f,
-                        topLeft = Offset(0f, -visualRise), drawStyle = Fill, shadow = Shadow.None)
+            val solid = if (complete) bright else dim
+            if (separateInk || glow > 0f || lift > 0f) {
+                val zoom = nativeTtmlEmphasisScale(glow, noteDuration,
+                    note.endMs >= paragraph.lastNoteEnd - 1f,
+                    first.emphasisWordWidth / paragraph.fontSizePx.coerceAtLeast(1f))
+                scale(zoom, zoom, pivot = Offset(first.emphasisCenterX,
+                    (first.top + first.bottom) * 0.5f - visualRise)) {
+                    paragraph.surface.drawEmphasized(this, first, colorField, solid, bright, visualRise, glow)
+                }
+            } else {
+                clipRect(first.left, first.top - rise, glyphs[end - 1].right, first.bottom - rise) {
+                    if (colorField == null) paragraph.surface.drawSolid(this, solid, rise)
+                    else paragraph.surface.draw(this, colorField, rise)
                 }
             }
             index = end
@@ -268,6 +304,8 @@ internal fun DrawScope.drawNativeLyricParagraph(
 private class NativeParagraphCache {
     var key: Any? = null
     var paragraph: NativeLyricParagraph? = null
+    var topInsetPx = 0f
+    var bottomInsetPx = 0f
 }
 
 @Composable
@@ -283,33 +321,40 @@ private fun NativeLyricText(
     val text = remember(tokens) { tokens.joinToString("") { it.text } }
     val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
     val density = LocalDensity.current
+    val independentStyle = remember(style, ttmlEffects, staticText, lineHighlight != null) {
+        if (ttmlEffects && !staticText && lineHighlight == null) nativeIndependentGlyphStyle(style) else style
+    }
     // Explicit padding reserves ascender space, without a second size callback/layout pass.
     val risePx = with(density) { 4.dp.toPx() }
     Layout(content = {
         Canvas(Modifier.fillMaxWidth()) {
             val paragraph = cache.paragraph ?: return@Canvas
-            translate(top = risePx) {
+            translate(top = cache.topInsetPx) {
                 if (staticText) drawText(paragraph.layout, color = bright)
                 else {
                     val held = feedbackRef.value().coerceIn(0f, 1f)
                     // Hover is a readable whole line. Playback timing continues underneath,
                     // while individual word rise/stroke blend gently back to the baseline.
                     drawNativeLyricParagraph(paragraph, timeRef.value(), bright, lerp(dim, bright, held),
-                        if (uplift) risePx * (1f - held) else 0f,
+                        if (uplift) risePx * 0.5f * (1f - held) else 0f,
                         highlight, feathered, lineHighlight, ttmlEffects, effectStrength = 1f - held)
                 }
             }
         }
     }) { children, constraints ->
-        val layoutKey = listOf(text, tokens, style, constraints.maxWidth, density.density, density.fontScale, direction, staticText)
+        val layoutKey = listOf(text, tokens, independentStyle, constraints.maxWidth, density.density, density.fontScale, direction, staticText)
         if (cache.key != layoutKey) {
-            val result = measurer.measure(AnnotatedString(text), style,
+            val result = measurer.measure(AnnotatedString(text), independentStyle,
                 constraints = Constraints(maxWidth = constraints.maxWidth), layoutDirection = direction)
             cache.paragraph = if (staticText) NativeLyricParagraph(result, emptyList()) else nativeLyricParagraph(result, tokens)
+            // Halo/scale are drawing effects, not extra line spacing. The row's
+            // existing 10dp/14dp outer padding accommodates their visual overflow.
+            cache.topInsetPx = risePx
+            cache.bottomInsetPx = 2f
             cache.key = layoutKey
         }
         val result = checkNotNull(cache.paragraph).layout
-        val height = constraints.constrainHeight(result.size.height + risePx.toInt() + 2)
+        val height = constraints.constrainHeight(result.size.height + kotlin.math.ceil(cache.topInsetPx + cache.bottomInsetPx).toInt())
         val child = children.single().measure(Constraints.fixed(constraints.maxWidth, height))
         layout(child.width, child.height) { child.place(0, 0) }
     }
@@ -323,7 +368,9 @@ internal fun NativeLyricRow(
     seekRevision: Int = 0, nextIsCountdown: Boolean = false,
     time: () -> Float, showTranslation: Boolean, mainColor: Color, subColor: Color,
     measurer: TextMeasurer, fontFamily: FontFamily?, onClick: () -> Unit, onLongClick: () -> Unit,
-    interactionEnabled: Boolean = true, onPressChanged: (Boolean) -> Unit = {}
+    interactionEnabled: Boolean = true, onPressChanged: (Boolean) -> Unit = {},
+    animationsEnabled: Boolean = true,
+    seekPreview: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -337,15 +384,17 @@ internal fun NativeLyricRow(
     }
     val hoverShape = remember { YosRoundedCornerShape(14.dp) }
     val feedback = animateFloatAsState(if (holding) 1f else 0f,
-        spring(dampingRatio = 1f, stiffness = 650f), label = "NativeLyricPress")
-    val focus by animateFloatAsState(if (focused) 1f else 0f,
-        spring(dampingRatio = 0.9f, stiffness = 320f), label = "NativeLyricFocus")
+        if (animationsEnabled) spring(dampingRatio = 1f, stiffness = 650f) else snap(), label = "NativeLyricPress")
+    val animatedFocus by animateFloatAsState(if (focused) 1f else 0f,
+        if (animationsEnabled) spring(dampingRatio = 0.9f, stiffness = 320f) else snap(), label = "NativeLyricFocus")
+    val focus = if (animationsEnabled) animatedFocus else if (focused) 1f else 0f
     // A seek changes the sweep immediately. Reset emphasis in the same composition
     // so skipped rows never draw a new sweep through their old opacity animation.
-    val alpha by key(seekRevision, SettingsLibrary.EnableWordByWordLyric) {
+    val animatedAlpha by key(seekRevision, SettingsLibrary.EnableWordByWordLyric) {
         animateFloatAsState(if (active || staticText || !past) 1f else 0.3f,
-            spring(dampingRatio = 1f, stiffness = 260f), label = "NativeLyricEmphasis")
+            if (animationsEnabled) spring(dampingRatio = 1f, stiffness = 260f) else snap(), label = "NativeLyricEmphasis")
     }
+    val alpha = if (animationsEnabled) animatedAlpha else if (active || staticText || !past) 1f else 0.3f
     val scale = SettingsLibrary.LyricFontScale.coerceIn(0.8f, 1.2f)
     val side = line.otherSide || line.agent == "bg"
     val style = mainTextStyle(fontFamily, SettingsLibrary.LyricFontSize * scale)
@@ -362,7 +411,9 @@ internal fun NativeLyricRow(
     val trailingInset = if (line.isCountdown || staticText) 29.dp else
         with(LocalDensity.current) { nativeLyricFocusTrailingInset(maxWidth.toPx(), 29.dp.toPx()).toDp() }
     Column(Modifier
-        .then(if (line.isCountdown) Modifier.lyricCountdownLayout(time, line.startMs, end, centerContent = true) else Modifier)
+        // A shrinking countdown slot would reverse the list near its end even
+        // while pointer time moves forward. Scrubbing keeps its layout space fixed.
+        .then(if (line.isCountdown && !seekPreview) Modifier.lyricCountdownLayout(time, line.startMs, end, centerContent = true) else Modifier)
         .padding(start = if (side) trailingInset else 29.dp, end = if (side) 29.dp else trailingInset)
         .graphicsLayer {
             // Keep the leading baseline fixed through emphasis. Growth is
@@ -404,17 +455,16 @@ internal fun NativeLyricRow(
                 this.alpha = playbackAlpha + (1f - playbackAlpha) * feedback.value
             }) {
                 NativeLyricText(tokens, style, measurer, time, mainColor, mainColor.copy(alpha = 0.28f),
-                    staticText, highlight, feathered, uplift, lineHighlight, line.ttmlEffects,
+                    staticText, highlight, feathered, uplift, lineHighlight, line.hasWordTiming,
                     feedback = { feedback.value })
             }
             if (showTranslation && line.translation.isNotBlank()) {
                 Text(line.translation, fontSize = (SettingsLibrary.TranslationFontSize * scale).sp,
                     lineHeight = (SettingsLibrary.TranslationFontSize * scale + 5f).sp,
-                    color = subColor, fontFamily = fontFamily, textAlign = style.textAlign,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).graphicsLayer {
-                        val playbackAlpha = 0.35f + focus * 0.4f
-                        this.alpha = playbackAlpha + (1f - playbackAlpha) * feedback.value
-                    })
+                    color = subColor.copy(alpha = subColor.alpha * 0.35f),
+                    fontFamily = fontFamily, fontWeight = style.fontWeight,
+                    textAlign = style.textAlign,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
             }
         }
     }

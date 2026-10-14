@@ -3,109 +3,39 @@ package yos.music.player.code
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.content.pm.ResolveInfo
 import android.media.MediaRouter2
 import android.os.Build
-import androidx.annotation.RequiresApi
 
-class SystemMediaControlResolver(val context: Context) {
-    fun intentSystemMediaDialog() {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        when {
-            manufacturer.contains("xiaomi") -> {
-                val intent = Intent().apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    setClassName(
-                        "miui.systemui.plugin",
-                        "miui.systemui.miplay.MiPlayDetailActivity"
-                    )
-                }
-                startIntent(intent)
-            }
+class SystemMediaControlResolver(private val context: Context) {
+    /** False lets the caller show its own live route picker instead of silently doing nothing. */
+    fun intentSystemMediaDialog(): Boolean {
+        // Prefer the public API on every manufacturer, including Xiaomi and Samsung.
+        if (Build.VERSION.SDK_INT >= 34 && runCatching {
+                MediaRouter2.getInstance(context).showSystemOutputSwitcher()
+            }.getOrDefault(false)) return true
 
-            manufacturer.contains("samsung") -> {
-                val intent = Intent().apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    setClassName(
-                        "com.samsung.android.mdx.quickboard",
-                        "com.samsung.android.mdx.quickboard.view.MediaActivity"
-                    )
-                }
-                startIntent(intent)
-            }
-
-            else -> {
-                if (Build.VERSION.SDK_INT >= 34) {
-                    // Android 14 及以上
-                    startNativeMediaDialogForAndroid14(context)
-                } else if (Build.VERSION.SDK_INT >= 31) {
-                    // Android 12 及以上
-                    val intent = Intent().apply {
-                        action = "com.android.systemui.action.LAUNCH_MEDIA_OUTPUT_DIALOG"
-                        setPackage("com.android.systemui")
-                        putExtra("package_name", context.packageName)
-                    }
-                    startNativeMediaDialog(intent)
-                } else if (Build.VERSION.SDK_INT == 30) {
-                    // Android 11
-                    startNativeMediaDialogForAndroid11(context)
-                } else {
-                    val intent = Intent().apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        action = "com.android.settings.panel.action.MEDIA_OUTPUT"
-                        putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
-                    }
-                    startNativeMediaDialog(intent)
-                }
-            }
+        val vendorActivity = when {
+            Build.MANUFACTURER.contains("xiaomi", ignoreCase = true) ->
+                "miui.systemui.plugin" to "miui.systemui.miplay.MiPlayDetailActivity"
+            Build.MANUFACTURER.contains("samsung", ignoreCase = true) ->
+                "com.samsung.android.mdx.quickboard" to "com.samsung.android.mdx.quickboard.view.MediaActivity"
+            else -> null
         }
+        if (vendorActivity != null && startIntent(Intent().setClassName(
+                vendorActivity.first, vendorActivity.second))) return true
+
+        val panel = Intent("com.android.settings.panel.action.MEDIA_OUTPUT")
+            .putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
+        val systemHandler = context.packageManager.queryIntentActivities(panel, 0).firstOrNull {
+            val info = it.activityInfo
+            info != null && info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0 && info.exported
+        } ?: return false
+        panel.setClassName(systemHandler.activityInfo.packageName, systemHandler.activityInfo.name)
+        return startIntent(panel)
     }
 
-    private fun startNativeMediaDialog(intent: Intent): Boolean {
-        val resolveInfoList: List<ResolveInfo> =
-            context.packageManager.queryIntentActivities(intent, 0)
-        for (resolveInfo in resolveInfoList) {
-            val activityInfo = resolveInfo.activityInfo
-            val applicationInfo: ApplicationInfo? = activityInfo?.applicationInfo
-            if (applicationInfo != null && (applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0) {
-                context.startActivity(intent)
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun startNativeMediaDialogForAndroid11(context: Context): Boolean {
-        val intent = Intent().apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            action = "com.android.settings.panel.action.MEDIA_OUTPUT"
-            putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
-        }
-        val resolveInfoList: List<ResolveInfo> =
-            context.packageManager.queryIntentActivities(intent, 0)
-        for (resolveInfo in resolveInfoList) {
-            val activityInfo = resolveInfo.activityInfo
-            val applicationInfo: ApplicationInfo? = activityInfo?.applicationInfo
-            if (applicationInfo != null && (applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0) {
-                context.startActivity(intent)
-                return true
-            }
-        }
-        return false
-    }
-
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-    private fun startNativeMediaDialogForAndroid14(context: Context): Boolean {
-        val mediaRouter2 = MediaRouter2.getInstance(context)
-        return mediaRouter2.showSystemOutputSwitcher()
-    }
-
-    private fun startIntent(intent: Intent): Boolean {
-       return try {
-            context.startActivity(intent)
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
+    private fun startIntent(intent: Intent): Boolean = runCatching {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrDefault(false)
 }

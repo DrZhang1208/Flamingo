@@ -1,36 +1,42 @@
 package yos.music.player.ui.widgets
 
-import kotlin.math.sin
+internal const val NATIVE_TTML_MIN_NOTE_MS = 1000f
 
-/** A continuous pulse with zero velocity at the start, crest and end. */
-private fun heldNotePulse(startMs: Float, endMs: Float, timeMs: Float): Float {
-    if (timeMs <= startMs || timeMs >= endMs) return 0f
-    val phase = (timeMs - startMs) / (endMs - startMs)
-    val wave = sin(Math.PI * phase).toFloat()
-    return wave * wave
-}
+/** A broad cosine-fourth wave: smooth tails and constant summed crest weight across glyphs. */
+internal fun nativeTtmlGlyphStepMs(durationMs: Float, glyphCount: Int): Float =
+    (durationMs.coerceAtLeast(0f) / glyphCount.coerceAtLeast(1)).coerceAtMost(if (glyphCount <= 1) 320f else 160f)
 
-/** Glow follows the whole note instead of switching quickly into a static plateau. */
-internal fun nativeTtmlGlowStrength(startMs: Float, endMs: Float, timeMs: Float): Float =
-    if (endMs - startMs < 900f) 0f else heldNotePulse(startMs, endMs, timeMs)
-
-/** Complete the note-timed rise first, then return immediately with smooth endpoints. */
-internal fun nativeTtmlLiftStrength(startMs: Float, endMs: Float, timeMs: Float): Float {
+internal fun nativeTtmlGlowStrength(startMs: Float, endMs: Float, timeMs: Float, glyphCount: Int = 1, terminal: Boolean = false): Float {
     val duration = endMs - startMs
-    if (duration < 900f) return 0f
-    val peak = endMs
-    val rise = nativeSmoothStep((timeMs - (startMs - 180f)) / (peak - startMs + 180f))
-    val settle = 1f - nativeSmoothStep((timeMs - peak) / 320f)
-    return rise * settle
+    if (duration < NATIVE_TTML_MIN_NOTE_MS) return 0f
+    val step = nativeTtmlGlyphStepMs(duration, glyphCount)
+    val peak = startMs + step * 0.5f
+    val offset = timeMs - peak
+    // Keep the incoming overlap broad at the sentence end, only shorten its exit.
+    val radius = if (terminal && glyphCount <= 1 && offset > 0f) minOf(400f, step * 3f) else step * 3f
+    val phase = offset / radius
+    if (kotlin.math.abs(phase) >= 1f) return 0f
+    val crest = kotlin.math.cos(phase * (kotlin.math.PI / 2.0)).toFloat()
+    val squared = crest * crest
+    return squared * squared
 }
 
-internal fun nativeTtmlEmphasisScale(strength: Float): Float =
-    1f + 0.025f * strength.coerceIn(0f, 1f)
+internal fun nativeTtmlLiftStrength(startMs: Float, endMs: Float, timeMs: Float, glyphCount: Int = 1, terminal: Boolean = false): Float =
+    nativeTtmlGlowStrength(startMs, endMs, timeMs, glyphCount, terminal)
 
-/** Extra lift returns to the ordinary word position without changing horizontal geometry. */
+/** Uniform swell, capped both proportionally and by total word growth. */
+internal fun nativeTtmlEmphasisScale(
+    strength: Float, durationMs: Float = 2000f, isLastWord: Boolean = false, wordWidthEm: Float = 1f
+): Float {
+    if (durationMs < NATIVE_TTML_MIN_NOTE_MS) return 1f
+    val amount = (0.035f + 0.035f * nativeSmoothStep((durationMs - 1000f) / 2000f)) *
+        if (isLastWord) 1.15f else 1f
+    val bounded = minOf(0.08f, amount, 0.28f / wordWidthEm.coerceAtLeast(1f))
+    return 1f + bounded * strength.coerceIn(0f, 1f)
+}
+
 internal fun nativeTtmlExtraRiseDp(strength: Float): Float =
-    3f * strength.coerceIn(0f, 1f)
+    1.5f * strength.coerceIn(0f, 1f)
 
-/** Stagger graphemes in reading order, keeping even a long phrase within a short wave. */
-internal fun nativeTtmlGlyphDelayMs(index: Int, count: Int): Float =
-    if (count <= 1) 0f else index.coerceIn(0, count - 1) * minOf(65f, 260f / (count - 1))
+internal fun nativeTtmlGlyphDelayMs(index: Int, count: Int, durationMs: Float = 2000f): Float =
+    if (count <= 1) 0f else index.coerceIn(0, count - 1) * nativeTtmlGlyphStepMs(durationMs, count)

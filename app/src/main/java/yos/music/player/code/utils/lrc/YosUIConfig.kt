@@ -28,7 +28,8 @@ data class YosUIConfig(
     val mainTextSize: Int = 34,
     val subTextSize: Int = mainTextSize - 8,
     val mainTextBasicColor: Long = 0xFFF2F2F2,
-    val subTextBasicColor: Long = 0xFF919191,
+    // Translation emphasis is controlled by opacity, without a second grey tint.
+    val subTextBasicColor: Long = mainTextBasicColor,
     val normalMainTextAlpha: Float = 0.4f,
     val normalSubTextAlpha: Float = 0.3f,
     val currentMainTextAlpha: Float = 0.9f,
