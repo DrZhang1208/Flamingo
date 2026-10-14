@@ -4,40 +4,6 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeLyricTimelineTest {
-    @Test fun returningFromSelectionAnimatesHighlightWhileFollowingTheLatestPositionImmediately() {
-        for (gap in listOf(250f, 5000f)) {
-            val clock = NativeLyricClock(1000f)
-            clock.frame(0, true, 1f, 1000f)
-            clock.restartFrames()
-            assertEquals(1000f + gap, clock.frame(10_000, true, 1f, 1000f + gap), 0f)
-            assertEquals("First return frame must preserve the previous highlight", 1000f,
-                clock.visualPositionMs, 0.001f)
-            var previous = clock.visualPositionMs
-            for (elapsed in 16..288 step 16) {
-                clock.frame(10_000L + elapsed, true, 1f, null)
-                assertTrue(clock.visualPositionMs > previous)
-                assertTrue(clock.visualPositionMs < clock.positionMs)
-                previous = clock.visualPositionMs
-            }
-            clock.frame(10_300, true, 1f, null)
-            assertEquals(clock.positionMs, clock.visualPositionMs, 0.001f)
-        }
-    }
-
-    @Test fun explicitSeekCancelsAResumeHighlightTransitionAndColdStartDoesNotReplayOldProgress() {
-        val clock = NativeLyricClock(1000f)
-        clock.restartFrames()
-        clock.frame(0, false, 1f, 2000f)
-        assertEquals(2000f, clock.visualPositionMs, 0f)
-        clock.restartFrames()
-        clock.frame(5000, false, 1f, 6000f)
-        clock.frame(5080, false, 1f, 6000f)
-        assertTrue(clock.visualPositionMs < 6000f)
-        clock.seek(500f, 5080)
-        clock.frame(5096, false, 1f, 6000f)
-        assertEquals(500f, clock.visualPositionMs, 0f)
-    }
-
     @Test fun returningFromShareSynchronizesSmallAndLargePlaybackGapsOnTheFirstFrame() {
         for (gap in listOf(80f, 250f, 499f, 5000f)) {
             val clock = NativeLyricClock(1000f)

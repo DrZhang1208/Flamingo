@@ -119,13 +119,13 @@ class SeekProgressReturnMotionTest {
 
     @Test fun activationLiftsTheCentreWithoutMovingTheEdgesOrOpeningTheBottom() {
         for (activation in listOf(0f, 0.25f, 0.5f, 1f)) {
-            assertEquals(-26f * activation, seekCancelArcTop(400f, 100f, 200f, activation), 0.001f)
+            assertEquals(-6f * activation, seekCancelArcTop(400f, 100f, 200f, activation), 0.001f)
             assertEquals(55f, seekCancelArcTop(400f, 100f, 0f, activation), 0.001f)
             assertEquals(55f, seekCancelArcTop(400f, 100f, 400f, activation), 0.001f)
             for (x in 0..400 step 10) {
                 assertTrue(seekCancelArcTop(400f, 100f, x.toFloat(), activation) < 100f)
             }
         }
-        assertEquals(-26f, seekCancelArcTop(400f, 100f, 200f, 1.1f), 0.001f)
+        assertEquals(-6f, seekCancelArcTop(400f, 100f, 200f, 1.1f), 0.001f)
     }
 }

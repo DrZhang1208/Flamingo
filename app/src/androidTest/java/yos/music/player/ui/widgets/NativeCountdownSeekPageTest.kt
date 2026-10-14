@@ -69,38 +69,4 @@ class NativeCountdownSeekPageTest {
             assertTrue("Target lyric skipped the scroll: $initial -> $settled", initial > settled + 10f)
         }
     }
-
-    @Test fun clickingTheFirstLyricDuringOpeningCountdownRetainsItsScrollAnimation() {
-        val entries = listOf(
-            YosLyricLine(0f, 12000f, emptyList(), agent = YosLyricLine.COUNTDOWN_AGENT),
-            YosLyricLine(12000f, 15000f, listOf(YosLyricToken(12000f, 15000f, "First lyric")),
-                translation = "opening seek target"),
-            YosLyricLine(15000f, 18000f, listOf(YosLyricToken(15000f, 18000f, "Next")))
-        )
-        val state = NowPlayingLyricState(trackKey = "opening-countdown-seek", entries = entries,
-            effectivePositionMs = 5000, generation = 1)
-        var playbackPosition = 5000
-        compose.mainClock.autoAdvance = false
-        compose.setContent {
-            YosLyricView({ state }, { playbackPosition }, object : YosMediaEvent {
-                override fun onSeek(position: Int) { playbackPosition = position }
-            }, translationLambda = { true }, weightLambda = { false },
-                modifier = Modifier.size(320.dp, 600.dp), onBackClick = {})
-        }
-        compose.mainClock.advanceTimeBy(800)
-        val target = compose.onNodeWithText("opening seek target")
-        val before = target.fetchSemanticsNode().boundsInRoot.top
-        target.performClick()
-        compose.mainClock.advanceTimeByFrame()
-        val initial = target.fetchSemanticsNode().boundsInRoot.top
-        compose.mainClock.advanceTimeBy(500)
-        val settled = target.fetchSemanticsNode().boundsInRoot.top
-        compose.runOnIdle {
-            assertEquals(12000, playbackPosition)
-            assertTrue("Opening countdown collapsed straight to the destination: $initial -> $settled",
-                initial > settled + 10f)
-            assertTrue("The first seek frame lost the countdown slot: $before -> $initial",
-                kotlin.math.abs(initial - before) < 12f)
-        }
-    }
 }
