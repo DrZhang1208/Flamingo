@@ -816,6 +816,7 @@ fun NowPlaying(
                                             showControl.value = true
                                             lastClickTime.longValue = TimeUtils.getNowMills()
                                         },
+                                        previousEnabled = !MediaController.wanderMode.value,
                                         onStatus = { status ->
                                             if (status) {
                                                 mediaControl?.fadePlay()
@@ -826,7 +827,7 @@ fun NowPlaying(
                                             lastClickTime.longValue = TimeUtils.getNowMills()
                                         },
                                         onNext = {
-                                            mediaControl?.seekToNextMediaItem()
+                                            MediaController.skipToNext()
                                             showControl.value = true
                                             lastClickTime.longValue = TimeUtils.getNowMills()
                                         },
@@ -1034,7 +1035,9 @@ private fun PlayingList(
         ) {
             val hide = remember("PlayingList_hide") {
                 derivedStateOf {
-                    musicList.value.isNullOrEmpty() || shuffleModeEnabledLambda()
+                    // 漫游是随机流，队列无意义：与随机模式一样隐藏歌曲列表
+                    musicList.value.isNullOrEmpty() || shuffleModeEnabledLambda() ||
+                        MediaController.wanderMode.value
                 }
             }
 
@@ -1927,6 +1930,7 @@ private fun PlayerControl(
     isPlayingLambda: () -> Boolean,
     isPlayingOnChanged: (Boolean) -> Unit,
     onPrevious: () -> Unit,
+    previousEnabled: Boolean = true,
     onStatus: (Boolean) -> Unit,
     onNext: () -> Unit,
     onSeek: (Float) -> Unit,
@@ -2090,6 +2094,7 @@ private fun PlayerControl(
                                 modifier = Modifier
                                     .size(if (compactWindow) 44.dp else rememberAdaptive(61))
                                     .clickable(
+                                        enabled = previousEnabled,
                                         indication = ripple(bounded = false),
                                         interactionSource = remember { MutableInteractionSource() }
                                     ) {
@@ -2104,6 +2109,7 @@ private fun PlayerControl(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(10.dp)
+                                        .alpha(if (previousEnabled) 1f else 0.3f)
                                 )
                             }
 

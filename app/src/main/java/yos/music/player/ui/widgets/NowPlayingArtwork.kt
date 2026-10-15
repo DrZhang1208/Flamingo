@@ -102,8 +102,11 @@ internal fun rememberNowPlayingArtwork(
                 // Each transition owns its clock: resetting a shared clock would redraw
                 // the previous surface at zero before recomposition installs the snapshot.
                 val current = layers
-                val frozen = current.progress.value
-                val snapshot = ArtworkBlendPainter(current.previous, current.next) { frozen }
+                // 快速连切时以上一帧的 next（当前视觉主体）为新 previous：
+                // 把 blend 快照嵌进快照会让 GPU RenderEffect 逐次叠加，
+                // 连续切歌后会把底栏模糊层的 blur 帧挤掉，表现为底栏透明闪烁。
+                // 正常单次切歌（动画已折叠 previous==next）时与旧逻辑等价。
+                val snapshot = current.next
                 layers = ArtworkLayers(snapshot, loaded, Animatable(0f))
             }
             val current = layers

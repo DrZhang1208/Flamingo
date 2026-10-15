@@ -132,7 +132,7 @@ object SleepTimerManager {
      */
     fun checkFinishCurrentSong(currentSongUri: String?) {
         // 只在延长模式 + 倒计时归0 + 定时器激活 时触发退出
-        if (isExtendToSongEnd.value && isActive.value && remainingSeconds.intValue == 0) {
+        if (isFinishingAfterCurrentSong()) {
             Handler(Looper.getMainLooper()).post {
                 val context = yos.music.player.code.MediaController.appContext
                 context?.let {
@@ -141,6 +141,13 @@ object SleepTimerManager {
             }
         }
     }
+
+    /**
+     * 是否处于"延长模式 + 倒计时已归 0"即将在当前歌曲结束后退出的状态。
+     * 漫游等自动接续逻辑应先查询此状态，避免接续切歌被误判为手动切歌而取消定时退出。
+     */
+    fun isFinishingAfterCurrentSong(): Boolean =
+        isExtendToSongEnd.value && isActive.value && remainingSeconds.intValue == 0
     
     /**
      * 手动暂停时调用：如果是延长模式且倒计时已归 0，取消定时

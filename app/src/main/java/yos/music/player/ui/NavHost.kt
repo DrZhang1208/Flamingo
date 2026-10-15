@@ -23,6 +23,7 @@ interface UI {
         const val PlayLists = "PlayLists"
         const val LocalArtists = "LocalArtists"
         const val LocalAlbums = "LocalAlbums"
+        const val ListenStats = "ListenStats"
 
         const val AlbumInfo = "AlbumInfo"
         const val ArtistInfo = "ArtistInfo"

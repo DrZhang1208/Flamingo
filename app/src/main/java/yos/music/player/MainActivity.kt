@@ -28,6 +28,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutQuart
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -128,13 +129,13 @@ import yos.music.player.code.utils.player.FadeExo.fadePlay
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.defaultTitle
-import yos.music.player.data.models.ImageViewModel
 import yos.music.player.data.models.MainViewModel
 import yos.music.player.data.models.MediaViewModel
 import yos.music.player.data.objects.MediaViewModelObject
 import yos.music.player.ui.UI
 import yos.music.player.ui.UI.Settings.Companion.ExoplayerSetting
 import yos.music.player.ui.pages.HomeNav
+import yos.music.player.ui.pages.ListenStatsPage
 import yos.music.player.ui.pages.NowPlaying
 import yos.music.player.ui.pages.NowPlayingPage.Album
 import yos.music.player.ui.pages.library.Library
@@ -174,8 +175,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
     private val mediaViewModel: MediaViewModel by viewModels()
     private val mainViewModel: MainViewModel by viewModels()
-
-    private val imageViewModel: ImageViewModel by viewModels()
 
     @Suppress("DEPRECATION")
     @OptIn(
@@ -299,7 +298,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
                         val showNowPlaying = remember("MainActivity_showNowPlaying") {
                             derivedStateOf {
-                                yosBottomSheetConfig.menuAlpha < 0.3f
+                                // 阈值取高位：收起动画接近完成（menuAlpha>0.9）才退出展开态，
+                                // 避免系统栏图标明暗在收起早期翻转、触发系统侧重绘底栏造成闪烁
+                                yosBottomSheetConfig.menuAlpha < 0.9f
                             }
                         }
 
@@ -369,13 +370,15 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         //compositingStrategy = CompositingStrategy.Offscreen
                                         //transformOrigin = TransformOrigin(0.5f, 1f)
 
-                                        if (yosBottomSheetConfig.thisShowCorner && !yosBottomSheetConfig.RTCorner) {
-                                            compositingStrategy = CompositingStrategy.Offscreen
-                                            clip = true
+                                        // 合成策略全程保持 Offscreen，仅在展开时追加圆角裁剪：
+                                        // 收起结束帧若从 Offscreen 切回 ModulateAlpha，会连带
+                                        // 底栏 haze 模糊层的合成结果跳变一帧（表现为底栏透明度闪没）
+                                        compositingStrategy = CompositingStrategy.Offscreen
+                                        val cornered =
+                                            yosBottomSheetConfig.thisShowCorner && !yosBottomSheetConfig.RTCorner
+                                        clip = cornered
+                                        if (cornered) {
                                             shape = YosRoundedCornerShape(screenCorner.dp)
-                                        } else {
-                                            compositingStrategy = CompositingStrategy.ModulateAlpha
-                                            clip = false
                                         }
 
                                         if (!yosBottomSheetConfig.barShowCorner) {
@@ -407,8 +410,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     YosWrapper {
                                         val offsetSpec = spring<IntOffset>(stiffness = 300f, dampingRatio = 0.85f)
                                         AnimatedNavHost(
+                                            // haze 内容源常驻，不随播放页展开/收起挂摘：
+                                            // 否则底栏模糊背景会在切换帧采样不到内容源，出现底部闪条
                                             modifier = Modifier.then(
-                                                if (SettingsLibrary.BarBlurEffect && !showNowPlaying.value) {
+                                                if (SettingsLibrary.BarBlurEffect) {
                                                     Modifier.haze(state = hazeState)
                                                 } else {
                                                     Modifier
@@ -425,8 +430,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             composable(UI.HomePage) {
                                                 HomeNav(
                                                     navController,
-                                                    pagerState,
-                                                    imageViewModel
+                                                    pagerState
                                                 ) {
                                                     nowLabel.value = it
                                                 }
@@ -455,6 +459,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             }
                                             composable(UI.ArtistInfo) {
                                                 ArtistInfo(navController)
+                                            }
+
+                                            composable(UI.ListenStats) {
+                                                ListenStatsPage(navController)
                                             }
 
                                             composable(UI.AlbumInfo) {
@@ -523,72 +531,86 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         contentAlignment = Alignment.BottomCenter
                                     ) {
                                         // 背景
-                                        if (!showNowPlaying.value && SettingsLibrary.BarBlurEffect) {
-                                            Spacer(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .navigationBarsHeight(128.dp)
-                                                    .graphicsLayer {
-                                                        compositingStrategy =
-                                                            CompositingStrategy.Offscreen
-                                                    }
-                                                    .hazeChild(
-                                                        hazeState,
-                                                        HazeMaterials
-                                                            .regular(
-                                                                color
-                                                            )
-                                                            .copy(
-                                                                blurRadius = 48.dp
-                                                            )
+                                        // 底层常驻静态渐变；实时模糊层仅在收起静止后 240ms 淡入盖上、
+                                        // 展开时淡出。过渡期间露出的是同色系渐变而非页面内容，
+                                        // 避免"先变不透明再恢复模糊"的两段式跳变
+                                        Spacer(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .navigationBarsHeight(128.dp)
+                                                .background(
+                                                    brush = Brush.verticalGradient(
+                                                        colors = listOf(
+                                                            Color.Transparent,
+                                                            color.copy(alpha = 0.3f),
+                                                            color.copy(alpha = 0.6f),
+                                                            color,
+                                                            color,
+                                                            color,
+                                                            color,
+                                                            color
+                                                        ),
+                                                        startY = 0f,
+                                                        endY = Float.POSITIVE_INFINITY
                                                     )
-                                                    .drawWithCache {
-                                                        onDrawWithContent {
-                                                            val colors = listOf(
-                                                                Color.Transparent,
-                                                                color.copy(alpha = 0.3f),
-                                                                color.copy(alpha = 0.6f),
-                                                                color,
-                                                                color,
-                                                                color,
-                                                                color,
-                                                                color
-                                                            )
-
-                                                            drawContent()
-
-                                                            drawRect(
-                                                                brush = Brush.verticalGradient(
-                                                                    colors
-                                                                ),
-                                                                blendMode = BlendMode.DstIn
-                                                            )
+                                                )
+                                        )
+                                        if (SettingsLibrary.BarBlurEffect) {
+                                            val settled = remember("MainActivity_barSettled") {
+                                                derivedStateOf { yosBottomSheetConfig.progress == 0f }
+                                            }
+                                            val blurAlpha = animateFloatAsState(
+                                                targetValue = if (settled.value) 1f else 0f,
+                                                animationSpec = tween(240),
+                                                label = "barBlurAlpha"
+                                            )
+                                            if (blurAlpha.value > 0.01f) {
+                                                Spacer(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .navigationBarsHeight(128.dp)
+                                                        .graphicsLayer {
+                                                            alpha = blurAlpha.value
+                                                            compositingStrategy =
+                                                                CompositingStrategy.Offscreen
                                                         }
-                                                    }
-                                            )
-                                        } else {
-                                            //println("haze 底栏效果关闭")
-                                            Spacer(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .navigationBarsHeight(128.dp)
-                                                    .background(
-                                                        brush = Brush.verticalGradient(
-                                                            colors = listOf(
-                                                                Color.Transparent,
-                                                                color.copy(alpha = 0.3f),
-                                                                color.copy(alpha = 0.6f),
-                                                                color,
-                                                                color,
-                                                                color,
-                                                                color,
-                                                                color
-                                                            ),
-                                                            startY = 0f,
-                                                            endY = Float.POSITIVE_INFINITY
+                                                        // 不透明兜底：模糊效果层偶发缺失的帧显示纯色底
+                                                        .background(color)
+                                                        .hazeChild(
+                                                            hazeState,
+                                                            HazeMaterials
+                                                                .regular(
+                                                                    color
+                                                                )
+                                                                .copy(
+                                                                    blurRadius = 48.dp
+                                                                )
                                                         )
-                                                    )
-                                            )
+                                                        .drawWithCache {
+                                                            onDrawWithContent {
+                                                                val colors = listOf(
+                                                                    Color.Transparent,
+                                                                    color.copy(alpha = 0.3f),
+                                                                    color.copy(alpha = 0.6f),
+                                                                    color,
+                                                                    color,
+                                                                    color,
+                                                                    color,
+                                                                    color
+                                                                )
+
+                                                                drawContent()
+
+                                                                drawRect(
+                                                                    brush = Brush.verticalGradient(
+                                                                        colors
+                                                                    ),
+                                                                    blendMode = BlendMode.DstIn
+                                                                )
+                                                            }
+                                                        }
+                                                )
+                                            }
                                         }
 
                                         BottomNavigator(
@@ -871,42 +893,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                     })
                                                         ) {
 
-                                                            YosWrapper {
-                                                                val showMiniBarHaze = remember(
-                                                                    "MainActivity_showMiniBarHaze",
-                                                                    yosBottomSheetConfig.menuAlpha
-                                                                ) {
-                                                                    derivedStateOf {
-                                                                        yosBottomSheetConfig.menuAlpha == 1f && SettingsLibrary.BarBlurEffect
-                                                                    }
-                                                                }
-                                                                this@Column.AnimatedVisibility(
-                                                                    visible = showMiniBarHaze.value,
-                                                                    modifier = Modifier
-                                                                        .fillMaxWidth()
-                                                                        .height(
-                                                                            navHeight
-                                                                        ),
-                                                                    enter = fadeIn(tween(100)),
-                                                                    exit = fadeOut(tween(100))
-                                                                ) {
-                                                                    Spacer(
-                                                                        modifier = Modifier
-                                                                            .fillMaxSize()
-                                                                            .hazeChild(
-                                                                                hazeState,
-                                                                                HazeMaterials
-                                                                                    .thick(
-                                                                                       color
-                                                                                    )
-                                                                                    .copy(
-                                                                                        blurRadius = 48.dp
-                                                                                    )
-                                                                            )
-                                                                    )
-                                                                }
-                                                            }
-
                                                             Row(
                                                                 Modifier
                                                                     .height(miniPlayerHeight)
@@ -1045,7 +1031,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                                     Vibrator.click(
                                                                                         context
                                                                                     )
-                                                                                    MediaController.mediaControl?.seekToNextMediaItem()
+                                                                                    MediaController.skipToNext()
                                                                                 }),
                                                                         contentAlignment = Alignment.Center
                                                                     ) {

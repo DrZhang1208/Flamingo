@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import yos.music.player.R
-import yos.music.player.data.models.ImageViewModel
 import yos.music.player.ui.pages.library.Library
 import yos.music.player.ui.widgets.basic.YosWrapper
 
@@ -23,7 +22,6 @@ object HomePage {
 fun HomeNav(
     navController: NavController,
     pagerState: PagerState,
-    imageViewModel: ImageViewModel,
     nowPageOnChanged: (String) -> Unit
 ) =
     YosWrapper {
@@ -64,7 +62,7 @@ fun HomeNav(
             userScrollEnabled = false
         ) { page ->
             when (page) {
-                0 -> Home(navController, imageViewModel)
+                0 -> Home(navController)
                 1 -> Library(navController)
             }
         }

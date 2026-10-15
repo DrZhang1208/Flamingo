@@ -48,6 +48,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -116,6 +117,87 @@ object MediaController {
     @Stable
     var shuffleEnabled = mutableStateOf(false)
 
+    /**
+     * 漫游模式：队列只保留当前一首，下一首由随机算法产生（不重复），禁用上一首。
+     * 任何普通 prepare 调用都会退出漫游模式。使用 Compose 状态以便 UI 置灰上一首按钮。
+     */
+    val wanderMode = mutableStateOf(false)
+
+    /** 漫游会话中已播放过的 URI，全部播完后重新开始一轮 */
+    private val wanderPlayedUris = mutableSetOf<String>()
+
+    /** 漫游随机算法：排除本会话已播曲目；全部播过后清空重来 */
+    private fun pickNextWanderTrack(currentUri: String?): YosMediaItem? {
+        val songs = MusicLibrary.songs
+        if (songs.isEmpty()) return null
+        currentUri?.let { wanderPlayedUris.add(it) }
+        val candidates = songs.filter { it.uri?.toString() !in wanderPlayedUris }
+        val pool = if (candidates.isEmpty()) {
+            wanderPlayedUris.clear()
+            songs
+        } else candidates
+        return pool.random()
+    }
+
+    /** 开始漫游：随机选一首立即播放 */
+    suspend fun startWander() {
+        prepareMutex.withLock {
+            val songs = MusicLibrary.songs
+            if (songs.isEmpty()) return@withLock
+            wanderMode.value = true
+            wanderPlayedUris.clear()
+            val first = songs.random()
+            first.uri?.toString()?.let { wanderPlayedUris.add(it) }
+            shuffleEnabled.value = false
+            sourceMusicList = listOf(first)
+            val item = first.toMediaItem()
+            withContext(Dispatchers.Main) {
+                playingMusicList.value = listOf(first)
+                mediaControl?.shuffleModeEnabled = false
+                mediaControl?.repeatMode = REPEAT_MODE_OFF
+                mediaControl?.setMediaItems(listOf(item), 0, 0L)
+                mediaControl?.prepare()
+                mediaControl?.fadePlay()
+                musicPlaying.value = first
+                mediaControl?.let { YosPlaybackService.instance?.setCustomButtons(it) }
+            }
+            countingUri = first.uri?.toString()
+            syncState()
+        }
+    }
+
+    /** 统一的“下一首”入口：普通模式走队列，漫游模式立即触发下一次漫游选曲（暂停/缓冲态亦可） */
+    fun skipToNext() {
+        if (wanderMode.value) {
+            wanderSkipToNext()
+        } else {
+            CoroutineScope(Dispatchers.Main.immediate).launch {
+                mediaControl?.seekToNextMediaItem()
+            }
+        }
+    }
+
+    /** 漫游中切换下一首（点下一首按钮或当前曲目自然播完） */
+    fun wanderSkipToNext() {
+        CoroutineScope(Dispatchers.Main.immediate).launch {
+            prepareMutex.withLock {
+                if (!wanderMode.value) return@withLock
+                val next = pickNextWanderTrack(musicPlaying.value?.uri?.toString()) ?: return@withLock
+                next.uri?.toString()?.let { wanderPlayedUris.add(it) }
+                val mc = mediaControl ?: return@withLock
+                mc.addMediaItem(next.toMediaItem())
+                if (mc.mediaItemCount > 1) mc.removeMediaItem(0)
+                mc.prepare()
+                mc.fadePlay()
+                playingMusicList.value = listOf(next)
+                sourceMusicList = listOf(next)
+                countingUri = next.uri?.toString()
+                musicPlaying.value = next
+                syncState()
+            }
+        }
+    }
+
     /** 原始播放列表（未打乱），用于关闭随机时恢复自然顺序 */
     var sourceMusicList: List<YosMediaItem>? = null
 
@@ -145,6 +227,8 @@ object MediaController {
         prepareMutex.withLock {
             // A user may have started another song while the saved queue was loading.
             if (!play && withContext(Dispatchers.Main) { (mediaControl?.mediaItemCount ?: 0) > 0 }) return@withLock
+            // 普通播放请求退出漫游模式
+            wanderMode.value = false
             shuffleEnabled.value = shuffleModeEnabled
 
             if (thisMusicList != playingMusicList.value) {
@@ -233,6 +317,8 @@ object MediaController {
     fun toggleShuffle() {
         CoroutineScope(Dispatchers.Main.immediate).launch {
             prepareMutex.withLock {
+                // 漫游模式本身就是随机播放，切换随机开关会造成状态分裂，忽略
+                if (wanderMode.value) return@withLock
                 val mc = mediaControl ?: return@withLock
                 if (!mc.isConnected) return@withLock
                 val actual = mc.currentMediaItem ?: return@withLock
@@ -395,6 +481,7 @@ class YosPlaybackService : MediaSessionService() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main.immediate + serviceJob)
     private var networkPlaybackRetry: Job? = null
+    private var listenDurationJob: Job? = null
     private var networkRetryUri: String? = null
     private var networkRetryAttempt = 0
 
@@ -654,6 +741,51 @@ class YosPlaybackService : MediaSessionService() {
 
             override fun isPlaying(): Boolean {
                 return player.isPlaying
+            }
+
+            // 漫游模式：禁用上一首，下一首走漫游随机算法
+            override fun getAvailableCommands(): Player.Commands {
+                val base = super.getAvailableCommands()
+                return if (yos.music.player.code.MediaController.wanderMode.value) {
+                    base.buildUpon()
+                        .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                        .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+                        .build()
+                } else base
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                if (yos.music.player.code.MediaController.wanderMode.value &&
+                    (command == Player.COMMAND_SEEK_TO_PREVIOUS ||
+                        command == Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                ) {
+                    return false
+                }
+                return super.isCommandAvailable(command)
+            }
+
+            override fun seekToPreviousMediaItem() {
+                if (!yos.music.player.code.MediaController.wanderMode.value) super.seekToPreviousMediaItem()
+            }
+
+            override fun seekToPrevious() {
+                if (!yos.music.player.code.MediaController.wanderMode.value) super.seekToPrevious()
+            }
+
+            override fun hasPreviousMediaItem(): Boolean {
+                return !yos.music.player.code.MediaController.wanderMode.value && super.hasPreviousMediaItem()
+            }
+
+            override fun seekToNextMediaItem() {
+                if (yos.music.player.code.MediaController.wanderMode.value) {
+                    yos.music.player.code.MediaController.wanderSkipToNext()
+                } else super.seekToNextMediaItem()
+            }
+
+            override fun seekToNext() {
+                if (yos.music.player.code.MediaController.wanderMode.value) {
+                    yos.music.player.code.MediaController.wanderSkipToNext()
+                } else super.seekToNext()
             }
         }
 
@@ -1126,6 +1258,14 @@ class YosPlaybackService : MediaSessionService() {
                         if (player.playbackState == Player.STATE_ENDED) {
                             val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
                             SleepTimerManager.checkFinishCurrentSong(currentUri)
+                            // 漫游模式：当前曲目自然播完后接续随机下一首。
+                            // 定时关闭处于"播完当前歌退出"状态时不接续，否则切歌事件
+                            // 会被定时器误判为手动切歌而取消退出。
+                            if (yos.music.player.code.MediaController.wanderMode.value &&
+                                !SleepTimerManager.isFinishingAfterCurrentSong()
+                            ) {
+                                yos.music.player.code.MediaController.wanderSkipToNext()
+                            }
                         }
                     }
 
@@ -1136,7 +1276,10 @@ class YosPlaybackService : MediaSessionService() {
                         val position = player.currentPosition
                         if (duration > 0 && position >= duration / 2) {
                             val uri = player.currentMediaItem?.localConfiguration?.uri
-                            if (uri != null && SettingsLibrary.ListenHistory) MusicLibrary.incrementPlayCount(uri)
+                            if (uri != null && SettingsLibrary.ListenHistory) {
+                                MusicLibrary.incrementPlayCount(uri)
+                                yos.music.player.data.libraries.ListenStatsLibrary.onValidPlay(uri.toString())
+                            }
                             yos.music.player.code.MediaController.countingUri = null
                         }
                     }
@@ -1155,6 +1298,23 @@ class YosPlaybackService : MediaSessionService() {
 
             }
         )
+
+        // 听歌统计：每秒累计一次实际播放的聆听时长（墙钟时间 × 播放速度）
+        listenDurationJob?.cancel()
+        listenDurationJob = serviceScope.launch {
+            while (isActive) {
+                delay(1000)
+                val uri = player.currentMediaItem?.localConfiguration?.uri?.toString() ?: continue
+                if (!player.playWhenReady || player.playbackState != Player.STATE_READY) continue
+                if (FadeExo.isPausePending) continue
+                if (!SettingsLibrary.ListenHistory) continue
+                val speed = player.playbackParameters.speed
+                if (speed <= 0f) continue
+                yos.music.player.data.libraries.ListenStatsLibrary.addListenDuration(
+                    uri, (1000L * speed).toLong()
+                )
+            }
+        }
 
         /*val repeatButton = CommandButton.Builder()
             .setIconResId(android.R.drawable.ic_media_rew)
@@ -1363,6 +1523,8 @@ class YosPlaybackService : MediaSessionService() {
     override fun onDestroy() {
         focusPlayer = null
         cancelNetworkPlaybackRetry()
+        listenDurationJob?.cancel()
+        yos.music.player.data.libraries.ListenStatsLibrary.flush()
         if (::statusBarLyricsPublisher.isInitialized) statusBarLyricsPublisher.stop()
         localLyricsLoader.cancel()
         yos.music.player.code.MediaController.refreshJob?.cancel()
@@ -1382,6 +1544,7 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        yos.music.player.data.libraries.ListenStatsLibrary.flush()
         saveData()
         super.onTaskRemoved(rootIntent)
     }

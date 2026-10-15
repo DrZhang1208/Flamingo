@@ -391,6 +391,9 @@ object MusicLibrary {
         return uri?.toString()?.let { synchronized(playCountMap) { playCountMap[it] } } ?: 0
     }
 
+    /** 一次性拷贝全部播放次数，供批量统计场景使用，避免逐条加锁 */
+    fun getPlayCountSnapshot(): Map<String, Int> = synchronized(playCountMap) { playCountMap.toMap() }
+
     // --- 远程服务器配置持久化 ---
 
     fun saveRemoteServers(json: String) {

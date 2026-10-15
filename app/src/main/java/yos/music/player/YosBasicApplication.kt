@@ -149,6 +149,14 @@ class YosBasicApplication : Application() {
                                 playStatusData.shuffleModeEnabled, playStatusData.repeatMode,
                                 false, playListData.sourceMusicList
                             )
+                            // 漫游中断重启的恢复：漫游时持久化的播放/来源列表都只剩当前一首，
+                            // 而主列表仍是完整资料库——据此还原漫游模式，播完继续随机接续
+                            if (queue.size == 1 &&
+                                (playListData.sourceMusicList?.size ?: 0) <= 1 &&
+                                (playListData.mainMusicList?.size ?: 0) > 1
+                            ) {
+                                yos.music.player.code.MediaController.wanderMode.value = true
+                            }
                         }
 
                         // 清理过期标签缓存（超过 30 天未更新的标签）
