@@ -305,6 +305,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         var lineAgent = YosLyricLine.DEFAULT_AGENT
         var plainText = StringBuilder()
         var translationText = StringBuilder()
+        var romajiText = StringBuilder()
         var backgroundText = StringBuilder()
         var segments = mutableListOf<LyricSegment>()
         var backgroundSegments = mutableListOf<LyricSegment>()
@@ -315,7 +316,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             parseTtmlTimeMs(raw)?.let { normalizeRelativeTime(base, it) }
         fun currentSpecialRole(): String? = spanStack.asSequence()
             .mapNotNull { it.role?.lowercase() }
-            .firstOrNull { it == "x-translation" || it == "x-bg" }
+            .firstOrNull { it == "x-translation" || it == "x-bg" || it == "x-romaji" }
         fun currentTimedSpan(): MutableTtmlSpan? = spanStack.lastOrNull { it.startMs != null && it.endMs != null }
         fun appendInlineTextToLastSegment(raw: String) {
             if (segments.isEmpty() || !isInlineTtmlText(raw)) return
@@ -343,6 +344,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                             inParagraph = true
                             plainText = StringBuilder()
                             translationText = StringBuilder()
+                            romajiText = StringBuilder()
                             backgroundText = StringBuilder()
                             segments = mutableListOf()
                             backgroundSegments = mutableListOf()
@@ -373,10 +375,12 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                         val value = parser.text.orEmpty()
                         when (currentSpecialRole()) {
                             "x-translation" -> translationText.append(value)
+                            "x-romaji" -> romajiText.append(value)
                             "x-bg" -> backgroundText.append(value)
                             else -> plainText.append(value)
                         }
-                        val timedSpan = currentTimedSpan()
+                        // 特殊 role 的文本不进逐字 token，防止罗马音/翻译混入主歌词
+                        val timedSpan = if (currentSpecialRole() == null) currentTimedSpan() else null
                         if (timedSpan != null) {
                             timedSpan.text.append(value)
                         } else if (currentSpecialRole() == null) {
@@ -394,7 +398,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                                     val segment = LyricSegment(span.startMs, span.endMs, lyric)
                                     val role = span.role?.lowercase() ?: currentSpecialRole()
                                     if (role == "x-bg") backgroundSegments += segment
-                                    else if (role != "x-translation") segments += segment
+                                    else if (role != "x-translation" && role != "x-romaji") segments += segment
                                 }
                             }
                         }
@@ -402,13 +406,15 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                             if (inParagraph) {
                                 val plain = cleanLyricText(plainText.toString())
                                 val translation = cleanLyricText(translationText.toString())
+                                val romaji = cleanLyricText(romajiText.toString())
                                 val main = when {
-                                    segments.isNotEmpty() -> lineOf(lineStart, segments, translation, lineAgent)
+                                    segments.isNotEmpty() -> lineOf(lineStart, segments, translation, lineAgent, romaji)
                                     plain.isNotBlank() -> lineOf(
                                         lineStart,
                                         listOf(LyricSegment(lineStart, lineEnd.coerceAtLeast(lineStart), plain)),
                                         translation,
-                                        lineAgent
+                                        lineAgent,
+                                        romaji
                                     )
                                     lineEnd > lineStart -> blankLine(lineStart, lineEnd)
                                     else -> null
@@ -458,6 +464,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             val spans = mutableListOf<LyricSegment>()
             val backgroundSpans = mutableListOf<LyricSegment>()
             var translation = ""
+            var romaji = ""
             ttmlAnySpanRegex.findAll(body).forEach { span ->
                 val attrs = parseXmlAttrs(span.groupValues[1])
                 val lyric = cleanLyricTokenText(stripXml(span.groupValues[2]))
@@ -465,6 +472,10 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 val role = attrs["role"]?.lowercase()
                 if (role == "x-translation") {
                     translation = cleanLyricText(lyric)
+                    return@forEach
+                }
+                if (role == "x-romaji") {
+                    romaji = cleanLyricText(lyric)
                     return@forEach
                 }
                 val start = parseTtmlTimeMs(attrs["begin"])?.let { normalizeRelativeTime(lineStart, it) } ?: lineStart
@@ -475,12 +486,13 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             }
             val plain = cleanLyricText(stripXml(body))
             val main = when {
-                spans.isNotEmpty() -> lineOf(lineStart, spans, translation, agent)
+                spans.isNotEmpty() -> lineOf(lineStart, spans, translation, agent, romaji)
                 plain.isNotBlank() -> lineOf(
                     lineStart,
                     listOf(LyricSegment(lineStart, lineEnd.coerceAtLeast(lineStart), plain)),
                     translation,
-                    agent
+                    agent,
+                    romaji
                 )
                 lineEnd > lineStart -> blankLine(lineStart, lineEnd)
                 else -> null
@@ -502,7 +514,8 @@ class YosLrcFactory(private val formatText: Boolean = true) {
         lineStart: Float,
         segments: List<LyricSegment>,
         translation: String,
-        agent: String = YosLyricLine.DEFAULT_AGENT
+        agent: String = YosLyricLine.DEFAULT_AGENT,
+        romaji: String = ""
     ): YosLyricLine {
         val tokens = segments
             .sortedBy { it.startMs }
@@ -520,6 +533,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
             endMs = endMs.coerceAtLeast(lineStart),
             tokens = tokens,
             translation = translation,
+            romaji = romaji,
             agent = agent,
             otherSide = agent != YosLyricLine.DEFAULT_AGENT
         )

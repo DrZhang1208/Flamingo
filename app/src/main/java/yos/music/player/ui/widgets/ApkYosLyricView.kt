@@ -59,6 +59,7 @@ fun YosLyricView(
     liveTimeLambda: () -> Int,
     mediaEvent: YosMediaEvent,
     translationLambda: () -> Boolean = { true },
+    romajiLambda: () -> Boolean = { true },
     blurLambda: () -> Boolean = { false },
     uiConfig: YosUIConfig = YosUIConfig(),
     weightLambda: () -> Boolean,
@@ -255,6 +256,7 @@ fun YosLyricView(
     }
     val fontFamily = rememberLyricFontFamily()
     val showTranslation = translationLambda()
+    val showRomaji = romajiLambda()
     LaunchedEffect(
         columnState,
         renderActive,
@@ -266,6 +268,7 @@ fun YosLyricView(
         isSeekPreview,
         columnState.isSeekScrollActive,
         showTranslation,
+        showRomaji,
         fontFamily,
         SettingsLibrary.LyricFontSize,
         SettingsLibrary.TranslationFontSize,
@@ -353,6 +356,7 @@ fun YosLyricView(
                     seekPreview = isSeekPreview,
                     liveTime = { visualPosition.floatValue },
                     showTranslation = showTranslation,
+                    showRomaji = showRomaji,
                     mainColor = mainColor,
                     subColor = subColor,
                     measurer = measurer,
@@ -388,6 +392,7 @@ fun YosLyricView(
                         seekPreview = isSeekPreview,
                         liveTime = { visualPosition.floatValue },
                         showTranslation = showTranslation,
+                        showRomaji = showRomaji,
                         mainColor = mainColor,
                         subColor = subColor,
                         measurer = measurer,
@@ -423,6 +428,7 @@ private fun RenderNativeLyricRow(
     seekPreview: Boolean,
     liveTime: () -> Float,
     showTranslation: Boolean,
+    showRomaji: Boolean,
     mainColor: Color,
     subColor: Color,
     measurer: androidx.compose.ui.text.TextMeasurer,
@@ -464,7 +470,7 @@ private fun RenderNativeLyricRow(
         active = active, focused = focused, past = lineState == LineState.Past, seekRevision = seekRevision, blur = if (browsing) 0f else committedBlur, nextStart = nextStart, nextIsCountdown = nextIsCountdown,
         animationsEnabled = animationsEnabled,
         seekPreview = seekPreview,
-        time = { rowTime.value }, showTranslation = showTranslation,
+        time = { rowTime.value }, showTranslation = showTranslation, showRomaji = showRomaji,
         mainColor = mainColor, subColor = subColor, measurer = measurer,
         fontFamily = fontFamily, onClick = onClick, onLongClick = onLongClick, interactionEnabled = interactionEnabled,
         onPressChanged = onPressChanged

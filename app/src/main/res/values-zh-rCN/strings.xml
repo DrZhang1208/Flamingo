@@ -148,6 +148,8 @@
     <string name="settings_performance_ui_nowplaying_show_volume_bar">显示音量条</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">在播放界面的下部显示音量调节条。</string>
     <string name="settings_performance_lyric_show_translation">显示歌词翻译</string>
+    <string name="settings_performance_lyric_show_romaji">显示罗马音</string>
+    <string name="settings_performance_lyric_show_romaji_desc">在翻译上方显示可用的罗马音歌词（TTML x-romaji）。</string>
     <string name="settings_performance_lyric_show_translation_desc">在原歌词下方显示可用的翻译歌词。</string>
     <string name="settings_performance_ui_theme">主题</string>
     <string name="settings_lyric_media_session">媒体会话歌词</string>

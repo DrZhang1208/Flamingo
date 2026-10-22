@@ -415,7 +415,7 @@ internal fun NativeLyricRow(
     line: YosLyricLine, tokens: List<YosLyricToken>, staticText: Boolean,
     active: Boolean, focused: Boolean, past: Boolean, blur: Float, nextStart: Float?,
     seekRevision: Int = 0, nextIsCountdown: Boolean = false,
-    time: () -> Float, showTranslation: Boolean, mainColor: Color, subColor: Color,
+    time: () -> Float, showTranslation: Boolean, showRomaji: Boolean, mainColor: Color, subColor: Color,
     measurer: TextMeasurer, fontFamily: FontFamily?, onClick: () -> Unit, onLongClick: () -> Unit,
     interactionEnabled: Boolean = true, onPressChanged: (Boolean) -> Unit = {},
     animationsEnabled: Boolean = true,
@@ -506,6 +506,15 @@ internal fun NativeLyricRow(
                 NativeLyricText(tokens, style, measurer, time, mainColor, mainColor.copy(alpha = 0.28f),
                     staticText, highlight, feathered, uplift, lineHighlight, line.hasWordTiming,
                     feedback = { feedback.value })
+            }
+            // Apple Music 行序：原文 → 罗马音 → 翻译；样式与翻译一致（恒定低亮度、不参与强调动画）
+            if (showRomaji && line.romaji.isNotBlank()) {
+                Text(line.romaji, fontSize = (SettingsLibrary.TranslationFontSize * scale).sp,
+                    lineHeight = (SettingsLibrary.TranslationFontSize * scale + 5f).sp,
+                    color = subColor.copy(alpha = subColor.alpha * 0.35f),
+                    fontFamily = fontFamily, fontWeight = style.fontWeight,
+                    textAlign = style.textAlign,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
             }
             if (showTranslation && line.translation.isNotBlank()) {
                 Text(line.translation, fontSize = (SettingsLibrary.TranslationFontSize * scale).sp,

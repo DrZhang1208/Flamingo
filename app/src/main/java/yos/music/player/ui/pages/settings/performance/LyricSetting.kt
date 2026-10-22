@@ -152,6 +152,19 @@ fun LyricSetting(navController: NavController) =
 
                         GroupSpacer()
 
+                        RoundColumn {
+                            SwitchItem(
+                                title = stringResource(R.string.settings_performance_lyric_show_romaji),
+                                desc = stringResource(R.string.settings_performance_lyric_show_romaji_desc),
+                                onClick = {
+                                    SettingsLibrary.NowPlayingRomaji = !SettingsLibrary.NowPlayingRomaji
+                                },
+                                checkedLambda = { SettingsLibrary.NowPlayingRomaji }
+                            )
+                        }
+
+                        GroupSpacer()
+
                         ListHeader(content = "翻译字号 — ${transSizeSlider.floatValue.toInt()}sp")
                         RoundColumn {
                             SliderRow(transSizeSlider.floatValue, { transSizeSlider.floatValue = it; SettingsLibrary.TranslationFontSize = it.toInt() }, 16f..32f, 1f)

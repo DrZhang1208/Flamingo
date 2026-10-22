@@ -416,6 +416,7 @@ fun NowPlaying(
             PlayerProgressState(initial.positionMs.toFloat(), initial.durationMs)
         }
         val translationVisible by SettingsLibrary.nowPlayingTranslationState
+        val romajiVisible by SettingsLibrary.nowPlayingRomajiState
 
         val lyricState: MutableState<NowPlayingLyricState> =
             MediaViewModelObject.nowPlayingLyrics
@@ -708,7 +709,7 @@ fun NowPlaying(
                                             Lyric(
                                                 lyricState = { lyricState.value }, weightLambda = { false },
                                                 onViewportInsetChanged = {}, splitWindow = true, insetsHandled = true,
-                                                translationLambda = { translationVisible }, seekPreviewState = lyricSeekPreview,
+                                                translationLambda = { translationVisible }, romajiLambda = { romajiVisible }, seekPreviewState = lyricSeekPreview,
                                                 shouldRenderContent = true, mainViewModel = mainViewModel,
                                                 mediaViewModel = mediaViewModel, showMiniPlayer = showMiniPlayer,
                                                 userScrollEnabled = interactive, renderActive = interactive,
@@ -795,7 +796,7 @@ fun NowPlaying(
                                 Lyric(
                                     lyricState = { lyricState.value }, weightLambda = { false },
                                     onViewportInsetChanged = {}, compactWindow = true, splitWindow = true, insetsHandled = true,
-                                    translationLambda = { translationVisible }, seekPreviewState = lyricSeekPreview,
+                                    translationLambda = { translationVisible }, romajiLambda = { romajiVisible }, seekPreviewState = lyricSeekPreview,
                                     shouldRenderContent = true, mainViewModel = mainViewModel,
                                     mediaViewModel = mediaViewModel, showMiniPlayer = showMiniPlayer,
                                     userScrollEnabled = visible, renderActive = visible,
@@ -844,6 +845,7 @@ fun NowPlaying(
                         compactWindow = compactWindow,
                         splitWindow = splitWindow,
                         translationLambda = { translationVisible },
+                        romajiLambda = { romajiVisible },
                         seekPreviewState = lyricSeekPreview,
                           shouldRenderContent = lyricContentReady.value || nowPageLambda() == Lyric,
                         showMiniPlayer = showMiniPlayer,
@@ -1685,6 +1687,7 @@ private fun Lyric(
     splitWindow: Boolean = false,
     insetsHandled: Boolean = false,
     translationLambda: () -> Boolean,
+    romajiLambda: () -> Boolean = { true },
     seekPreviewState: LyricSeekPreviewState,
     shouldRenderContent: Boolean,
     mainViewModel: MainViewModel,
@@ -1729,6 +1732,7 @@ private fun Lyric(
                           }
                       },
                       translationLambda = translationLambda,
+                      romajiLambda = romajiLambda,
                       seekPreviewState = seekPreviewState,
                       blurLambda = {
                           SettingsLibrary.LyricBlurEffect

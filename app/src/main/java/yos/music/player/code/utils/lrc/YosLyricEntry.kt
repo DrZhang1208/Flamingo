@@ -16,6 +16,7 @@ data class YosLyricLine(
     val endMs: Float,
     val tokens: List<YosLyricToken>,
     val translation: String = "",
+    val romaji: String = "",
     val otherSide: Boolean = false,
     val agent: String = DEFAULT_AGENT,
     val lyricsTextLine: String? = null,

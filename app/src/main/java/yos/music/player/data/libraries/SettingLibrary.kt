@@ -174,6 +174,16 @@ object SettingsLibrary {
     var NowPlayingTranslation by nowPlayingTranslationState
 
     /**
+     * 歌词界面 - 罗马音（独立于翻译开关）
+     */
+    val nowPlayingRomajiState = mutableDataSaverStateOf(
+        dataSaverInterface = SettingsSaver,
+        key = "now_playing_romaji",
+        initialValue = true
+    )
+    var NowPlayingRomaji by nowPlayingRomajiState
+
+    /**
      * 每次启动时刷新媒体库
      */
     @Stable

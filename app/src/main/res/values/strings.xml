@@ -152,6 +152,8 @@
     <string name="settings_performance_ui_nowplaying_show_volume_bar">Show Volume Bar</string>
     <string name="settings_performance_ui_nowplaying_show_volume_bar_desc">Display the volume adjustment bar at the bottom of the playback page.</string>
     <string name="settings_performance_lyric_show_translation">Show lyric translation</string>
+    <string name="settings_performance_lyric_show_romaji">Show romaji</string>
+    <string name="settings_performance_lyric_show_romaji_desc">Show available romanized lyrics above the translation (TTML x-romaji).</string>
     <string name="settings_performance_lyric_show_translation_desc">Show available translated lyrics below the original line.</string>
     <string name="settings_performance_ui_theme">Theme</string>
     <string name="settings_lyric_media_session">Media session lyrics</string>

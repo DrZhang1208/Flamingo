@@ -141,6 +141,8 @@
     <string name="settings_lyric_ticker">通知 Ticker 歌詞</string>
     <string name="settings_lyric_lyricon">Lyricon</string>
     <string name="settings_performance_lyric_show_translation">歌詞の翻訳を表示</string>
+    <string name="settings_performance_lyric_show_romaji">ローマ字を表示</string>
+    <string name="settings_performance_lyric_show_romaji_desc">利用可能なローマ字歌詞を翻訳の上に表示します（TTML x-romaji）。</string>
     <string name="settings_performance_lyric_show_translation_desc">利用可能な翻訳歌詞を原文の下に表示します。</string>
     <string name="settings_lyric_media_session">車載 Bluetooth 歌詞</string>
     <string name="settings_lyric_media_session_translation">翻訳を表示</string>

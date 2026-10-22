@@ -29,6 +29,7 @@ internal fun nativeLyricDocument(entries: List<YosLyricLine>): List<NativeLyricD
                     tokens = listOf(YosLyricToken(line.startMs, line.startMs, chunk)),
                     lyricsTextLine = chunk,
                     translation = if (end == text.length) line.translation else "",
+                    romaji = if (end == text.length) line.romaji else "",
                     otherLrcEntries = if (end == text.length) line.otherLrcEntries else emptyList()
                 ), sourceIndex, true))
                 start = end
