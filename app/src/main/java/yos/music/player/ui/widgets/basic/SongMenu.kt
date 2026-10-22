@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -139,12 +140,13 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                             Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
                             dismiss()
                         }))
+                        val artistMenuItemLabel = "歌手 · ${music.artistsName ?: defaultArtistsName}"
                         if (showArtistMenuItem && hasMultipleArtists) {
-                            add(Triple("歌手", Icons.Filled.Person, {
+                            add(Triple(artistMenuItemLabel, Icons.Filled.Person, {
                                 dismiss.after { showArtistPicker = true }
                             }))
                         } else if (showArtistMenuItem) {
-                            add(Triple("歌手", Icons.Filled.Person, {
+                            add(Triple(artistMenuItemLabel, Icons.Filled.Person, {
                                 dismiss.after {
                                     music.artistsList?.firstOrNull()?.let { artist ->
                                         yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
@@ -154,7 +156,7 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                             }))
                         }
                         if (showAlbumMenuItem && music.album != null) {
-                            add(Triple("专辑", Icons.Filled.Album, {
+                            add(Triple("专辑 · ${music.album}", Icons.Filled.Album, {
                                 dismiss.after {
                                     music.album?.let { album ->
                                         yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
@@ -178,7 +180,8 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                             Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)
                         }
                     }
