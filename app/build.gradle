@@ -1,0 +1,205 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'kotlin-parcelize'
+    id 'org.jetbrains.kotlin.plugin.compose'
+    id 'com.google.devtools.ksp'
+}
+
+android {
+    namespace 'yos.music.player'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.flamingo.player"
+        minSdk 23
+        targetSdk 34
+        versionCode 10
+        versionName "1.0.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+
+        renderscriptTargetApi 19
+        renderscriptSupportModeEnabled true
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+        // release 暂时也用 debug 密钥
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            zipAlignEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            applicationVariants.all { variant ->
+                variant.outputs.all {
+                    def appName = "Flamingo"
+                    def versionName = variant.versionName
+                    def date = new Date().format('yyMMddHHmmss')
+                    outputFileName = "${appName}_${versionName}_${date}.apk"
+                }
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    composeOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["libs"]
+        }
+    }
+
+    packagingOptions {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    composeCompiler {
+        enableStrongSkippingMode = true
+        stabilityConfigurationFile = file "${project.rootDir}/stability_config.conf"
+    }
+
+}
+
+dependencies {
+    implementation fileTree(include: ["*.*"], dir: "libs")
+    implementation(project(":overscroll_core"))
+
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:2.3.0')
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.4'
+    implementation 'androidx.activity:activity-compose:1.9.1'
+
+    implementation "androidx.compose.foundation:foundation:1.7.3"
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.7.0'
+    androidTestImplementation "androidx.compose.foundation:foundation:1.7.3"
+    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
+    implementation 'androidx.compose.material3:material3:1.2.1'
+    implementation 'androidx.compose.material:material-icons-core:1.6.8'
+    implementation 'androidx.compose.material:material-icons-extended:1.6.8'
+
+    implementation "io.coil-kt:coil-compose:2.5.0"
+
+    implementation 'com.google.accompanist:accompanist-insets:0.16.1'
+    implementation 'com.google.accompanist:accompanist-insets-ui:0.16.1'
+    implementation 'com.google.accompanist:accompanist-navigation-animation:0.31.4-beta'
+    implementation "com.google.accompanist:accompanist-systemuicontroller:0.23.1"
+
+    implementation('com.blankj:utilcodex:1.31.1') {
+        exclude group: 'androidx.appcompat'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-android-extensions-runtime'
+    }
+
+    def media3_version = "1.4.0"
+    implementation "androidx.media3:media3-session:$media3_version"
+    implementation "androidx.media3:media3-exoplayer:$media3_version"
+    implementation "androidx.media3:media3-exoplayer-dash:$media3_version"
+
+    implementation 'com.tencent:mmkv-static:1.3.5'
+
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    def room_version = "2.8.4"
+    implementation "androidx.room:room-runtime:$room_version"
+    implementation "androidx.room:room-ktx:$room_version"
+    ksp "androidx.room:room-compiler:$room_version"
+
+    implementation 'com.github.xiaowine:Lyric-Getter-Api:6.0.0'
+    implementation('io.github.proify.lyricon:provider:0.1.66') {
+        exclude group: 'androidx.core', module: 'core-ktx'
+    }
+
+    implementation "com.github.Kyant0:taglib:1.0.0-alpha22"
+
+    implementation "com.google.accompanist:accompanist-pager:0.20.2"
+
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+
+    implementation('io.github.alexzhirkevich:cupertino:0.1.0-alpha04')
+    implementation('io.github.alexzhirkevich:cupertino-icons-extended:0.1.0-alpha04')
+
+    implementation "androidx.core:core-splashscreen:1.0.1"
+
+    implementation "com.github.FunnySaltyFish.ComposeDataSaver:data-saver:1.1.9"
+
+    implementation "com.github.promeg:tinypinyin:2.0.2"
+
+    // 远程文件支持
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    implementation("dev.chrisbanes.haze:haze:0.9.0-alpha06") {
+        exclude group: "androidx.compose.ui", module: "ui"
+        exclude group: "androidx.compose.ui", module: "ui-graphics"
+        exclude group: "androidx.compose.animation", module: "animation"
+        exclude group: "androidx.compose.material3", module: "material3"
+    }
+    implementation("dev.chrisbanes.haze:haze-materials:0.9.0-alpha06") {
+        exclude group: "androidx.compose.ui", module: "ui"
+        exclude group: "androidx.compose.ui", module: "ui-graphics"
+        exclude group: "androidx.compose.animation", module: "animation"
+        exclude group: "androidx.compose.material3", module: "material3"
+    }
+}
+
+// Upload only after a Release APK has been packaged successfully. Credentials stay local.
+def releaseWebDavConfig = new File(System.getenv('FLAMINGO_WEBDAV_CONFIG') ?:
+        new File(System.getProperty('user.home'), '.config/flamingo/release-webdav.json').absolutePath)
+def releaseUploadScript = rootProject.file('scripts/upload_release_webdav.py').absolutePath
+def releaseOutputMetadata = layout.buildDirectory.file('outputs/apk/release/output-metadata.json').get().asFile.absolutePath
+def uploadReleaseToWebDav = tasks.register('uploadReleaseToWebDav', Exec) {
+    group = 'distribution'
+    description = 'Upload the packaged Release APK to the configured private WebDAV directory.'
+    dependsOn 'packageRelease'
+    onlyIf('Private WebDAV configuration exists') { releaseWebDavConfig.isFile() }
+    commandLine 'python3', releaseUploadScript, '--metadata', releaseOutputMetadata
+    // A remote outage must not discard a successfully built local APK.
+    ignoreExitValue = true
+    doLast {
+        if (executionResult.get().exitValue != 0) {
+            logger.warn('Release APK built locally, but WebDAV upload FAILED. Run scripts/upload_release_webdav.py to retry.')
+        }
+    }
+}
+tasks.matching { it.name == 'assembleRelease' }.configureEach {
+    dependsOn uploadReleaseToWebDav
+}

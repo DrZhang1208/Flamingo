@@ -1,0 +1,48 @@
+# IDE
+*.iml
+.idea/
+*.swp
+*.swo
+*~
+
+# Gradle
+.gradle/
+build/
+/build-output/
+local.properties
+build.sh
+
+# Android
+/app/build/
+/app/debug/
+/app/release/
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.jks
+*.keystore
+*.pem
+*.p12
+keystore.properties
+google-services.json
+
+# Kotlin
+.kotlin/
+
+# Secrets & local config
+.env
+.env.*
+secrets.properties
+credentials.json
+service-account*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & debug
+*.log
+*.hprof
+*.prof

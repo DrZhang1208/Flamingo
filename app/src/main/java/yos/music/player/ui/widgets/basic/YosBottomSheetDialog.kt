@@ -1,0 +1,365 @@
+package yos.music.player.ui.widgets.basic
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalAbsoluteTonalElevation
+import androidx.compose.material3.LocalTonalElevationEnabled
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetDefaults
+import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import yos.music.player.code.utils.others.Vibrator
+import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.ui.theme.YosRoundedCornerShape
+import yos.music.player.ui.theme.withNight
+
+/** Actual painted Surface colour, including inherited Material tonal elevation. */
+internal val LocalDialogContainerColor = staticCompositionLocalOf { Color.Unspecified }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun YosBottomSheetDialog(
+    bottomSheetState: SheetState = rememberModalBottomSheetState(),
+    properties: ModalBottomSheetProperties,
+    cornerRadius: () -> Dp,
+    bottomContentPadding: Dp = 26.dp,
+    scrollContent: Boolean = true,
+    onDismissRequest: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val edgeToEdgeEnabled by remember("YosBottomSheetDialog_edgeToEdgeEnabled") {
+        mutableStateOf(
+            true
+        )
+    }
+    val windowInsets = if (edgeToEdgeEnabled)
+        WindowInsets(0) else BottomSheetDefaults.windowInsets
+
+    val context = LocalContext.current
+
+    YosWrapper {
+        LaunchedEffect(Unit) {
+            Vibrator.click(context)
+        }
+    }
+
+    val radius = cornerRadius()
+    val shape = remember(radius) { YosRoundedCornerShape(radius) }
+    val scope = rememberCoroutineScope()
+    val elasticLimit = with(LocalDensity.current) { 48.dp.toPx() }
+    val elastic = remember(scope, elasticLimit) { DialogElasticMotion(scope, elasticLimit) }
+    val containerColor = Color.White withNight Color.Black
+
+    ModalBottomSheet(
+        // Translate above Material's Surface clipping, so the entire sheet outline
+        // moves too. Translating only the child clips its top at the old bounds.
+        modifier = Modifier.graphicsLayer {
+            translationY = elastic.offset
+            val sheetOffset = runCatching { bottomSheetState.requireOffset() }.getOrDefault(0f)
+            this.shape = DialogShadowShape(shape, 5.dp, sheetOffset)
+            shadowElevation = if (bottomSheetState.isVisible || bottomSheetState.targetValue != SheetValue.Hidden)
+                4.dp.toPx() else 0f
+            spotShadowColor = Color.Black
+            clip = false
+        },
+        onDismissRequest = onDismissRequest,
+        sheetState = bottomSheetState,
+        windowInsets = windowInsets,
+        properties = properties,
+        shape = RectangleShape,
+        content = {
+            DialogRefreshRate()
+            Surface(modifier = Modifier
+                .containDialogScroll(elastic)
+                .padding(vertical = 5.dp, horizontal = 5.dp)
+                .graphicsLayer {
+                    this.shape = if (radius != 0.dp) {
+                        shape
+                    } else {
+                        RectangleShape
+                    }
+                    clip = true
+                }
+                /*.navigationBarsPadding()*/,
+                color = containerColor,
+                contentColor = Color.Black withNight Color.White,
+                content = {
+                    val scheme = MaterialTheme.colorScheme
+                    val paintedColor = if (containerColor == scheme.surface && LocalTonalElevationEnabled.current)
+                        scheme.surfaceColorAtElevation(LocalAbsoluteTonalElevation.current)
+                    else containerColor
+                    CompositionLocalProvider(LocalDialogContainerColor provides paintedColor) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 26.dp, top = 26.dp, end = 26.dp, bottom = bottomContentPadding)
+                                .then(if (scrollContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                        ) {
+                            content()
+                        }
+                    }
+                }
+            )
+        },
+        containerColor = Color.Transparent,
+        dragHandle = null,
+        scrimColor = MaterialTheme.colorScheme.onBackground.copy(0.13f)
+    )
+}
+
+@Composable
+private fun DialogTitle(icon: @Composable () -> Unit, title: String, subTitle: String? = null, horizontal: Boolean = false) {
+    if (horizontal) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 20.dp)
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            icon()
+            Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 18.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
+                )
+                if (subTitle != null) {
+                    Text(
+                        text = subTitle, fontSize = 14.sp,
+                        modifier = Modifier
+                            .alpha(0.5f).padding(top = 2.dp)
+                            .basicMarquee(iterations = Int.MAX_VALUE),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    } else {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 20.dp)
+                .padding(top = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+        ) {
+            icon()
+            Text(
+                text = title,
+                fontSize = 26.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
+                textAlign = TextAlign.Center
+            )
+            if (subTitle != null) {
+                Text(
+                    text = subTitle, fontSize = 16.sp,
+                    modifier = Modifier
+                        .alpha(0.5f).padding(horizontal = 14.dp),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.5.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DialogContent(text: String, modifier: Modifier = Modifier) =
+    Text(
+        text = text,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .alpha(0.5f),
+        lineHeight = 19.5.sp,
+        fontSize = 14.5.sp
+    )
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OptionDialog(
+    icon: @Composable () -> Unit,
+    title: String,
+    subTitle: String? = null,
+    content: (@Composable (dismiss: DialogDismissAction) -> Unit)?,
+    positiveContent: String? = null,
+    negativeContent: String? = null,
+    dismissOnPositive: Boolean = true,
+    dismissOnNegative: Boolean = true,
+    horizontalTitle: Boolean = false,
+    contentKey: Any? = null,
+    contentBottomSpacing: Dp = 19.5.dp,
+    bottomContentPadding: Dp = 26.dp,
+    scrollContent: Boolean = true,
+    bottomSheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    properties: ModalBottomSheetProperties = ModalBottomSheetDefaults.properties(),
+    cornerRadius: () -> Dp = { SettingsLibrary.ScreenCorner.toInt().dp },
+    onPositive: (() -> Unit)? = null,
+    onNegative: (() -> Unit)? = null,
+    onDismissRequest: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    val currentOnDismiss by rememberUpdatedState(onDismissRequest)
+    val dismissController = remember(scope, bottomSheetState) {
+        DialogDismissController(scope,
+            hide = {
+                withDialogDismissMotion { bottomSheetState.hide() }
+                bottomSheetState.currentValue == SheetValue.Hidden
+            },
+            dismissed = { currentOnDismiss() })
+    }
+    val animatedDismiss = remember(dismissController) { DialogDismissAction(dismissController::request) }
+
+    YosBottomSheetDialog(
+        bottomSheetState = bottomSheetState,
+        properties = properties,
+        onDismissRequest = animatedDismiss,
+        cornerRadius = cornerRadius,
+        bottomContentPadding = bottomContentPadding,
+        scrollContent = scrollContent
+    ) {
+        // println(cornerRadius())
+        DialogTitle(icon = icon, title = title, subTitle = subTitle, horizontal = horizontalTitle)
+        Column(
+            Modifier
+                .fillMaxWidth()
+        ) {
+            if (content != null) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = contentBottomSpacing)
+                ) {
+                    if (contentKey != null) {
+                        AnimatedContent(
+                            targetState = contentKey,
+                            transitionSpec = {
+                                (slideInVertically(initialOffsetY = { it / 3 }) + fadeIn(tween(350))) togetherWith
+                                (slideOutVertically(targetOffsetY = { -it / 3 }) + fadeOut(tween(250)))
+                            }
+                        ) {
+                            content(animatedDismiss)
+                        }
+                    } else {
+                        content(animatedDismiss)
+                    }
+                }
+            }
+            val height = 50.dp
+            // 平滑圆角矩形（14dp圆角，与拖动条背景一致）
+            val smoothShape = YosRoundedCornerShape(14.dp)
+
+            val hasButtons = positiveContent != null || negativeContent != null
+            if (hasButtons) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 5.dp, bottom = 2.dp)
+                ) {
+                    if (positiveContent != null && onPositive != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(height)
+                                .background(MaterialTheme.colorScheme.primary, shape = smoothShape)
+                                .clip(smoothShape)
+                                .clickable {
+                                    if (dismissOnPositive) {
+                                        dismissController.confirm { onPositive?.invoke() }
+                                    } else onPositive?.invoke()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = positiveContent,
+                                color = Color.White,
+                                fontSize = 16.5.sp
+                            )
+                        }
+                    }
+
+                    if (negativeContent != null && onNegative != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(height)
+                                .clip(smoothShape)
+                                .background(
+                                    color = (Color.LightGray withNight Color.DarkGray).copy(alpha = 0.25f),
+                                )
+                                .clickable {
+                                    if (dismissOnNegative) {
+                                        dismissController.confirm { onNegative?.invoke() }
+                                    } else onNegative?.invoke()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = negativeContent,
+                                fontSize = 16.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
