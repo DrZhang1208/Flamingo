@@ -378,6 +378,10 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                     // 远程歌曲：从 YosMediaItem 字段构建 AudioFileInfo，不读本地文件
                     val format = music.mimeType?.substringAfterLast("/")?.uppercase()
                         ?: music.uri?.path?.substringAfterLast(".")?.uppercase() ?: ""
+                    val sourceLabel = yos.music.player.data.remote.RemoteUri.parseServerId(music.uri?.toString() ?: "")
+                        ?.let { sid -> yos.music.player.data.remote.RemoteServerManager.getServer(sid) }
+                        ?.let { cfg -> if (cfg.type == yos.music.player.data.remote.ServerType.SMB) "SMB" else "WebDAV" }
+                        ?: "远程"
                     Triple(cached, yos.music.player.code.AudioMetadataUtils.AudioFileInfo(
                         bitrate = yos.music.player.code.AudioMetadataUtils.reliableBitrateKbps(
                             cached?.bitrate ?: music.bitrate,
@@ -389,7 +393,7 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                         bitsPerSample = null,
                         fileSize = 0L,
                         format = format,
-                        source = "WebDAV"
+                        source = sourceLabel
                     ), cached?.year ?: music.releaseYear ?: music.recordingYear)
                 } else {
                     Triple(

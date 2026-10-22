@@ -270,12 +270,9 @@ object MusicLibrary {
         requirePlaybackPersistence().loadPlayList()
 
     fun MediaItem.toYosMediaItem(): YosMediaItem {
-        // 从 URI 提取远程 serverId
+        // 从 URI 提取远程 serverId（webdav:// 或 smb://）
         val rawUri = this.localConfiguration?.uri?.toString() ?: ""
-        val serverId = when {
-            rawUri.startsWith("webdav://") -> rawUri.substringAfter("webdav://").substringBefore("/")
-            else -> null
-        }
+        val serverId = yos.music.player.data.remote.RemoteUri.parseServerId(rawUri)
         return YosMediaItem(
             uri = this.localConfiguration?.uri,
             mediaId = this.mediaId,
@@ -837,7 +834,7 @@ object MusicLibrary {
                 yos.music.player.data.remote.RemoteServerManager.connect(serverId)
                 val remoteFiles = yos.music.player.data.remote.RemoteServerManager.listAudioFilesOrThrow(serverId, path)
                 val currentUris = folder.songs.mapNotNull { it.uri?.toString() }.toSet()
-                val remoteUris = remoteFiles.map { it.toWebDavUri(serverId) }.toSet()
+                val remoteUris = remoteFiles.map { it.toRemoteUri(serverId) }.toSet()
 
                 // 保留仍然存在的歌曲
                 val retained = folder.songs.filter { it.uri?.toString() in remoteUris }
@@ -854,7 +851,7 @@ object MusicLibrary {
                 }
 
                 // 新文件：远程有但本地没有
-                val newFiles = remoteFiles.filter { it.toWebDavUri(serverId) !in currentUris }
+                val newFiles = remoteFiles.filter { it.toRemoteUri(serverId) !in currentUris }
                 if (newFiles.isNotEmpty()) {
                     val config = yos.music.player.data.remote.RemoteServerManager.getServer(serverId) ?: return@runCatching
                     val newSongs = yos.music.player.data.remote.RemoteMetadataScanner.quickListAudioFiles(
@@ -897,9 +894,11 @@ object MusicLibrary {
         result
     }
 
-    /** 将 RemoteFile 转为 webdav URI 字符串 */
-    private fun yos.music.player.data.remote.RemoteFile.toWebDavUri(serverId: String): String {
-        return "webdav://$serverId/${path.trimStart('/')}"
+    /** 将 RemoteFile 按所属服务器的协议类型转为远程 URI 字符串（webdav:// 或 smb://） */
+    private fun yos.music.player.data.remote.RemoteFile.toRemoteUri(serverId: String): String {
+        val type = yos.music.player.data.remote.RemoteServerManager.getServer(serverId)?.type
+            ?: yos.music.player.data.remote.ServerType.WEBDAV
+        return yos.music.player.data.remote.RemoteUri.buildUri(serverId, path, type)
     }
 
     fun findSongByUri(uri: String): YosMediaItem? = synchronized(this) {

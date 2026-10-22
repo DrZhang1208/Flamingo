@@ -115,7 +115,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
     BackHandler(enabled = true) { goToParent() }
 
     val folderName = currentPath.substringAfterLast('/').ifEmpty { config.label }
-    val sourceLabel = "WebDAV"
+    val sourceLabel = if (config.type == yos.music.player.data.remote.ServerType.SMB) "SMB" else "WebDAV"
 
     SettingBackground {
         Title(title = folderName.ifEmpty { config.label }, onBack = { goToParent() }) {

@@ -844,7 +844,7 @@ class YosPlaybackService : MediaSessionService() {
                     val path = player.currentMediaItem?.uri
                     val thisPath = path?.path
                     val rawUri = path?.toString() ?: ""
-                    val isRemote = rawUri.startsWith("webdav://")
+                    val isRemote = yos.music.player.data.remote.RemoteUri.parseServerId(rawUri) != null
 
                     var samplingRate = 0
                     var bitrate = 0

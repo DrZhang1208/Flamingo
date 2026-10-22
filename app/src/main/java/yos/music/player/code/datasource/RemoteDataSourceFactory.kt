@@ -36,10 +36,12 @@ class RemoteDataSource(
         val rawUri = uri.toString()
         val scheme = uri.scheme ?: when {
             rawUri.startsWith("webdav://") -> "webdav"
+            rawUri.startsWith("smb://") -> "smb"
             else -> null
         }
         delegate = (when (scheme) {
             "webdav" -> createWebDavSource(uri)
+            "smb" -> createSmbSource(uri)
             "http", "https" -> {
                 val matchingServer = findMatchingWebDavServer(uri.toString())
                 if (matchingServer != null) {
@@ -54,6 +56,14 @@ class RemoteDataSource(
         }) ?: defaultFactory.createDataSource()
         listener?.let { delegate?.addTransferListener(it) }
         return delegate!!.open(dataSpec)
+    }
+
+    private fun createSmbSource(uri: android.net.Uri): SmbDataSource {
+        val raw = uri.toString()
+        val serverId = uri.host ?: raw.substringAfter("smb://").substringBefore("/")
+        val config = findOrLoadServer(serverId) ?: throw IllegalStateException("SMB server not found: $serverId")
+        val path = uri.path?.trimStart('/') ?: raw.substringAfter("smb://$serverId/")
+        return SmbDataSource(config, path)
     }
 
     private fun createWebDavSource(uri: android.net.Uri): WebDavDataSource {

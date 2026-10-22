@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -79,7 +80,7 @@ fun RemoteServerManagement(navController: NavController) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var refreshKey by remember { mutableStateOf(0) }
-    var showWebDAVDialog by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf<ServerType?>(null) }
     var deleteTarget by remember { mutableStateOf<ServerConfig?>(null) }
     var showEditDialog by remember { mutableStateOf<ServerConfig?>(null) }
     var openMenuId by remember { mutableStateOf<String?>(null) }
@@ -139,7 +140,7 @@ fun RemoteServerManagement(navController: NavController) {
                         ) {
                             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Filled.Cloud,
+                                    if (server.type == ServerType.SMB) Icons.Filled.Lan else Icons.Filled.Cloud,
                                     null,
                                     Modifier.size(24.dp),
                                     tint = when (connectionState) {
@@ -153,7 +154,7 @@ fun RemoteServerManagement(navController: NavController) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(server.label, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("WebDAV", fontSize = 11.sp, color = Color(0xFF007AFF), modifier = Modifier.alpha(0.7f))
+                                        Text(server.type.displayLabel(), fontSize = 11.sp, color = Color(0xFF007AFF), modifier = Modifier.alpha(0.7f))
                                     }
                                     Text(buildSubTitle(server, connectionState), fontSize = 13.sp, modifier = Modifier.alpha(0.5f))
                                 }
@@ -239,12 +240,26 @@ fun RemoteServerManagement(navController: NavController) {
             item("add_webdav") {
                 RoundColumn {
                     Row(
-                        Modifier.fillMaxWidth().clickable { showWebDAVDialog = true }.padding(12.dp),
+                        Modifier.fillMaxWidth().clickable { showAddDialog = ServerType.WEBDAV }.padding(12.dp),
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(Icons.Filled.Cloud, null, Modifier.size(20.dp).alpha(0.5f))
                         Spacer(Modifier.width(8.dp))
                         Text("添加 WebDAV 服务器", fontSize = 15.sp)
+                    }
+                }
+            }
+
+            item("add_smb") {
+                GroupSpacer()
+                RoundColumn {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showAddDialog = ServerType.SMB }.padding(12.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Filled.Lan, null, Modifier.size(20.dp).alpha(0.5f))
+                        Spacer(Modifier.width(8.dp))
+                        Text("添加 SMB 服务器", fontSize = 15.sp)
                     }
                 }
             }
@@ -365,17 +380,18 @@ fun RemoteServerManagement(navController: NavController) {
         )
     }
 
-    // WebDAV 对话框
-    if (showWebDAVDialog) {
+    // 添加服务器对话框（按类型）
+    showAddDialog?.let { addType ->
         ServerDialog(
-            title = "添加 WebDAV 服务器",
-            onDismiss = { showWebDAVDialog = false },
+            title = "添加 ${addType.displayLabel()} 服务器",
+            type = addType,
+            onDismiss = { showAddDialog = null },
             onSave = { config, password ->
                 RemoteServerManager.addServer(config, password)
                 MusicLibrary.saveRemoteServers(RemoteServerManager.saveConfigs())
                 scope.launch(Dispatchers.IO) { RemoteServerManager.connect(config.id, password?.takeIf { it.isNotBlank() }) }
                 refreshKey++
-                showWebDAVDialog = false
+                showAddDialog = null
             }
         )
     }
@@ -385,6 +401,7 @@ fun RemoteServerManagement(navController: NavController) {
         val s = showEditDialog!!
         ServerDialog(
             title = "编辑服务器",
+            type = s.type,
             initial = s,
             onDismiss = { showEditDialog = null },
             onSave = { config, password ->
@@ -435,13 +452,19 @@ private fun buildSubTitle(config: ServerConfig, state: RemoteConnectionState): S
         RemoteConnectionState.DISCONNECTED -> "未连接"
         RemoteConnectionState.UNKNOWN -> "待检测"
     }
-    return "${config.host} · $status"
+    val hostText = if (config.type == ServerType.SMB && config.port != 445) {
+        "${config.host}:${config.port}"
+    } else config.host
+    return "$hostText · $status"
 }
+
+private fun ServerType.displayLabel(): String = if (this == ServerType.SMB) "SMB" else "WebDAV"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ServerDialog(
     title: String,
+    type: ServerType,
     initial: ServerConfig? = null,
     onDismiss: () -> Unit,
     onSave: (ServerConfig, String?) -> Unit
@@ -449,49 +472,65 @@ private fun ServerDialog(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var label by remember { mutableStateOf(initial?.label ?: "") }
-    var webdavUrl by remember { mutableStateOf(initial?.host ?: "") }
+    var host by remember { mutableStateOf(initial?.host ?: "") }
+    var port by remember { mutableStateOf((initial?.port?.takeIf { type == ServerType.SMB })?.toString() ?: "") }
+    var domain by remember { mutableStateOf(initial?.domain ?: "") }
     var username by remember { mutableStateOf(initial?.username ?: "") }
     var password by remember { mutableStateOf(RemoteServerManager.getPassword(initial?.id ?: "") ?: "") }
     var skipSsl by remember { mutableStateOf(initial?.skipSslVerify ?: false) }
     var connecting by remember { mutableStateOf(false) }
+    val isSmb = type == ServerType.SMB
 
     OptionDialog(
         icon = { Spacer(Modifier.size(0.dp)) },
         title = title,
-        subTitle = "输入完整的 WebDAV 地址",
+        subTitle = if (isSmb) "填写服务器地址与账号（局域网 NAS 常用）" else "输入完整的 WebDAV 地址",
         content = {
             Column(Modifier.fillMaxWidth()) {
                 YosDialogTextField(label, { label = it }, placeholder = "连接名",
                     position = YosDialogFieldPosition.First)
-                YosDialogTextField(webdavUrl, { webdavUrl = it }, placeholder = "地址",
-                    position = YosDialogFieldPosition.Middle,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                if (isSmb) {
+                    YosDialogTextField(host, { host = it }, placeholder = "地址（IP 或主机名）",
+                        position = YosDialogFieldPosition.Middle,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                    YosDialogTextField(port, { port = it }, placeholder = "端口（默认 445）",
+                        position = YosDialogFieldPosition.Middle,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    YosDialogTextField(domain, { domain = it }, placeholder = "域（可选，NAS 一般留空）",
+                        position = YosDialogFieldPosition.Middle)
+                } else {
+                    YosDialogTextField(host, { host = it }, placeholder = "地址",
+                        position = YosDialogFieldPosition.Middle,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                }
                 YosDialogTextField(username, { username = it }, placeholder = "用户名（可选）",
                     position = YosDialogFieldPosition.Middle)
                 YosDialogTextField(password, { password = it }, placeholder = "密码（可选）",
                     position = YosDialogFieldPosition.Last,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-                // 独立的开关行卡片：与上方输入组留出间距，自带圆角
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp)
-                        .clip(YosRoundedCornerShape(12.dp))
-                        .background(Color.White withNight Color(0xFF2C2C30))
-                        .clickable { skipSsl = !skipSsl }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "跳过 SSL 证书验证（自签名证书）",
-                        fontSize = 15.sp,
-                        modifier = Modifier
-                            .weight(1f)
-                            .alpha(0.85f)
-                    )
-                    CupertinoSwitch(checked = skipSsl, onCheckedChange = { skipSsl = it },
-                        modifier = Modifier.height(25.dp))
+                if (!isSmb) {
+                    // 独立的开关行卡片：与上方输入组留出间距，自带圆角
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .clip(YosRoundedCornerShape(12.dp))
+                            .background(Color.White withNight Color(0xFF2C2C30))
+                            .clickable { skipSsl = !skipSsl }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "跳过 SSL 证书验证（自签名证书）",
+                            fontSize = 15.sp,
+                            modifier = Modifier
+                                .weight(1f)
+                                .alpha(0.85f)
+                        )
+                        CupertinoSwitch(checked = skipSsl, onCheckedChange = { skipSsl = it },
+                            modifier = Modifier.height(25.dp))
+                    }
                 }
             }
         },
@@ -499,15 +538,29 @@ private fun ServerDialog(
         dismissOnPositive = false,
         onPositive = {
             if (connecting) return@OptionDialog
-            if (webdavUrl.isBlank()) {
-                Toast.makeText(context, "请输入 WebDAV 地址", Toast.LENGTH_SHORT).show()
+            if (host.isBlank()) {
+                Toast.makeText(context, if (isSmb) "请输入服务器地址" else "请输入 WebDAV 地址", Toast.LENGTH_SHORT).show()
                 return@OptionDialog
             }
-            val cfg = ServerConfig(
-                id = initial?.id ?: "", type = ServerType.WEBDAV, label = label.ifBlank { webdavUrl },
-                host = webdavUrl, username = username.ifBlank { null },
-                authRequired = username.isNotBlank(), skipSslVerify = skipSsl
-            )
+            if (isSmb && port.isNotBlank() && port.toIntOrNull() !in 1..65535) {
+                Toast.makeText(context, "端口无效（1-65535）", Toast.LENGTH_SHORT).show()
+                return@OptionDialog
+            }
+            val cfg = if (isSmb) {
+                ServerConfig(
+                    id = initial?.id ?: "", type = ServerType.SMB, label = label.ifBlank { host },
+                    host = host, port = port.toIntOrNull() ?: 445,
+                    domain = domain.ifBlank { null },
+                    username = username.ifBlank { null },
+                    authRequired = username.isNotBlank()
+                )
+            } else {
+                ServerConfig(
+                    id = initial?.id ?: "", type = ServerType.WEBDAV, label = label.ifBlank { host },
+                    host = host, username = username.ifBlank { null },
+                    authRequired = username.isNotBlank(), skipSslVerify = skipSsl
+                )
+            }
             val pwd = password.ifBlank { null }
             connecting = true
             scope.launch(Dispatchers.IO) {

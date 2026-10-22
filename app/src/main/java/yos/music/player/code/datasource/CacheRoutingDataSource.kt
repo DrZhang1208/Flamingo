@@ -6,13 +6,13 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 
 /**
- * Routes remote (WebDAV/http) requests through the playback cache while local
+ * Routes remote (WebDAV/SMB/http) requests through the playback cache while local
  * files read directly. Caching local files only duplicates disk content and
  * adds a write turnaround to every first play.
  */
 internal fun shouldRouteToPlaybackCache(rawUri: String, scheme: String?): Boolean = when (scheme) {
-    "webdav", "http", "https" -> true
-    else -> scheme == null && rawUri.startsWith("webdav://")
+    "webdav", "smb", "http", "https" -> true
+    else -> scheme == null && (rawUri.startsWith("webdav://") || rawUri.startsWith("smb://"))
 }
 
 internal class CacheRoutingDataSourceFactory(

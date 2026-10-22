@@ -11,13 +11,15 @@ internal fun playbackIsWaiting(
 
 /** Retry transport failures only, not missing files, HTTP errors or bad decoders. */
 internal fun retryableNetworkPlaybackFailure(code: Int, scheme: String?, cause: Throwable?): Boolean {
-    if (scheme !in setOf("http", "https", "webdav")) return false
+    if (scheme !in setOf("http", "https", "webdav", "smb")) return false
     if (code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
         code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT) return true
     if (code != PlaybackException.ERROR_CODE_IO_UNSPECIFIED) return false
     var error = cause
     repeat(16) {
         if (error is SocketException || error is SocketTimeoutException || error is UnknownHostException) return true
+        // SMB 传输错误（jcifs-ng）不在 Socket 体系里，断网/超时同样值得重试
+        if (error is jcifs.CIFSException) return true
         error = error?.cause
     }
     return false

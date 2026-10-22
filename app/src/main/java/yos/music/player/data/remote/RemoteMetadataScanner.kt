@@ -42,7 +42,7 @@ object RemoteMetadataScanner {
     fun quickListAudioFiles(serverId: String, remotePath: String, serverConfig: ServerConfig): List<YosMediaItem> {
         val files = RemoteServerManager.listAudioFiles(serverId, remotePath)
         return files.map { rf ->
-            val scheme = "webdav"
+            val scheme = RemoteUri.schemeFor(serverConfig.type)
             val uri = Uri.parse("$scheme://${serverConfig.id}/${rf.path.trimStart('/')}")
             val title = rf.name.substringBeforeLast('.')
             val mimeType = inferMimeType(rf.name)

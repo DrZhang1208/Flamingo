@@ -59,6 +59,13 @@
 -keep class okhttp3.** { *; }
 -keep class okio.** { *; }
 
+# jcifs-ng (SMB) + BouncyCastle：配置与协议层靠反射/枚举遍历，重命名会静默失效
+-dontwarn jcifs.**
+-dontwarn org.bouncycastle.**
+-keep class jcifs.** { *; }
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.slf4j.**
+
 # Remote server data classes
 -keep class yos.music.player.data.remote.** { *; }
 
