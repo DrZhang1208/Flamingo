@@ -14,6 +14,13 @@ import yos.music.player.code.AudioMetadataUtils
 import java.io.File
 import yos.music.player.code.utils.player.optionalPlaybackTask
 
+/** 选中的歌词：主文本 + 可选的独立翻译文件内容 + 来源 */
+internal data class LyricSelection(
+    val text: String,
+    val translation: String?,
+    val source: LyricSource
+)
+
 /**
  * The sole local-file lyric acquisition job. A track change cancels the previous
  * read, then resolves the APK source order before handing one immutable document
@@ -43,10 +50,11 @@ class LocalLyricsLoader(
                 withContext(Dispatchers.Main.immediate) {
                     LyricsController.submitRawLyrics(
                         trackKey = trackKey,
-                        rawLyrics = selected.first,
+                        rawLyrics = selected.text,
                         currentPositionMs = currentPositionMs,
-                        source = selected.second,
-                        durationMs = durationMs
+                        source = selected.source,
+                        durationMs = durationMs,
+                        translationText = selected.translation
                     )
                 }
             }
@@ -67,7 +75,10 @@ class LocalLyricsLoader(
                 audioPath,
                 { android.util.Log.w("LocalLyricsLoader", "预取歌词失败，忽略", it) }
             ) ?: return@launch
-            LyricsController.cacheRawLyrics(trackKey, selected.first, selected.second, durationMs)
+            LyricsController.cacheRawLyrics(
+                trackKey, selected.text, selected.source, durationMs,
+                translationText = selected.translation
+            )
         }
     }
 
@@ -82,11 +93,16 @@ class LocalLyricsLoader(
         trackKey: String,
         audioPath: String,
         reportFailure: (Exception) -> Unit
-    ): Pair<String, LyricSource>? {
+    ): LyricSelection? {
         val sidecarText = optionalPlaybackTask(reportFailure) { loadSidecar(audioPath) }
             ?: optionalPlaybackTask(reportFailure) { loadSafSidecar(trackKey) }
         val embedded = optionalPlaybackTask(reportFailure) { AudioMetadataUtils.extractEmbeddedLyrics(audioPath) }
-        return chooseLyricCandidate(embedded, sidecarText)
+        val candidate = chooseLyricCandidate(embedded, sidecarText) ?: return null
+        // 独立翻译文件与主来源无关：存在即合并（xxx.zh.lrc 优先于 xxx.trc）
+        val translation = optionalPlaybackTask(reportFailure) {
+            loadTranslationSidecar(audioPath) ?: loadSafTranslationSidecar(trackKey)
+        }
+        return LyricSelection(candidate.first, translation, candidate.second)
     }
 
     private fun loadSidecar(audioPath: String): String? {
@@ -100,7 +116,28 @@ class LocalLyricsLoader(
         return null
     }
 
-    private fun loadSafSidecar(trackKey: String): String? {
+    private fun loadTranslationSidecar(audioPath: String): String? {
+        val basePath = audioPath.substringBeforeLast('.', audioPath)
+        for (suffix in TRANSLATION_SUFFIXES) {
+            val file = File("$basePath.$suffix")
+            if (!file.isFile) continue
+            val content = readText(file)?.takeIf(String::isNotBlank) ?: continue
+            return content
+        }
+        return null
+    }
+
+    private fun loadSafSidecar(trackKey: String): String? =
+        safReadNamedSibling(trackKey) { base -> SIDECAR_EXTENSIONS.map { "$base.$it" } }
+
+    private fun loadSafTranslationSidecar(trackKey: String): String? =
+        safReadNamedSibling(trackKey) { base -> TRANSLATION_SUFFIXES.map { "$base.$it" } }
+
+    /** content:// 曲目：按文件名在同目录/同相对路径下查找兄弟文档并读取 */
+    private fun safReadNamedSibling(
+        trackKey: String,
+        desiredNamesFor: (String) -> List<String>
+    ): String? {
         val uri = runCatching { Uri.parse(trackKey) }.getOrNull() ?: return null
         if (uri.scheme != "content") return null
         val displayName = context.contentResolver.query(
@@ -110,7 +147,7 @@ class LocalLyricsLoader(
             null,
             null
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: return null
-        val desiredNames = SIDECAR_EXTENSIONS.map { "${displayName.substringBeforeLast('.', displayName)}.$it" }
+        val desiredNames = desiredNamesFor(displayName.substringBeforeLast('.', displayName))
 
         findDocumentSibling(uri, desiredNames)?.let { return it }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -174,5 +211,6 @@ class LocalLyricsLoader(
 
     private companion object {
         val SIDECAR_EXTENSIONS = listOf("ttml", "lrc")
+        val TRANSLATION_SUFFIXES = listOf("zh.lrc", "trc")
     }
 }

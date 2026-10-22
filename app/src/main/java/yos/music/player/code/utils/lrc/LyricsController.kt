@@ -160,15 +160,21 @@ object LyricsController {
      * A later activateTrack() for the same key then renders lyrics from memory
      * instead of waiting for file reads and tag extraction.
      */
-    fun cacheRawLyrics(trackKey: String, rawLyrics: String, source: LyricSource, durationMs: Long): Boolean {
+    fun cacheRawLyrics(
+        trackKey: String,
+        rawLyrics: String,
+        source: LyricSource,
+        durationMs: Long,
+        translationText: String? = null
+    ): Boolean {
         val content = rawLyrics.takeIf { it.isNotBlank() } ?: return false
         if (isCached(trackKey)) return true
         val parser = YosLrcFactory()
-        val parsed = parser.formatLrcEntries(content).ifEmpty { parser.formatPlainLyricEntries(content) }
+        val parsed = parseLyrics(parser, content, translationText)
         if (parsed.isEmpty()) return false
         val normalized = parsed.sortedWith(compareBy<YosLyricLine> { it.startMs }.thenBy { it.endMs })
         val document = CachedDocument(
-            LyricDocumentIdentity(trackKey, durationMs.coerceAtLeast(0L), content),
+            LyricDocumentIdentity(trackKey, durationMs.coerceAtLeast(0L), identityContent(content, translationText)),
             normalized,
             source
         )
@@ -185,19 +191,31 @@ object LyricsController {
         rawLyrics: String?,
         currentPositionMs: Int,
         source: LyricSource,
-        durationMs: Long = activeDurationMs
+        durationMs: Long = activeDurationMs,
+        translationText: String? = null
     ): Boolean {
         val content = rawLyrics?.takeIf { it.isNotBlank() } ?: return false
         if (trackKey == null || trackKey != activeTrackKey) return false
 
-        val identity = LyricDocumentIdentity(trackKey, durationMs.coerceAtLeast(0L), content)
+        val identity = LyricDocumentIdentity(trackKey, durationMs.coerceAtLeast(0L), identityContent(content, translationText))
         if (identity == activeDocument?.identity) return true
         if (!canReplaceActiveSource(source)) return false
 
         val parser = YosLrcFactory()
-        val parsed = parser.formatLrcEntries(content).ifEmpty { parser.formatPlainLyricEntries(content) }
+        val parsed = parseLyrics(parser, content, translationText)
         return submitDocument(identity, parsed, currentPositionMs, source)
     }
+
+    /** 统一解析入口：可选的独立翻译文本在主文档解析后合并 */
+    private fun parseLyrics(parser: YosLrcFactory, content: String, translationText: String?): List<YosLyricLine> {
+        val parsed = parser.formatLrcEntries(content).ifEmpty { parser.formatPlainLyricEntries(content) }
+        if (translationText.isNullOrBlank()) return parsed
+        return parser.mergeTranslation(parsed, translationText).ifEmpty { parsed }
+    }
+
+    /** 翻译文本参与 identity，避免"同原文不同翻译"被去重跳过 */
+    private fun identityContent(content: String, translationText: String?): String =
+        if (translationText.isNullOrBlank()) content else "$content\n\u2425translation\u2425\n$translationText"
 
     fun submitParsedLyrics(
         trackKey: String?,

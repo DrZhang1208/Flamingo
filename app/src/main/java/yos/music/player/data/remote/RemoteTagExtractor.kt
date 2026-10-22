@@ -27,6 +27,7 @@ object RemoteTagExtractor {
         val composer: String? = null,
         val lyrics: String? = null,
         val sidecarLyrics: String? = null,
+        val translationLyrics: String? = null,
         val coverUri: Uri? = null,
         val bitrate: Int? = null,     // kbps
         val sampleRate: Int? = null,  // Hz
@@ -68,15 +69,18 @@ object RemoteTagExtractor {
         }
         if (result == null) throw java.io.IOException("无法从文件提取标签: $remotePath")
         // 与本地 SIDECAR_EXTENSIONS 一致的同名歌词文件（.ttml 优先）；失败不影响标签提取
-        val sidecar = runCatching { readSidecarLyrics(serverId, remotePath) }.getOrNull()
-        return if (sidecar != null) result.copy(sidecarLyrics = sidecar) else result
+        val sidecar = runCatching { readRemoteTextFile(serverId, remotePath, SIDECAR_EXTENSIONS) }.getOrNull()
+        // 独立翻译文件（xxx.zh.lrc / xxx.trc），与主来源无关、存在即合并
+        val translation = runCatching { readRemoteTextFile(serverId, remotePath, TRANSLATION_SUFFIXES) }.getOrNull()
+        return result.copy(sidecarLyrics = sidecar, translationLyrics = translation)
     }
 
-    private suspend fun readSidecarLyrics(serverId: String, remotePath: String): String? {
+    /** 按后缀候选依次探测同目录同名远程文本文件，返回第一个非空解码结果 */
+    private suspend fun readRemoteTextFile(serverId: String, remotePath: String, suffixes: List<String>): String? {
         val base = remotePath.substringBeforeLast('.', remotePath)
-        for (extension in SIDECAR_EXTENSIONS) {
+        for (suffix in suffixes) {
             currentCoroutineContext().ensureActive()
-            val candidate = "$base.$extension"
+            val candidate = "$base.$suffix"
             val text = runCatching {
                 val size = RemoteServerManager.getFileSize(serverId, candidate)
                 if (size <= 0L || size > MAX_SIDECAR_BYTES) return@runCatching null
@@ -91,6 +95,7 @@ object RemoteTagExtractor {
     /** 歌词文件正常远小于此，超限视为误配（如同名音频）直接跳过 */
     private const val MAX_SIDECAR_BYTES = 512L * 1024
     private val SIDECAR_EXTENSIONS = listOf("ttml", "lrc")
+    private val TRANSLATION_SUFFIXES = listOf("zh.lrc", "trc")
 
     private fun extractFromBytes(header: ByteArray, cacheKey: String): ExtractedResult {
         val tmpFile = java.io.File.createTempFile("tag_", ".tmp")

@@ -716,7 +716,7 @@ class YosLrcFactory(private val formatText: Boolean = true) {
     /**
      * 将翻译文本合并到已解析的歌词数据中。
      * 翻译文本可以是 LRC 格式（含时间标签）或纯文本（每行一句翻译）。
-     * 合并后，每行歌词的最后一个元素将为翻译文本。
+     * 纯文本按"真实歌词行"的顺序对齐，自动插入的倒计时行不占翻译下标。
      */
     fun mergeTranslation(
         lrcEntries: List<YosLyricLine>,
@@ -759,14 +759,17 @@ class YosLrcFactory(private val formatText: Boolean = true) {
                 }
             }
         } else {
-            // 尝试作为纯文本翻译处理（每行对应一句歌词）
+            // 尝试作为纯文本翻译处理（每行对应一句真实歌词）
             val plainLines = translationText.lines()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && it != "//" }
             if (plainLines.isEmpty()) return lrcEntries
-            lrcEntries.mapIndexed { index, line ->
-                if (index < plainLines.size) {
-                    line.copy(translation = plainLines[index])
+            var plainIndex = 0
+            lrcEntries.map { line ->
+                if (line.isCountdown) {
+                    line
+                } else if (plainIndex < plainLines.size) {
+                    line.copy(translation = plainLines[plainIndex++])
                 } else {
                     line
                 }
