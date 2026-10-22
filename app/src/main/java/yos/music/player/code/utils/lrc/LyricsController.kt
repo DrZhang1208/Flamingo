@@ -9,6 +9,29 @@ import kotlin.math.abs
 internal fun effectiveLyricTimingOffsetMs(): Int =
     SettingsLibrary.LyricTimingOffsetMs.coerceIn(MIN_LYRIC_TIMING_OFFSET_MS, MAX_LYRIC_TIMING_OFFSET_MS)
 
+/**
+ * 内嵌歌词与 sidecar 文件的统一胜者选择：LyricPreferEmbedded 决定优先级，
+ * 本地 LocalLyricsLoader 与远程 applyTags 共用同一语义，只提交胜者避免二次替换。
+ */
+internal fun chooseLyricCandidate(
+    embedded: String?,
+    sidecar: String?
+): Pair<String, LyricSource>? = chooseLyricCandidate(embedded, sidecar, SettingsLibrary.LyricPreferEmbedded)
+
+internal fun chooseLyricCandidate(
+    embedded: String?,
+    sidecar: String?,
+    preferEmbedded: Boolean
+): Pair<String, LyricSource>? {
+    val e = embedded?.takeIf(String::isNotBlank)
+    val s = sidecar?.takeIf(String::isNotBlank)
+    return if (preferEmbedded) {
+        e?.let { it to LyricSource.EMBEDDED_TAG } ?: s?.let { it to LyricSource.SIDECAR_FILE }
+    } else {
+        s?.let { it to LyricSource.SIDECAR_FILE } ?: e?.let { it to LyricSource.EMBEDDED_TAG }
+    }
+}
+
 /** Exact identity used by the APK to suppress duplicate parse/publish cycles. */
 data class LyricDocumentIdentity(
     val mediaUri: String?,

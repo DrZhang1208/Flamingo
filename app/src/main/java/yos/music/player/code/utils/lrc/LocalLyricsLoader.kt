@@ -11,7 +11,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import yos.music.player.code.AudioMetadataUtils
-import yos.music.player.data.libraries.SettingsLibrary
 import java.io.File
 import yos.music.player.code.utils.player.optionalPlaybackTask
 
@@ -84,29 +83,24 @@ class LocalLyricsLoader(
         audioPath: String,
         reportFailure: (Exception) -> Unit
     ): Pair<String, LyricSource>? {
-        val sidecar = optionalPlaybackTask(reportFailure) { loadSidecar(audioPath) }
+        val sidecarText = optionalPlaybackTask(reportFailure) { loadSidecar(audioPath) }
             ?: optionalPlaybackTask(reportFailure) { loadSafSidecar(trackKey) }
         val embedded = optionalPlaybackTask(reportFailure) { AudioMetadataUtils.extractEmbeddedLyrics(audioPath) }
-        return if (SettingsLibrary.LyricPreferEmbedded) {
-            embedded?.takeIf(String::isNotBlank)?.let { it to LyricSource.EMBEDDED_TAG }
-                ?: sidecar
-        } else {
-            sidecar ?: embedded?.takeIf(String::isNotBlank)?.let { it to LyricSource.EMBEDDED_TAG }
-        }
+        return chooseLyricCandidate(embedded, sidecarText)
     }
 
-    private fun loadSidecar(audioPath: String): Pair<String, LyricSource>? {
+    private fun loadSidecar(audioPath: String): String? {
         val basePath = audioPath.substringBeforeLast('.', audioPath)
         for (extension in SIDECAR_EXTENSIONS) {
             val file = File("$basePath.$extension")
             if (!file.isFile) continue
             val content = readText(file)?.takeIf(String::isNotBlank) ?: continue
-            return content to LyricSource.SIDECAR_FILE
+            return content
         }
         return null
     }
 
-    private fun loadSafSidecar(trackKey: String): Pair<String, LyricSource>? {
+    private fun loadSafSidecar(trackKey: String): String? {
         val uri = runCatching { Uri.parse(trackKey) }.getOrNull() ?: return null
         if (uri.scheme != "content") return null
         val displayName = context.contentResolver.query(
@@ -118,7 +112,7 @@ class LocalLyricsLoader(
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: return null
         val desiredNames = SIDECAR_EXTENSIONS.map { "${displayName.substringBeforeLast('.', displayName)}.$it" }
 
-        findDocumentSibling(uri, desiredNames)?.let { return it to LyricSource.SIDECAR_FILE }
+        findDocumentSibling(uri, desiredNames)?.let { return it }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val relativePath = context.contentResolver.query(
                 uri,
@@ -141,7 +135,7 @@ class LocalLyricsLoader(
                             Uri.withAppendedPath(MediaStore.Files.getContentUri(volume), cursor.getLong(0).toString())
                         } else null
                     }
-                    readText(sibling)?.takeIf(String::isNotBlank)?.let { return it to LyricSource.SIDECAR_FILE }
+                    readText(sibling)?.takeIf(String::isNotBlank)?.let { return it }
                 }
             }
         }
@@ -173,29 +167,10 @@ class LocalLyricsLoader(
 
     private fun readText(uri: Uri?): String? {
         if (uri == null) return null
-        return context.contentResolver.openInputStream(uri)?.use { decodeText(it.readBytes()) }
+        return context.contentResolver.openInputStream(uri)?.use { LyricsTextDecoder.decode(it.readBytes()) }
     }
 
-    private fun readText(file: File): String? = decodeText(file.readBytes())
-
-    private fun decodeText(bytes: ByteArray): String? {
-        if (looksLikeAudio(bytes)) return null
-        return when {
-            bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte() ->
-                bytes.copyOfRange(3, bytes.size).toString(Charsets.UTF_8)
-            bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() ->
-                bytes.copyOfRange(2, bytes.size).toString(Charsets.UTF_16LE)
-            bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() ->
-                bytes.copyOfRange(2, bytes.size).toString(Charsets.UTF_16BE)
-            else -> bytes.toString(Charsets.UTF_8)
-        }
-    }
-
-    private fun looksLikeAudio(bytes: ByteArray): Boolean {
-        val head = bytes.take(12).toByteArray().toString(Charsets.ISO_8859_1)
-        return head.startsWith("ID3") || head.startsWith("fLaC") || head.startsWith("OggS") ||
-            head.startsWith("RIFF") || head.contains("ftyp")
-    }
+    private fun readText(file: File): String? = LyricsTextDecoder.decode(file.readBytes())
 
     private companion object {
         val SIDECAR_EXTENSIONS = listOf("ttml", "lrc")

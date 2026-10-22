@@ -21,6 +21,7 @@ data class CachedTags(
     val composer: String? = null,
     val coverPath: String? = null,
     val lyrics: String? = null,
+    val sidecarLyrics: String? = null,
     val bitrate: Int? = null,
     val sampleRate: Int? = null,
     val channels: Int? = null,

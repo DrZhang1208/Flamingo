@@ -26,6 +26,7 @@ object RemoteTagExtractor {
         val discNumber: Int? = null,
         val composer: String? = null,
         val lyrics: String? = null,
+        val sidecarLyrics: String? = null,
         val coverUri: Uri? = null,
         val bitrate: Int? = null,     // kbps
         val sampleRate: Int? = null,  // Hz
@@ -53,16 +54,43 @@ object RemoteTagExtractor {
      * @param cacheKey 用于封面缓存命名的唯一标识
      */
     suspend fun extract(serverId: String, remotePath: String, cacheKey: String): ExtractedResult {
+        var result: ExtractedResult? = null
         for (size in stepSizes) {
             currentCoroutineContext().ensureActive()
             val header = RemoteServerManager.readFileBytes(serverId, remotePath, 0, size)
             if (header.isEmpty()) throw java.io.IOException("无法读取远程文件: $remotePath")
             currentCoroutineContext().ensureActive()
-            val result = extractFromBytes(header, cacheKey)
-            if (hasUsefulData(result)) return result
+            val parsed = extractFromBytes(header, cacheKey)
+            if (hasUsefulData(parsed)) {
+                result = parsed
+                break
+            }
         }
-        throw java.io.IOException("无法从文件提取标签: $remotePath")
+        if (result == null) throw java.io.IOException("无法从文件提取标签: $remotePath")
+        // 与本地 SIDECAR_EXTENSIONS 一致的同名歌词文件（.ttml 优先）；失败不影响标签提取
+        val sidecar = runCatching { readSidecarLyrics(serverId, remotePath) }.getOrNull()
+        return if (sidecar != null) result.copy(sidecarLyrics = sidecar) else result
     }
+
+    private suspend fun readSidecarLyrics(serverId: String, remotePath: String): String? {
+        val base = remotePath.substringBeforeLast('.', remotePath)
+        for (extension in SIDECAR_EXTENSIONS) {
+            currentCoroutineContext().ensureActive()
+            val candidate = "$base.$extension"
+            val text = runCatching {
+                val size = RemoteServerManager.getFileSize(serverId, candidate)
+                if (size <= 0L || size > MAX_SIDECAR_BYTES) return@runCatching null
+                val bytes = RemoteServerManager.readFileBytes(serverId, candidate, 0, size.toInt())
+                yos.music.player.code.utils.lrc.LyricsTextDecoder.decode(bytes)
+            }.getOrNull() ?: continue
+            if (text.isNotBlank()) return text
+        }
+        return null
+    }
+
+    /** 歌词文件正常远小于此，超限视为误配（如同名音频）直接跳过 */
+    private const val MAX_SIDECAR_BYTES = 512L * 1024
+    private val SIDECAR_EXTENSIONS = listOf("ttml", "lrc")
 
     private fun extractFromBytes(header: ByteArray, cacheKey: String): ExtractedResult {
         val tmpFile = java.io.File.createTempFile("tag_", ".tmp")
@@ -176,9 +204,11 @@ object RemoteTagExtractor {
             } catch (_: Exception) {}
 
             return ExtractedResult(
-                title, artist, album, albumArtist, genre, year, duration,
-                trackNumber, discNumber, composer, lyrics, coverUri,
-                bitrate, sampleRate, channels
+                title = title, artist = artist, album = album, albumArtist = albumArtist,
+                genre = genre, year = year, duration = duration,
+                trackNumber = trackNumber, discNumber = discNumber, composer = composer,
+                lyrics = lyrics, coverUri = coverUri,
+                bitrate = bitrate, sampleRate = sampleRate, channels = channels
             )
         } finally {
             tmpFile.delete()

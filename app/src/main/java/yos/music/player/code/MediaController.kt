@@ -372,6 +372,7 @@ object MediaController {
             composer = result.composer ?: cur.composer,
             coverPath = result.coverUri?.toString(),
             lyrics = result.lyrics,
+            sidecarLyrics = result.sidecarLyrics,
             bitrate = AudioMetadataUtils.reliableBitrateKbps(result.bitrate ?: cur.bitrate, cur.fileSize, result.duration ?: cur.duration),
             sampleRate = result.sampleRate ?: cur.sampleRate,
             channels = result.channels ?: cur.channels,
@@ -410,12 +411,15 @@ object MediaController {
         }
         MusicLibrary.updateSongInFullList(u)
         uiRefreshTrigger++
-        LyricsController.submitRawLyrics(
-            trackKey = uri,
-            rawLyrics = result.lyrics,
-            currentPositionMs = mediaControl?.currentPosition?.toInt() ?: 0,
-            source = LyricSource.REMOTE_SCAN
-        )
+        val lyricCandidate = yos.music.player.code.utils.lrc.chooseLyricCandidate(result.lyrics, result.sidecarLyrics)
+        if (lyricCandidate != null) {
+            LyricsController.submitRawLyrics(
+                trackKey = uri,
+                rawLyrics = lyricCandidate.first,
+                currentPositionMs = mediaControl?.currentPosition?.toInt() ?: 0,
+                source = LyricSource.REMOTE_SCAN
+            )
+        }
     }
 
     private fun refresh(music: YosMediaItem) {
@@ -519,6 +523,15 @@ class YosPlaybackService : MediaSessionService() {
         if (next.serverId == null) {
             next.uri?.path?.let { path ->
                 localLyricsLoader.prefetchNext(key, path, next.duration ?: 0L)
+            }
+        } else {
+            // 远程下一首只做零网络预热：DB 缓存里已有歌词（内嵌或 sidecar）就先解析进内存
+            val cached = yos.music.player.data.remote.RemoteTagDatabase.get(key)
+            val candidate = yos.music.player.code.utils.lrc.chooseLyricCandidate(cached?.lyrics, cached?.sidecarLyrics)
+            if (candidate != null) {
+                serviceScope.launch(Dispatchers.IO) {
+                    LyricsController.cacheRawLyrics(key, candidate.first, LyricSource.REMOTE_CACHE, next.duration ?: 0L)
+                }
             }
         }
     }    private lateinit var statusBarLyricsPublisher: StatusBarLyricsPublisher
@@ -962,7 +975,8 @@ class YosPlaybackService : MediaSessionService() {
                     composer: String? = null,
                     bitrate: Int? = null,
                     sampleRate: Int? = null,
-                    channels: Int? = null
+                    channels: Int? = null,
+                    sidecarLyrics: String? = null
                 ) {
                     val cur = musicPlaying.value ?: return
                     if (item.uri != null && cur.uri != item.uri) return
@@ -1003,16 +1017,20 @@ class YosPlaybackService : MediaSessionService() {
                     }
                     MusicLibrary.updateSongInFullList(u)
                     uiRefreshTrigger++
-                    LyricsController.submitRawLyrics(
-                        item.uri?.toString(),
-                        lyrics,
-                        mediaControl?.currentPosition?.toInt() ?: 0,
-                        when (source) {
-                            "DB_CACHE" -> LyricSource.REMOTE_CACHE
-                            "REMOTE_SCAN" -> LyricSource.REMOTE_SCAN
-                            else -> LyricSource.EMBEDDED_TAG
-                        }
-                    )
+                    // 内嵌与 sidecar 二选一提交（LyricPreferEmbedded 决定胜者），与本地 selectLyricSource 同语义
+                    val lyricCandidate = yos.music.player.code.utils.lrc.chooseLyricCandidate(lyrics, sidecarLyrics)
+                    if (lyricCandidate != null) {
+                        LyricsController.submitRawLyrics(
+                            item.uri?.toString(),
+                            lyricCandidate.first,
+                            mediaControl?.currentPosition?.toInt() ?: 0,
+                            when (source) {
+                                "DB_CACHE" -> LyricSource.REMOTE_CACHE
+                                "REMOTE_SCAN" -> LyricSource.REMOTE_SCAN
+                                else -> lyricCandidate.second
+                            }
+                        )
+                    }
                     if (item.serverId != null) {
                         val tagUri = item.uri?.toString() ?: ""
                         val cachedForMerge = yos.music.player.data.remote.RemoteTagDatabase.get(tagUri)
@@ -1030,6 +1048,7 @@ class YosPlaybackService : MediaSessionService() {
                             composer = u.composer,
                             coverPath = u.thumb?.toString() ?: cachedForMerge?.coverPath,
                             lyrics = lyrics ?: cachedForMerge?.lyrics,
+                            sidecarLyrics = sidecarLyrics ?: cachedForMerge?.sidecarLyrics,
                             bitrate = u.bitrate,
                             sampleRate = u.sampleRate,
                             channels = u.channels,
@@ -1101,7 +1120,8 @@ class YosPlaybackService : MediaSessionService() {
                                         cached.composer,
                                         cached.bitrate,
                                         cached.sampleRate,
-                                        cached.channels
+                                        cached.channels,
+                                        sidecarLyrics = cached.sidecarLyrics
                                     )
                                 }
                                 // 从缓存恢复质量信息，避免后台扫描结果丢失
@@ -1152,6 +1172,7 @@ class YosPlaybackService : MediaSessionService() {
                             composer = result.composer ?: item.composer,
                             coverPath = result.coverUri?.toString(),
                             lyrics = result.lyrics,
+                            sidecarLyrics = result.sidecarLyrics,
                             bitrate = AudioMetadataUtils.reliableBitrateKbps(result.bitrate, item.fileSize, result.duration ?: item.duration),
                             sampleRate = result.sampleRate,
                             channels = result.channels,
@@ -1174,7 +1195,8 @@ class YosPlaybackService : MediaSessionService() {
                                 result.composer,
                                 result.bitrate,
                                 result.sampleRate,
-                                result.channels)
+                                result.channels,
+                                sidecarLyrics = result.sidecarLyrics)
                             // 同步更新质量信息到 musicPlaying
                             val q = musicPlaying.value
                             if (q != null && ((result.bitrate ?: 0) > 0 || (result.sampleRate ?: 0) > 0 || (result.channels ?: 0) > 0)) {
