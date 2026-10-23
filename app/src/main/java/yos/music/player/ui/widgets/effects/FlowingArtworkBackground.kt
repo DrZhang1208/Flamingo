@@ -62,7 +62,8 @@ half4 main(float2 p) {
     // One unit has the same physical length on both axes. A square cover stays
     // square in portrait, landscape and split-screen instead of stretching.
     float2 q = (p - resolution * 0.5) / max(resolution.x, resolution.y);
-    float t = phase * 0.80;
+    // 整体运动节奏（时间轴倍率）；0.80 偏慢，1.00 为当前调校值
+    float t = phase * 1.00;
     q = twistPoint(q, float2(-0.18, -0.12), 0.85, 1.8 + 0.35 * sin(t * 0.07));
     q = twistPoint(q, float2(0.22, 0.25), 0.65, -1.4 + 0.30 * cos(t * 0.09));
 
