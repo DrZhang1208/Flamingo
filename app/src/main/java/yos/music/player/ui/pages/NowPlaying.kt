@@ -279,7 +279,7 @@ import yos.music.player.ui.widgets.effects.overlayEffect
 import yos.music.player.logic.mss.VocalSeparationController
 import yos.music.player.logic.mss.VocalSeparationStatus
 
-private enum class NowPlayingMenuPage { More, PlaylistPicker, CreatePlaylist, Detail }
+private enum class NowPlayingMenuPage { More, PlaylistPicker, CreatePlaylist, Detail, SleepTimer }
 
 
 @Stable
@@ -1983,7 +1983,6 @@ private fun ActionButtonsRow(
         // 跨页保留：新建歌单输入内容
         val newPlaylistName = remember { mutableStateOf("") }
         var showArtistPicker = remember { mutableStateOf(false) }
-        var showSleepTimerDialog = remember { mutableStateOf(false) }
         var showSleepTimerWarning = remember { mutableStateOf(false) }
         val menuOpenCount = remember { mutableIntStateOf(0) }
         var btnPos = remember { mutableStateOf(Offset.Zero) }
@@ -2029,6 +2028,14 @@ private fun ActionButtonsRow(
         val music = musicPlayingLambda()
         if (music != null && showMoreMenu.value) {
             key(menuOpenCount.intValue) {
+            // 定时关闭页的滑条与开关状态：本次打开菜单期间跨页保留
+            val sleepMinutes = remember { mutableFloatStateOf(15f) }
+            val sleepExtendToSongEnd = remember {
+                mutableStateOf(
+                    if (yos.music.player.code.SleepTimerManager.isActive.value) yos.music.player.code.SleepTimerManager.isExtendToSongEnd.value
+                    else SettingsLibrary.SleepTimerExtendToSongEnd
+                )
+            }
             val morePage = OptionDialogPage(
                 key = NowPlayingMenuPage.More,
                 title = music.title ?: defaultTitle,
@@ -2078,7 +2085,7 @@ private fun ActionButtonsRow(
                             },
                             if (yos.music.player.code.SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
                             {
-                                dismiss.after { showSleepTimerDialog.value = true }
+                                menuPage.value = NowPlayingMenuPage.SleepTimer
                             }
                         ),
                         Triple("歌曲信息", Icons.Outlined.Info, { menuPage.value = NowPlayingMenuPage.Detail })
@@ -2110,19 +2117,19 @@ private fun ActionButtonsRow(
                     yos.music.player.ui.widgets.basic.createPlaylistDialogPage(
                         NowPlayingMenuPage.CreatePlaylist, music, context, newPlaylistName
                     ) { menuPage.value = NowPlayingMenuPage.PlaylistPicker },
-                    yos.music.player.ui.widgets.basic.songDetailDialogPage(NowPlayingMenuPage.Detail, music)
+                    yos.music.player.ui.widgets.basic.songDetailDialogPage(NowPlayingMenuPage.Detail, music),
+                    yos.music.player.ui.pages.sleepTimerDialogPage(
+                        key = NowPlayingMenuPage.SleepTimer,
+                        context = context,
+                        currentSongUri = music.uri?.toString(),
+                        minutes = sleepMinutes,
+                        extendToSongEnd = sleepExtendToSongEnd
+                    )
                 ),
                 currentPage = menuPage.value,
                 onDismissRequest = { showMoreMenu.value = false }
             )
             }
-        }
-
-        if (showSleepTimerDialog.value) {
-            SleepTimerDialog(
-                currentSongUri = music?.uri?.toString(),
-                onDismiss = { showSleepTimerDialog.value = false }
-            )
         }
 
         if (showSleepTimerWarning.value && yos.music.player.code.SleepTimerManager.isActive.value) {

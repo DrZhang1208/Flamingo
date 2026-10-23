@@ -25,10 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -49,41 +46,33 @@ import yos.music.player.ui.pages.settings.SwitchItem
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.OptionDialog
+import yos.music.player.ui.widgets.basic.OptionDialogPage
 
 /**
- * 定时关闭选择对话框
- * 使用拖动条选择时长,并支持"延长到整首歌曲"开关
+ * 定时关闭选择页：菜单内页（NowPlaying 更多菜单）
+ * 使用拖动条选择时长,并支持"延长到整首歌曲"开关。
+ * 时长与开关状态由宿主持有，页间切换不丢失。
  */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SleepTimerDialog(
-    currentSongUri: String? = null,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    
-    // 拖动条状态 (1-120分钟)
-    val minutes = remember { mutableFloatStateOf(15f) }
-    // 跟随之前的状态：定时进行中跟随当前定时器的设置，否则记住上次选择
-    val extendToSongEnd = rememberSaveable {
-        mutableStateOf(
-            if (SleepTimerManager.isActive.value) SleepTimerManager.isExtendToSongEnd.value
-            else SettingsLibrary.SleepTimerExtendToSongEnd
+internal fun sleepTimerDialogPage(
+    key: Any,
+    context: android.content.Context,
+    currentSongUri: String?,
+    minutes: androidx.compose.runtime.MutableFloatState,
+    extendToSongEnd: androidx.compose.runtime.MutableState<Boolean>
+): OptionDialogPage = OptionDialogPage(
+    key = key,
+    icon = {
+        Icon(
+            if (SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
+            tint = MaterialTheme.colorScheme.primary
         )
-    }
-    val interactionSource = remember { MutableInteractionSource() }
-    
-    OptionDialog(
-        icon = {
-            Icon(
-                if (SleepTimerManager.isActive.value) Icons.Filled.Timer else Icons.Outlined.Timer,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-        },
-        title = "定时关闭",
-        content = { dismiss ->
+    },
+    title = "定时关闭",
+    horizontalTitle = true,
+    content = { dismiss ->
+        val interactionSource = remember { MutableInteractionSource() }
             // 显示当前定时状态(如果已开启)
             if (SleepTimerManager.isActive.value) {
                 Row(
@@ -285,22 +274,19 @@ fun SleepTimerDialog(
                     modifier = Modifier.height(25.dp)
                 )
             }
-        },
-        // 高亮确认按钮(复用调整圆角页面的样式)
-        positiveContent = "开始定时",
-        onPositive = {
-            SettingsLibrary.SleepTimerExtendToSongEnd = extendToSongEnd.value
-            SleepTimerManager.startTimer(
-                context,
-                minutes.floatValue.toInt(),
-                currentSongUri,
-                extendToSongEnd.value
-            )
-        },
-        horizontalTitle = true,
-        onDismissRequest = onDismiss
-    )
-}
+    },
+    // 高亮确认按钮(复用调整圆角页面的样式)
+    positiveContent = "开始定时",
+    onPositive = {
+        SettingsLibrary.SleepTimerExtendToSongEnd = extendToSongEnd.value
+        SleepTimerManager.startTimer(
+            context,
+            minutes.floatValue.toInt(),
+            currentSongUri,
+            extendToSongEnd.value
+        )
+    }
+)
 
 /**
  * 定时关闭即将到期警告对话框
