@@ -203,7 +203,6 @@
     <string name="listen_stats_period_morning">午前</string>
     <string name="listen_stats_period_afternoon">午後</string>
     <string name="listen_stats_period_evening">夜</string>
-    <string name="listen_stats_hour_label">%1$d時</string>
     <string name="listen_stats_hours_minutes">%1$d 時間 %2$d 分</string>
     <string name="listen_stats_hours_only">%1$d 時間</string>
     <string name="listen_stats_minutes_only">%1$d 分</string>

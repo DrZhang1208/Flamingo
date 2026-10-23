@@ -215,7 +215,6 @@
     <string name="listen_stats_period_morning">morning</string>
     <string name="listen_stats_period_afternoon">afternoon</string>
     <string name="listen_stats_period_evening">evening</string>
-    <string name="listen_stats_hour_label">%1$d:00</string>
     <string name="listen_stats_hours_minutes">%1$d hr %2$d min</string>
     <string name="listen_stats_hours_only">%1$d hr</string>
     <string name="listen_stats_minutes_only">%1$d min</string>

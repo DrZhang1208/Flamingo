@@ -1007,7 +1007,7 @@ private fun ListenTimeOfDayCard(histogram: List<Int>) {
                     }
                     if (tick != null) {
                         Text(
-                            text = stringResource(id = R.string.listen_stats_hour_label, tick),
+                            text = tick.toString(),
                             fontSize = 10.sp,
                             color = (Color.Black withNight Color.White).copy(alpha = 0.45f),
                             modifier = Modifier.align(
