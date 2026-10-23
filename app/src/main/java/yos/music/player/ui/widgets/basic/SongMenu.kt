@@ -200,6 +200,7 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
             )
 
             val playlistPickerPage = playlistPickerDialogPage(
+                key = SongMenuPage.PlaylistPicker,
                 music = music, context = context, newPlaylistName = newPlaylistName,
                 onCreateClick = { menuPage = SongMenuPage.CreatePlaylist }
             )
@@ -232,12 +233,12 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                 }
             )
 
-            val detailPage = songDetailDialogPage(music)
+            val detailPage = songDetailDialogPage(SongMenuPage.Detail, music)
 
             val pages = buildList {
                 add(mainPage)
                 add(playlistPickerPage)
-                add(createPlaylistDialogPage(music, context, newPlaylistName) {
+                add(createPlaylistDialogPage(SongMenuPage.CreatePlaylist, music, context, newPlaylistName) {
                     menuPage = SongMenuPage.PlaylistPicker
                 })
                 if (navController != null) add(artistPickerPage)
@@ -255,12 +256,13 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
 
 /** 歌单选择页：菜单内页复用（SongMenu / NowPlaying 更多菜单） */
 internal fun playlistPickerDialogPage(
+    key: Any,
     music: YosMediaItem,
     context: android.content.Context,
     newPlaylistName: androidx.compose.runtime.MutableState<String>,
     onCreateClick: () -> Unit
 ): OptionDialogPage = OptionDialogPage(
-    key = "playlistPicker",
+    key = key,
     title = "添加到歌单",
     icon = { Spacer(Modifier.size(0.dp)) },
     content = { dismiss ->
@@ -344,12 +346,13 @@ internal fun playlistPickerDialogPage(
 
 /** 新建歌单页：创建成功后由 dismissOnPositive 直接收卡；onCancel 由宿主决定（一般回歌单选择页） */
 internal fun createPlaylistDialogPage(
+    key: Any,
     music: YosMediaItem,
     context: android.content.Context,
     newPlaylistName: androidx.compose.runtime.MutableState<String>,
     onCancel: () -> Unit
 ): OptionDialogPage = OptionDialogPage(
-    key = "createPlaylist",
+    key = key,
     title = "新建歌单",
     icon = { Spacer(Modifier.size(0.dp)) },
     content = {
@@ -375,8 +378,8 @@ internal fun createPlaylistDialogPage(
 )
 
 /** 歌曲信息页 */
-internal fun songDetailDialogPage(music: YosMediaItem): OptionDialogPage = OptionDialogPage(
-    key = "songDetail",
+internal fun songDetailDialogPage(key: Any, music: YosMediaItem): OptionDialogPage = OptionDialogPage(
+    key = key,
     title = "歌曲信息",
     icon = { Spacer(Modifier.size(0.dp)) },
     content = { SongDetailContent(music) },

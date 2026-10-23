@@ -2103,13 +2103,14 @@ private fun ActionButtonsRow(
                 pages = listOf(
                     morePage,
                     yos.music.player.ui.widgets.basic.playlistPickerDialogPage(
+                        key = NowPlayingMenuPage.PlaylistPicker,
                         music = music, context = context, newPlaylistName = newPlaylistName,
                         onCreateClick = { menuPage.value = NowPlayingMenuPage.CreatePlaylist }
                     ),
                     yos.music.player.ui.widgets.basic.createPlaylistDialogPage(
-                        music, context, newPlaylistName
+                        NowPlayingMenuPage.CreatePlaylist, music, context, newPlaylistName
                     ) { menuPage.value = NowPlayingMenuPage.PlaylistPicker },
-                    yos.music.player.ui.widgets.basic.songDetailDialogPage(music)
+                    yos.music.player.ui.widgets.basic.songDetailDialogPage(NowPlayingMenuPage.Detail, music)
                 ),
                 currentPage = menuPage.value,
                 onDismissRequest = { showMoreMenu.value = false }
