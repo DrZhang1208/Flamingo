@@ -201,10 +201,12 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
                     }
                 }
             }
-            // 上层：行内容，不透明底色遮住操作层，随拖动平移
+            // 上层：行内容，不透明底色遮住操作层，随拖动平移。
+            // 由本行定高（80dp）撑起外层 Box——操作层是 matchParentSize，等 Box 定尺寸，
+            // 若这里也用 matchParentSize 会互相等待，Box 高度塌缩为 0，整卡不可见
             Row(
                 modifier = Modifier
-                    .matchParentSize()
+                    .fillMaxWidth()
                     .offset { IntOffset(revealOffset.value.roundToInt(), 0) }
                     .background(MaterialTheme.colorScheme.onSecondary)
                     .background(highlight, rowShape)
