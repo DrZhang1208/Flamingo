@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,13 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import yos.music.player.ui.widgets.basic.OptionDialog
+import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.R
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.Folder
@@ -65,7 +64,6 @@ import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
-import yos.music.player.ui.widgets.basic.yosRoundColumn
 
 @Composable
 fun LibraryOverview(navController: NavController) =
@@ -78,28 +76,23 @@ fun LibraryOverview(navController: NavController) =
             navController.popBackStack()
         },
         content = {
-            yosRoundColumn {
-                itemsIndexed(
-                    folders,
-                    key = { _, folder -> "${folder.serverId ?: "local"}_${folder.path}" }
-                ) { index, folder ->
-                    FolderItem(folder = folder) {
-                        val targetTitle = folder.name
-                        val targetList = folder.songs
-                        LibraryObject.setTargetListWithTitle(targetTitle, targetList)
-                        navController.toUI(UI.NormalMusic)
-                    }
-                    key(index) {
-                        val needDivider = index < folders.size - 1
-                        if (needDivider) {
-                            Spacer(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 102.dp)
-                                    .alpha(0.15f)
-                                    .height(0.5.dp)
-                                    .background(Color.Black withNight Color.White)
-                            )
+            if (folders.isNotEmpty()) {
+                item(key = "library_overview_card") {
+                    // iOS 分组卡片：所有文件夹一张卡，行间分隔线在 FolderItem 内部
+                    RoundColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.5.dp)
+                    ) {
+                        folders.forEachIndexed { index, folder ->
+                            FolderItem(
+                                folder = folder,
+                                isFirst = index == 0,
+                                isLast = index == folders.size - 1
+                            ) {
+                                LibraryObject.setTargetListWithTitle(folder.name, folder.songs)
+                                navController.toUI(UI.NormalMusic)
+                            }
                         }
                     }
                 }
@@ -110,139 +103,173 @@ fun LibraryOverview(navController: NavController) =
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
+private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemClick: () -> Unit) {
     var showUnmount by remember { mutableStateOf(false) }
     val isRemote = folder.serverId != null
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    Row(
-        modifier = Modifier
-            .height(80.dp)
-            .fillMaxWidth()
-            .padding(start = 22.dp, end = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    // 整行按压高亮（iOS 风）：首/末行裁剪到卡片圆角，避免高亮溢出卡片
+    val rowInteraction = remember { MutableInteractionSource() }
+    val pressed by rowInteraction.collectIsPressedAsState()
+    val rowShape = YosRoundedCornerShape(
+        topStart = if (isFirst) 9.dp else 0.dp,
+        topEnd = if (isFirst) 9.dp else 0.dp,
+        bottomStart = if (isLast) 9.dp else 0.dp,
+        bottomEnd = if (isLast) 9.dp else 0.dp
+    )
 
-        val shape = YosRoundedCornerShape(4.dp)
-        val density = LocalDensity.current
-
-        // 深色模式跟随应用内主题而非系统设置，需代码切换深色图标
-        Image(painter = painterResource(
-            id = if (isFlamingoInDarkMode()) R.drawable.placeholder_folder_dark
-            else R.drawable.placeholder_folder
-        ), contentDescription = null,
+    Column(Modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .size(64.dp)
-                .clip(shape)
-                .clickable { itemClick() }
-                .drawWithCache {
-                    onDrawWithContent {
-                        drawContent()
-                        val outline = shape.createOutline(
-                            Size(size.width, size.height),
-                            LayoutDirection.Ltr,
-                            density
-                        )
-                        drawOutline(
-                            outline = outline,
-                            color = Color.Gray.copy(alpha = 0.1f),
-                            style = Stroke(width = 8f)
-                        )
-                        drawOutline(
-                            outline = outline,
-                            color = Color.Gray.copy(alpha = 0.5f),
-                            style = Stroke(width = 8f),
-                            blendMode = BlendMode.Overlay
+                .fillMaxWidth()
+                .background(
+                    if (pressed) Color.Black.copy(alpha = 0.05f) withNight Color.White.copy(alpha = 0.09f)
+                    else Color.Transparent,
+                    rowShape
+                )
+                .clickable(
+                    interactionSource = rowInteraction,
+                    indication = null,
+                    onClick = itemClick
+                )
+                .height(80.dp)
+                .padding(start = 16.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            val shape = YosRoundedCornerShape(4.dp)
+            val density = LocalDensity.current
+
+            // 深色模式跟随应用内主题而非系统设置，需代码切换深色图标
+            Image(painter = painterResource(
+                id = if (isFlamingoInDarkMode()) R.drawable.placeholder_folder_dark
+                else R.drawable.placeholder_folder
+            ), contentDescription = null,
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(shape)
+                    .drawWithCache {
+                        onDrawWithContent {
+                            drawContent()
+                            val outline = shape.createOutline(
+                                Size(size.width, size.height),
+                                LayoutDirection.Ltr,
+                                density
+                            )
+                            drawOutline(
+                                outline = outline,
+                                color = Color.Gray.copy(alpha = 0.1f),
+                                style = Stroke(width = 8f)
+                            )
+                            drawOutline(
+                                outline = outline,
+                                color = Color.Gray.copy(alpha = 0.5f),
+                                style = Stroke(width = 8f),
+                                blendMode = BlendMode.Overlay
+                            )
+                        }
+                    })
+
+            Column(
+                Modifier
+                    .padding(start = 16.dp)
+                    .weight(1f)
+            ) {
+                Text(
+                    text = folder.name,
+                    modifier = Modifier.padding(bottom = 1.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 16.5.sp,
+                    lineHeight = 20.5.sp,
+                )
+                if (isRemote) {
+                    val server = folder.serverId?.let { RemoteServerManager.getServer(it) }
+                    if (server != null) {
+                        Text(
+                            text = "${server.label} · ${server.type.displayLabel()}",
+                            fontSize = 13.2.sp,
+                            lineHeight = 16.2.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.alpha(0.45f)
                         )
                     }
-                })
+                }
+            }
 
-        Column(
-            Modifier
-                .padding(start = 16.dp)
-                .weight(1f)
-                .clickable { itemClick() }) {
-            Text(
-                text = folder.name,
-                modifier = Modifier.padding(bottom = 1.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 16.sp,
-                lineHeight = 16.sp,
-            )
+            // 远程文件夹：卸载按钮（圆角淡红底药丸、无涟漪、加大触控区，放在开关左侧保持对齐）
             if (isRemote) {
-                val server = folder.serverId?.let { RemoteServerManager.getServer(it) }
-                if (server != null) {
-                    Text(
-                        text = "${server.label} · ${server.type.displayLabel()}",
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.alpha(0.35f)
-                    )
+                Box(
+                    modifier = Modifier
+                        .padding(end = 14.dp)
+                        .defaultMinSize(minWidth = 52.dp, minHeight = 36.dp)
+                        .clip(YosRoundedCornerShape(12.dp))
+                        .background(
+                            Color.Red.copy(alpha = 0.08f) withNight Color.Red.copy(alpha = 0.18f)
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            Vibrator.click(context)
+                            showUnmount = true
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("卸载", fontSize = 13.sp, color = Color.Red.copy(alpha = 0.8f))
                 }
             }
-        }
 
-        // 远程文件夹：卸载按钮（圆角淡红底药丸、无涟漪、加大触控区，放在开关左侧保持对齐）
-        if (isRemote) {
-            Box(
+            CupertinoSwitch(checked = !MusicLibrary.isFolderHidden(folder), onCheckedChange = {
+                scope.launch(Dispatchers.IO) {
+                    Vibrator.click(context)
+                    withContext(Dispatchers.Main) {
+                        if (it) MusicLibrary.unHideFolder(folder)
+                        else MusicLibrary.hideFolder(folder)
+                    }
+                }
+            }, modifier = Modifier.height(25.dp))
+
+            Icon(
+                painter = painterResource(id = R.drawable.ic_action_next), contentDescription = null,
                 modifier = Modifier
-                    .padding(end = 14.dp)
-                    .defaultMinSize(minWidth = 52.dp, minHeight = 36.dp)
-                    .clip(YosRoundedCornerShape(12.dp))
-                    .background(
-                        Color.Red.copy(alpha = 0.08f) withNight Color.Red.copy(alpha = 0.18f)
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        Vibrator.click(context)
-                        showUnmount = true
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("卸载", fontSize = 13.sp, color = Color.Red.copy(alpha = 0.8f))
-            }
-
-            if (showUnmount) {
-                OptionDialog(
-                    icon = { Spacer(Modifier.size(0.dp)) },
-                    title = "卸载远程文件夹",
-                    subTitle = "确定要从资料库中移除「${folder.name}」吗？",
-                    content = null,
-                    positiveContent = "卸载",
-                    onPositive = {
-                        scope.launch {
-                            MusicLibrary.unmountRemoteFolder(folder.serverId ?: "", folder.path)
-                            showUnmount = false
-                        }
-                    },
-                    negativeContent = "取消",
-                    onNegative = { showUnmount = false },
-                    onDismissRequest = { showUnmount = false }
-                )
-            }
+                    .padding(start = 14.dp)
+                    .height(12.dp)
+                    .alpha(0.3f), tint = MaterialTheme.colorScheme.onBackground
+            )
         }
 
-        CupertinoSwitch(checked = !MusicLibrary.isFolderHidden(folder), onCheckedChange = {
-            scope.launch(Dispatchers.IO) {
-                Vibrator.click(context)
-                withContext(Dispatchers.Main) {
-                    if (it) MusicLibrary.unHideFolder(folder)
-                    else MusicLibrary.hideFolder(folder)
-                }
-            }
-        })
+        if (!isLast) {
+            // 分隔线对齐到文字起点：行内边距 16 + 图标 64 + 文字间距 16
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 96.dp)
+                    .alpha(0.15f)
+                    .height(0.5.dp)
+                    .background(Color.Black withNight Color.White)
+            )
+        }
+    }
 
-        Icon(
-            painter = painterResource(id = R.drawable.ic_action_next), contentDescription = null,
-            modifier = Modifier
-                .height(12.dp)
-                .alpha(0.3f)
-                .padding(horizontal = 4.dp), tint = MaterialTheme.colorScheme.onBackground
+    if (showUnmount) {
+        OptionDialog(
+            icon = { Spacer(Modifier.size(0.dp)) },
+            title = "卸载远程文件夹",
+            subTitle = "确定要从资料库中移除「${folder.name}」吗？",
+            content = null,
+            positiveContent = "卸载",
+            onPositive = {
+                scope.launch {
+                    MusicLibrary.unmountRemoteFolder(folder.serverId ?: "", folder.path)
+                    showUnmount = false
+                }
+            },
+            negativeContent = "取消",
+            onNegative = { showUnmount = false },
+            onDismissRequest = { showUnmount = false }
         )
     }
 }
