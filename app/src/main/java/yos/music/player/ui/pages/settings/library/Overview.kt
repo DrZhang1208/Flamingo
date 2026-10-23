@@ -1,5 +1,7 @@
 package yos.music.player.ui.pages.settings.library
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -109,9 +112,15 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // 整行按压高亮（iOS 风）：首/末行裁剪到卡片圆角，避免高亮溢出卡片
+    // 整行按压高亮（iOS 风）：淡入淡出动画；首/末行裁剪到卡片圆角，避免高亮溢出卡片
     val rowInteraction = remember { MutableInteractionSource() }
     val pressed by rowInteraction.collectIsPressedAsState()
+    val highlight by animateColorAsState(
+        targetValue = if (pressed) Color.Black.copy(alpha = 0.05f) withNight Color.White.copy(alpha = 0.09f)
+        else Color.Transparent,
+        animationSpec = tween(200),
+        label = "rowPressHighlight"
+    )
     val rowShape = YosRoundedCornerShape(
         topStart = if (isFirst) 9.dp else 0.dp,
         topEnd = if (isFirst) 9.dp else 0.dp,
@@ -123,11 +132,7 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    if (pressed) Color.Black.copy(alpha = 0.05f) withNight Color.White.copy(alpha = 0.09f)
-                    else Color.Transparent,
-                    rowShape
-                )
+                .background(highlight, rowShape)
                 .clickable(
                     interactionSource = rowInteraction,
                     indication = null,
@@ -187,38 +192,37 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
                 if (isRemote) {
                     val server = folder.serverId?.let { RemoteServerManager.getServer(it) }
                     if (server != null) {
-                        Text(
-                            text = "${server.label} · ${server.type.displayLabel()}",
-                            fontSize = 13.2.sp,
-                            lineHeight = 16.2.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.alpha(0.45f)
-                        )
+                        // 卸载按钮放副标题行末尾：不挤占标题宽度，也远离开关
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${server.label} · ${server.type.displayLabel()}",
+                                fontSize = 13.2.sp,
+                                lineHeight = 16.2.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).alpha(0.45f)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Box(
+                                modifier = Modifier
+                                    .defaultMinSize(minWidth = 40.dp, minHeight = 28.dp)
+                                    .clip(YosRoundedCornerShape(10.dp))
+                                    .background(
+                                        Color.Red.copy(alpha = 0.08f) withNight Color.Red.copy(alpha = 0.18f)
+                                    )
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        Vibrator.click(context)
+                                        showUnmount = true
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("卸载", fontSize = 12.sp, color = Color.Red.copy(alpha = 0.8f))
+                            }
+                        }
                     }
-                }
-            }
-
-            // 远程文件夹：卸载按钮（圆角淡红底药丸、无涟漪、加大触控区，放在开关左侧保持对齐）
-            if (isRemote) {
-                Box(
-                    modifier = Modifier
-                        .padding(end = 14.dp)
-                        .defaultMinSize(minWidth = 52.dp, minHeight = 36.dp)
-                        .clip(YosRoundedCornerShape(12.dp))
-                        .background(
-                            Color.Red.copy(alpha = 0.08f) withNight Color.Red.copy(alpha = 0.18f)
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            Vibrator.click(context)
-                            showUnmount = true
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("卸载", fontSize = 13.sp, color = Color.Red.copy(alpha = 0.8f))
                 }
             }
 
