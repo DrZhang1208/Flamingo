@@ -75,14 +75,17 @@ import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
 
+/** 歌曲菜单的内部页面：切页不收卡片，整页平滑推入/缩放 */
+private enum class SongMenuPage { Main, PlaylistPicker, CreatePlaylist, ArtistPicker, Detail }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, showArtistMenuItem: Boolean = true, showAlbumMenuItem: Boolean = true, showRemoveFromPlaylist: Boolean = false) {
     var showMenu by remember { mutableStateOf(false) }
-    var showPlaylistPicker by remember { mutableStateOf(false) }
-    var showDetail by remember { mutableStateOf(false) }
-    var showArtistPicker by remember { mutableStateOf(false) }
-    val menuOpenCount = remember { mutableIntStateOf(0) }
+    var menuPage by remember { mutableStateOf(SongMenuPage.Main) }
+    var menuOpenCount by remember { mutableIntStateOf(0) }
+    // 跨页保留：新建歌单的输入内容在页间切换时不丢（工厂需要 MutableState 引用）
+    val newPlaylistName = remember { mutableStateOf("") }
     val hasMultipleArtists = (music.artistsList?.size ?: 0) > 1
 
     val context = LocalContext.current
@@ -90,13 +93,15 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
     Icon(
         painterResource(R.drawable.ic_nowplaying_more), "菜单",
         Modifier.size(20.dp).alpha(0.3f)
-            .clickable(remember { MutableInteractionSource() }, null) { showMenu = true; menuOpenCount.intValue++ }
+            .clickable(remember { MutableInteractionSource() }, null) {
+                showMenu = true; menuOpenCount++
+                menuPage = SongMenuPage.Main
+            }
     )
 
     if (showMenu) {
-        key(menuOpenCount.intValue) {
-        OptionDialog(
-            icon = {
+        key(menuOpenCount) {
+            val songHeaderIcon: @Composable () -> Unit = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ShadowImageWithCache(
                         dataLambda = { music.thumb }, contentDescription = null,
@@ -104,267 +109,284 @@ fun SongMenuIcon(music: YosMediaItem, navController: NavController? = null, show
                         shadowAlpha = 0f, imageQuality = ImageQuality.LOW
                     )
                 }
-            },
-            title = music.title ?: defaultTitle,
-            subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
-            content = { dismiss ->
-                Column(
-                    Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
-                ) {
-                    val items = buildList {
-                        add(Triple("添加到歌单", Icons.Filled.Add, { dismiss.after { showPlaylistPicker = true } }))
-                        if (showRemoveFromPlaylist) {
-                            val (playlistTitle, _) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
-                            val targetPlaylist = PlayListLibrary.playList.find { it.name == playlistTitle }
-                            if (targetPlaylist != null) {
-                                add(Triple("从歌单删除", Icons.Outlined.Delete, {
-                                    PlayListLibrary.run { targetPlaylist.removeMusic(music) }
-                                    // 同步更新当前列表，使 UI 立即刷新
-                                    val (title, list) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
-                                    yos.music.player.data.objects.LibraryObject.setTargetListWithTitle(
-                                        title, list.filter { it.uri != music.uri }
-                                    )
-                                    Toast.makeText(context, "已从「${targetPlaylist.name}」删除", Toast.LENGTH_SHORT).show()
-                                    dismiss()
+            }
+
+            val mainPage = OptionDialogPage(
+                key = SongMenuPage.Main,
+                title = music.title ?: defaultTitle,
+                subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
+                icon = songHeaderIcon,
+                horizontalTitle = true,
+                content = { dismiss ->
+                    Column(
+                        Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                    ) {
+                        val items = buildList {
+                            add(Triple("添加到歌单", Icons.Filled.Add, { menuPage = SongMenuPage.PlaylistPicker }))
+                            if (showRemoveFromPlaylist) {
+                                val (playlistTitle, _) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
+                                val targetPlaylist = PlayListLibrary.playList.find { it.name == playlistTitle }
+                                if (targetPlaylist != null) {
+                                    add(Triple("从歌单删除", Icons.Outlined.Delete, {
+                                        PlayListLibrary.run { targetPlaylist.removeMusic(music) }
+                                        // 同步更新当前列表，使 UI 立即刷新
+                                        val (title, list) = yos.music.player.data.objects.LibraryObject.getTargetListWithTitle()
+                                        yos.music.player.data.objects.LibraryObject.setTargetListWithTitle(
+                                            title, list.filter { it.uri != music.uri }
+                                        )
+                                        Toast.makeText(context, "已从「${targetPlaylist.name}」删除", Toast.LENGTH_SHORT).show()
+                                        dismiss()
+                                    }))
+                                }
+                            }
+                            add(Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
+                                val currentMusic = MediaController.musicPlaying.value ?: return@Triple
+                                val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
+                                val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
+                                if (currentIdx < 0) return@Triple
+                                list.add(currentIdx + 1, music)
+                                MediaController.playingMusicList.value = list
+                                MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
+                                Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
+                                dismiss()
+                            }))
+                            val artistMenuItemLabel = "歌手 · ${music.artistsName ?: defaultArtistsName}"
+                            if (showArtistMenuItem && hasMultipleArtists) {
+                                add(Triple(artistMenuItemLabel, Icons.Filled.Person, {
+                                    menuPage = SongMenuPage.ArtistPicker
+                                }))
+                            } else if (showArtistMenuItem) {
+                                add(Triple(artistMenuItemLabel, Icons.Filled.Person, {
+                                    dismiss.after {
+                                        music.artistsList?.firstOrNull()?.let { artist ->
+                                            yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                            navController?.toUI(UI.ArtistInfo)
+                                        }
+                                    }
                                 }))
                             }
-                        }
-                        add(Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
-                            val currentMusic = MediaController.musicPlaying.value ?: return@Triple
-                            val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
-                            val currentIdx = list.indexOfFirst { it.uri == currentMusic.uri }
-                            if (currentIdx < 0) return@Triple
-                            list.add(currentIdx + 1, music)
-                            MediaController.playingMusicList.value = list
-                            MediaController.mediaControl?.addMediaItem(currentIdx + 1, music.toMediaItem())
-                            Toast.makeText(context, "已添加到下一首播放", Toast.LENGTH_SHORT).show()
-                            dismiss()
-                        }))
-                        val artistMenuItemLabel = "歌手 · ${music.artistsName ?: defaultArtistsName}"
-                        if (showArtistMenuItem && hasMultipleArtists) {
-                            add(Triple(artistMenuItemLabel, Icons.Filled.Person, {
-                                dismiss.after { showArtistPicker = true }
+                            if (showAlbumMenuItem && music.album != null) {
+                                add(Triple("专辑 · ${music.album}", Icons.Filled.Album, {
+                                    dismiss.after {
+                                        music.album?.let { album ->
+                                            yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
+                                            navController?.toUI(UI.AlbumInfo)
+                                        }
+                                    }
+                                }))
+                            }
+                            add(Triple(if (FavPlayListLibrary.isFavorite(music)) "从喜爱移除" else "添加到喜爱",
+                                if (FavPlayListLibrary.isFavorite(music)) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            {
+                                if (FavPlayListLibrary.isFavorite(music)) FavPlayListLibrary.removeMusic(music)
+                                else FavPlayListLibrary.addMusic(music)
+                                dismiss()
                             }))
-                        } else if (showArtistMenuItem) {
-                            add(Triple(artistMenuItemLabel, Icons.Filled.Person, {
-                                dismiss.after {
-                                    music.artistsList?.firstOrNull()?.let { artist ->
+                            add(Triple("详细信息", Icons.Outlined.Info, { menuPage = SongMenuPage.Detail }))
+                        }
+                        items.forEachIndexed { index, (label, icon, onClick) ->
+                            if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                            Row(
+                                Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)
+                            }
+                        }
+                    }
+                }
+            )
+
+            val playlistPickerPage = playlistPickerDialogPage(
+                music = music, context = context, newPlaylistName = newPlaylistName,
+                onCreateClick = { menuPage = SongMenuPage.CreatePlaylist }
+            )
+
+            val artistPickerPage = OptionDialogPage(
+                key = SongMenuPage.ArtistPicker,
+                title = music.title ?: defaultTitle,
+                subTitle = music.artistsName ?: defaultArtistsName,
+                icon = songHeaderIcon,
+                horizontalTitle = true,
+                content = { dismiss ->
+                    Column(
+                        Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+                    ) {
+                        (music.artistsList ?: emptyList()).forEachIndexed { index, artist ->
+                            if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                            Row(
+                                Modifier.fillMaxWidth().height(48.dp).clickable {
+                                    dismiss.after {
                                         yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
                                         navController?.toUI(UI.ArtistInfo)
                                     }
-                                }
-                            }))
-                        }
-                        if (showAlbumMenuItem && music.album != null) {
-                            add(Triple("专辑 · ${music.album}", Icons.Filled.Album, {
-                                dismiss.after {
-                                    music.album?.let { album ->
-                                        yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
-                                        navController?.toUI(UI.AlbumInfo)
-                                    }
-                                }
-                            }))
-                        }
-                        add(Triple(if (FavPlayListLibrary.isFavorite(music)) "从喜爱移除" else "添加到喜爱",
-                            if (FavPlayListLibrary.isFavorite(music)) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        {
-                            if (FavPlayListLibrary.isFavorite(music)) FavPlayListLibrary.removeMusic(music)
-                            else FavPlayListLibrary.addMusic(music)
-                            dismiss()
-                        }))
-                        add(Triple("详细信息", Icons.Outlined.Info, { dismiss.after { showDetail = true } }))
-                    }
-                    items.forEachIndexed { index, (label, icon, onClick) ->
-                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
-                        Row(
-                            Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f),
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onBackground)
+                                }.padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }
-            },
-            horizontalTitle = true,
-            onDismissRequest = { showMenu = false }
-        )
+            )
+
+            val detailPage = songDetailDialogPage(music)
+
+            val pages = buildList {
+                add(mainPage)
+                add(playlistPickerPage)
+                add(createPlaylistDialogPage(music, context, newPlaylistName) {
+                    menuPage = SongMenuPage.PlaylistPicker
+                })
+                if (navController != null) add(artistPickerPage)
+                add(detailPage)
+            }
+            OptionDialog(
+                pages = pages,
+                currentPage = menuPage,
+                onDismissRequest = { showMenu = false }
+            )
         }
     }
-
-    if (showPlaylistPicker) {
-        PlaylistPickerDialog(music, onDismiss = { showPlaylistPicker = false })
-    }
-
-    if (showDetail) {
-        SongDetailDialog(music, onDismiss = { showDetail = false })
-    }
-
-    if (showArtistPicker && navController != null) {
-        val artists = music.artistsList ?: emptyList()
-        OptionDialog(
-            icon = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ShadowImageWithCache(
-                        dataLambda = { music.thumb }, contentDescription = null,
-                        modifier = Modifier.size(52.dp), cornerRadius = 6.dp,
-                        shadowAlpha = 0f, imageQuality = ImageQuality.LOW
-                    )
-                }
-            },
-            title = music.title ?: defaultTitle,
-            subTitle = music.artistsName ?: defaultArtistsName,
-            horizontalTitle = true,
-            content = { dismiss ->
-                Column(
-                    Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
-                ) {
-                    artists.forEachIndexed { index, artist ->
-                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
-                        Row(
-                            Modifier.fillMaxWidth().height(48.dp).clickable {
-                                dismiss.after {
-                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
-                                    navController.toUI(UI.ArtistInfo)
-                                }
-                            }.padding(horizontal = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(artist, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            },
-            onDismissRequest = { showArtistPicker = false }
-        )
-    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PlaylistPickerDialog(music: YosMediaItem, onDismiss: () -> Unit) {
-    val playlists = PlayListLibrary.playList
-    val context = LocalContext.current
-    var showCreate by remember { mutableStateOf(false) }
-    var newPlaylistName by remember { mutableStateOf("") }
 
-    if (showCreate) {
-        OptionDialog(
-            icon = { Spacer(Modifier.size(0.dp)) },
-            title = "新建歌单",
-            content = {
-                YosDialogTextField(
-                    value = newPlaylistName,
-                    onValueChange = { newPlaylistName = it },
-                    placeholder = "歌单名称"
-                )
-            },
-            positiveContent = "创建并添加",
-            negativeContent = "取消",
-            onPositive = {
-                val name = newPlaylistName.trim()
-                if (name.isNotBlank()) {
-                    PlayListLibrary.create(name)
-                    PlayListLibrary.playList.firstOrNull { it.name == name }
-                        ?.let { created -> PlayListLibrary.run { created.addMusic(music) } }
-                    Toast.makeText(context, "已添加到$name", Toast.LENGTH_SHORT).show()
-                    newPlaylistName = ""
-                    showCreate = false
-                    onDismiss()
+/** 歌单选择页：菜单内页复用（SongMenu / NowPlaying 更多菜单） */
+internal fun playlistPickerDialogPage(
+    music: YosMediaItem,
+    context: android.content.Context,
+    newPlaylistName: androidx.compose.runtime.MutableState<String>,
+    onCreateClick: () -> Unit
+): OptionDialogPage = OptionDialogPage(
+    key = "playlistPicker",
+    title = "添加到歌单",
+    icon = { Spacer(Modifier.size(0.dp)) },
+    content = { dismiss ->
+        val playlists = PlayListLibrary.playList
+        // 预计算封面 URI，避免在 remember 中访问 MusicLibrary.songs 阻塞 UI
+        var coverUris by remember { mutableStateOf(emptyMap<String, Uri?>()) }
+        LaunchedEffect(playlists) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val allSongs = yos.music.player.data.libraries.MusicLibrary.songs
+                playlists.associate { pl ->
+                    pl.name to pl.songDataList
+                        .mapNotNull { uri -> allSongs.find { it.uri == uri } }
+                        .maxByOrNull { MusicLibrary.getPlayCount(it.uri) }
+                        ?.thumb
                 }
-            },
-            onNegative = { showCreate = false },
-            onDismissRequest = { showCreate = false }
-        )
-    }
-
-    OptionDialog(
-        icon = { Spacer(Modifier.size(0.dp)) },
-        title = "添加到歌单",
-        content = { dismiss ->
-            // 预计算封面 URI，避免在 remember 中访问 MusicLibrary.songs 阻塞 UI
-            var coverUris by remember { mutableStateOf(emptyMap<String, Uri?>()) }
-            LaunchedEffect(playlists) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val allSongs = yos.music.player.data.libraries.MusicLibrary.songs
-                    playlists.associate { pl ->
-                        pl.name to pl.songDataList
-                            .mapNotNull { uri -> allSongs.find { it.uri == uri } }
-                            .maxByOrNull { MusicLibrary.getPlayCount(it.uri) }
-                            ?.thumb
-                    }
-                }.let { coverUris = it }
-            }
-            Column(
-                Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())
-                    .clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+            }.let { coverUris = it }
+        }
+        Column(
+            Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())
+                .clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
+        ) {
+            Row(
+                Modifier.fillMaxWidth().clickable { onCreateClick() }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    Modifier.fillMaxWidth().clickable { showCreate = true }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Add, null, Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text("新建歌单", fontSize = 15.sp)
-                }
-                if (playlists.isEmpty()) {
-                    Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
-                    Text(
-                        "暂无歌单，先创建一个吧", fontSize = 14.sp,
-                        modifier = Modifier.alpha(0.5f).padding(16.dp)
+                    Icon(
+                        Icons.Filled.Add, null, Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
                     )
-                } else {
-                    playlists.forEachIndexed { index, pl ->
-                        if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
-                        val coverUri = coverUris[pl.name]
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                PlayListLibrary.run { pl.addMusic(music) }
-                                Toast.makeText(context, "已添加到${pl.name}", Toast.LENGTH_SHORT).show()
-                                dismiss()
-                            }.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (coverUri != null) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current).data(coverUri).size(64).build(),
-                                    contentDescription = null, contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
-                                )
-                            } else {
-                                Image(
-                                    painter = painterResource(R.drawable.placeholder_playlist_default),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Text(pl.name, fontSize = 15.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Text("新建歌单", fontSize = 15.sp)
+            }
+            if (playlists.isEmpty()) {
+                Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                Text(
+                    "暂无歌单，先创建一个吧", fontSize = 14.sp,
+                    modifier = Modifier.alpha(0.5f).padding(16.dp)
+                )
+            } else {
+                playlists.forEachIndexed { index, pl ->
+                    if (index > 0) Spacer(Modifier.fillMaxWidth().alpha(0.08f).height(0.5.dp).background(Color.Black withNight Color.White))
+                    val coverUri = coverUris[pl.name]
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            PlayListLibrary.run { pl.addMusic(music) }
+                            Toast.makeText(context, "已添加到${pl.name}", Toast.LENGTH_SHORT).show()
+                            dismiss()
+                        }.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (coverUri != null) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current).data(coverUri).size(64).build(),
+                                contentDescription = null, contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
+                            )
+                        } else {
+                            Image(
+                                painter = painterResource(R.drawable.placeholder_playlist_default),
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp)
+                            )
                         }
+                        Spacer(Modifier.width(12.dp))
+                        Text(pl.name, fontSize = 15.sp)
                     }
                 }
             }
-        },
-        positiveContent = "关闭",
-        onPositive = {},
-        onDismissRequest = onDismiss
-    )
-}
+        }
+    },
+    positiveContent = "关闭",
+    onPositive = {}
+)
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** 新建歌单页：创建成功后由 dismissOnPositive 直接收卡；onCancel 由宿主决定（一般回歌单选择页） */
+internal fun createPlaylistDialogPage(
+    music: YosMediaItem,
+    context: android.content.Context,
+    newPlaylistName: androidx.compose.runtime.MutableState<String>,
+    onCancel: () -> Unit
+): OptionDialogPage = OptionDialogPage(
+    key = "createPlaylist",
+    title = "新建歌单",
+    icon = { Spacer(Modifier.size(0.dp)) },
+    content = {
+        YosDialogTextField(
+            value = newPlaylistName.value,
+            onValueChange = { newPlaylistName.value = it },
+            placeholder = "歌单名称"
+        )
+    },
+    positiveContent = "创建并添加",
+    negativeContent = "取消",
+    onPositive = {
+        val name = newPlaylistName.value.trim()
+        if (name.isNotBlank()) {
+            PlayListLibrary.create(name)
+            PlayListLibrary.playList.firstOrNull { it.name == name }
+                ?.let { created -> PlayListLibrary.run { created.addMusic(music) } }
+            Toast.makeText(context, "已添加到$name", Toast.LENGTH_SHORT).show()
+            newPlaylistName.value = ""
+        }
+    },
+    onNegative = onCancel
+)
+
+/** 歌曲信息页 */
+internal fun songDetailDialogPage(music: YosMediaItem): OptionDialogPage = OptionDialogPage(
+    key = "songDetail",
+    title = "歌曲信息",
+    icon = { Spacer(Modifier.size(0.dp)) },
+    content = { SongDetailContent(music) },
+    positiveContent = "关闭",
+    onPositive = {}
+)
+
+/** 详细信息页主体：菜单页内与独立弹窗共用 */
 @Composable
-fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
+private fun SongDetailContent(music: YosMediaItem) {
     val filePath = music.uri?.path
     var info by remember(filePath) { mutableStateOf<yos.music.player.code.AudioMetadataUtils.AudioFileInfo?>(null) }
     var yearFromFile by remember(filePath) { mutableStateOf<Int?>(null) }
@@ -412,11 +434,7 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
         }
     }
 
-    OptionDialog(
-        icon = { Spacer(Modifier.size(0.dp)) },
-        title = "歌曲信息",
-        content = {
-            Column(Modifier.padding(horizontal = 16.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp)) {
                 val cached = cachedTags
                 DetailRow("标题", cached?.title ?: music.title ?: defaultTitle)
                 DetailRow("艺术家", cached?.artist ?: music.artistsName ?: "未知艺术家")
@@ -439,12 +457,7 @@ fun SongDetailDialog(music: YosMediaItem, onDismiss: () -> Unit) {
                     DetailRow("文件格式", fileInfo.format)
                     DetailRow("文件来源", fileInfo.source)
                 }
-            }
-        },
-        positiveContent = "关闭",
-        onPositive = { onDismiss() },
-        onDismissRequest = onDismiss
-    )
+    }
 }
 
 @Composable

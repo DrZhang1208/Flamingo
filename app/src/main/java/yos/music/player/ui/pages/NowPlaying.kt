@@ -227,11 +227,10 @@ import yos.music.player.data.libraries.FavPlayListLibrary
 import yos.music.player.data.libraries.MusicLibrary.toMediaItem
 import yos.music.player.data.libraries.PlayListLibrary
 
-import yos.music.player.ui.widgets.basic.PlaylistPickerDialog
 import yos.music.player.ui.widgets.basic.OptionDialog
+import yos.music.player.ui.widgets.basic.OptionDialogPage
 import yos.music.player.ui.widgets.basic.dialogListFade
 import yos.music.player.ui.widgets.basic.LocalDialogContainerColor
-import yos.music.player.ui.widgets.basic.SongDetailDialog
 import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.songMenuTrigger
 import yos.music.player.ui.theme.withNight
@@ -279,6 +278,8 @@ import yos.music.player.ui.widgets.effects.dropShadow
 import yos.music.player.ui.widgets.effects.overlayEffect
 import yos.music.player.logic.mss.VocalSeparationController
 import yos.music.player.logic.mss.VocalSeparationStatus
+
+private enum class NowPlayingMenuPage { More, PlaylistPicker, CreatePlaylist, Detail }
 
 
 @Stable
@@ -1978,15 +1979,16 @@ private fun ActionButtonsRow(
 
         // 三点菜单
         var showMoreMenu = remember { mutableStateOf(false) }
-        var showPlaylistPicker = remember { mutableStateOf(false) }
-        var showDetail = remember { mutableStateOf(false) }
+        var menuPage = remember { mutableStateOf(NowPlayingMenuPage.More) }
+        // 跨页保留：新建歌单输入内容
+        val newPlaylistName = remember { mutableStateOf("") }
         var showArtistPicker = remember { mutableStateOf(false) }
         var showSleepTimerDialog = remember { mutableStateOf(false) }
         var showSleepTimerWarning = remember { mutableStateOf(false) }
         val menuOpenCount = remember { mutableIntStateOf(0) }
         var btnPos = remember { mutableStateOf(Offset.Zero) }
 
-        val menuOpen = showMoreMenu.value || showPlaylistPicker.value || showDetail.value
+        val menuOpen = showMoreMenu.value
 
         Box(
             modifier = menuModifier
@@ -1996,7 +1998,7 @@ private fun ActionButtonsRow(
                 }
                 .onGloballyPositioned { btnPos.value = it.localToRoot(Offset.Zero) }
                 .clickable(
-                    onClick = { showMoreMenu.value = true; menuOpenCount.intValue++ },
+                    onClick = { showMoreMenu.value = true; menuOpenCount.intValue++; menuPage.value = NowPlayingMenuPage.More },
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() })
                 .size(dp),
@@ -2027,7 +2029,10 @@ private fun ActionButtonsRow(
         val music = musicPlayingLambda()
         if (music != null && showMoreMenu.value) {
             key(menuOpenCount.intValue) {
-            OptionDialog(
+            val morePage = OptionDialogPage(
+                key = NowPlayingMenuPage.More,
+                title = music.title ?: defaultTitle,
+                subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
                 icon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ShadowImageWithCache(
@@ -2037,11 +2042,10 @@ private fun ActionButtonsRow(
                         )
                     }
                 },
-                title = music.title ?: defaultTitle,
-                subTitle = "${music.artistsName ?: defaultArtistsName}${music.album?.let { " · $it" } ?: ""}",
+                horizontalTitle = true,
                 content = { dismiss ->
                     val items = listOf(
-                        Triple("添加到歌单", Icons.Filled.Add, { dismiss.after { showPlaylistPicker.value = true } }),
+                        Triple("添加到歌单", Icons.Filled.Add, { menuPage.value = NowPlayingMenuPage.PlaylistPicker }),
                         Triple("下一首播放", Icons.AutoMirrored.Filled.PlaylistPlay, {
                             val currentMusic = MediaController.musicPlaying.value ?: return@Triple
                             val list = MediaController.playingMusicList.value?.toMutableList() ?: return@Triple
@@ -2077,7 +2081,7 @@ private fun ActionButtonsRow(
                                 dismiss.after { showSleepTimerDialog.value = true }
                             }
                         ),
-                        Triple("歌曲信息", Icons.Outlined.Info, { dismiss.after { showDetail.value = true } })
+                        Triple("歌曲信息", Icons.Outlined.Info, { menuPage.value = NowPlayingMenuPage.Detail })
                     )
                     Column(
                         Modifier.clip(YosRoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.onSecondary)
@@ -2093,19 +2097,24 @@ private fun ActionButtonsRow(
                             }
                         }
                     }
-                },
-                horizontalTitle = true,
+                }
+            )
+            OptionDialog(
+                pages = listOf(
+                    morePage,
+                    yos.music.player.ui.widgets.basic.playlistPickerDialogPage(
+                        music = music, context = context, newPlaylistName = newPlaylistName,
+                        onCreateClick = { menuPage.value = NowPlayingMenuPage.CreatePlaylist }
+                    ),
+                    yos.music.player.ui.widgets.basic.createPlaylistDialogPage(
+                        music, context, newPlaylistName
+                    ) { menuPage.value = NowPlayingMenuPage.PlaylistPicker },
+                    yos.music.player.ui.widgets.basic.songDetailDialogPage(music)
+                ),
+                currentPage = menuPage.value,
                 onDismissRequest = { showMoreMenu.value = false }
             )
             }
-        }
-
-        if (showPlaylistPicker.value && music != null) {
-            PlaylistPickerDialog(music, onDismiss = { showPlaylistPicker.value = false })
-        }
-
-        if (showDetail.value && music != null) {
-            SongDetailDialog(music, onDismiss = { showDetail.value = false })
         }
 
         if (showSleepTimerDialog.value) {
