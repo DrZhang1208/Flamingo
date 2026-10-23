@@ -2720,28 +2720,24 @@ internal fun VocalSeparationControl(
         label = "MssControlVisibility"
     )
     val adjustmentRangePx = with(density) { 60.dp.toPx() }
-    val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f)).dp
-    // 激活后加宽便于起拖，拖动中进一步加宽（显示与触控同域）
+    // 拖动音量时高宽一起增大、松手弹回；仅开启不改变尺寸
     val draggingGain = remember { mutableStateOf(false) }
-    val controlWidthTarget = when {
-        draggingGain.value -> 60f
-        state.enabled -> 46f
-        else -> 34f
-    }
-    val controlWidth = remember { Animatable(34f) }
-    LaunchedEffect(controlWidthTarget) {
-        controlWidth.animateTo(
-            targetValue = controlWidthTarget,
+    val dragActive = remember { Animatable(0f) }
+    LaunchedEffect(draggingGain.value) {
+        dragActive.animateTo(
+            targetValue = if (draggingGain.value) 1f else 0f,
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f)
         )
     }
-    // The continuous corner reaches beyond its nominal radius. 12dp keeps
+    val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value).dp
+    val controlWidth = (34f + 26f * dragActive.value).dp
+    // The continuous corner reaches beyond its nominal radius. 10dp keeps
     // adjacent curves apart even in the 34dp square before expansion.
-    val smoothShape = remember { YosRoundedCornerShape(roundSize = 12.dp) }
+    val smoothShape = remember { YosRoundedCornerShape(roundSize = 10.dp) }
 
     Box(
         modifier = modifier
-            .width(controlWidth.value.dp)
+            .width(controlWidth)
             .height(controlHeight)
             .overlayEffect(outset = 48.dp)
             .graphicsLayer {
