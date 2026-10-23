@@ -413,11 +413,17 @@ private fun OptionDialogBody(
     animatedDismiss: DialogDismissAction,
     dismissController: DialogDismissController
 ) {
-    DialogTitle(icon = page.icon, title = page.title, subTitle = page.subTitle, horizontal = page.horizontalTitle)
+    // 必须自带 Column：pages 版的父级是 AnimatedContent 的叠放容器（非垂直排列），
+    // 多个根节点会被叠在一起，标题被内容色块遮挡
     Column(
         Modifier
             .fillMaxWidth()
     ) {
+        DialogTitle(icon = page.icon, title = page.title, subTitle = page.subTitle, horizontal = page.horizontalTitle)
+        Column(
+            Modifier
+                .fillMaxWidth()
+        ) {
         if (page.content != null) {
             Column(
                 Modifier
@@ -485,5 +491,6 @@ private fun OptionDialogBody(
                 }
             }
         }
+    }
     }
 }
