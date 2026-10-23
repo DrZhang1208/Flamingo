@@ -996,18 +996,30 @@ private fun ListenTimeOfDayCard(histogram: List<Int>) {
                 )
             }
         }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(top = 7.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            listOf(0, 6, 12, 18).forEach { hour ->
-                Text(
-                    text = stringResource(id = R.string.listen_stats_hour_label, hour),
-                    fontSize = 10.sp,
-                    color = (Color.Black withNight Color.White).copy(alpha = 0.45f)
-                )
+        // 24 个等宽槽位让刻度对齐实际柱子：0 点贴左、24 点贴右，明确全天范围
+        Row(Modifier.fillMaxWidth().padding(top = 7.dp)) {
+            repeat(24) { slot ->
+                Box(Modifier.weight(1f)) {
+                    val tick = when (slot) {
+                        0, 6, 12, 18 -> slot
+                        23 -> 24
+                        else -> null
+                    }
+                    if (tick != null) {
+                        Text(
+                            text = stringResource(id = R.string.listen_stats_hour_label, tick),
+                            fontSize = 10.sp,
+                            color = (Color.Black withNight Color.White).copy(alpha = 0.45f),
+                            modifier = Modifier.align(
+                                when {
+                                    slot == 0 -> Alignment.CenterStart
+                                    slot == 23 -> Alignment.CenterEnd
+                                    else -> Alignment.Center
+                                }
+                            )
+                        )
+                    }
+                }
             }
         }
     }
