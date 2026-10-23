@@ -975,25 +975,31 @@ private fun ListenTimeOfDayCard(histogram: List<Int>) {
                 color = (Color.Black withNight Color.White).copy(alpha = 0.45f)
             )
         }
+        // 与周柱状图同一语言：6dp 细柱、顶部半圆、平底，居中在等宽槽位（槽位与刻度行一致）
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.Bottom
+                .padding(top = 14.dp)
         ) {
             histogram.forEachIndexed { hour, count ->
                 Box(
                     Modifier
                         .weight(1f)
-                        .fillMaxHeight(if (max > 0) (count.toFloat() / max).coerceIn(0.06f, 1f) else 0.06f)
-                        .clip(YosRoundedCornerShape(topStart = 3.dp, topEnd = 3.dp, bottomStart = 6.dp, bottomEnd = 6.dp))
-                        .background(
-                            if (count == max) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
-                        )
-                )
+                        .fillMaxHeight(),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Box(
+                        Modifier
+                            .width(6.dp)
+                            .fillMaxHeight(if (max > 0) 0.10f + 0.90f * (count.toFloat() / max) else 0.10f)
+                            .background(
+                                if (count == max) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
+                                RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)
+                            )
+                    )
+                }
             }
         }
         // 24 个等宽槽位让刻度对齐实际柱子：0 点贴左、24 点贴右，明确全天范围
