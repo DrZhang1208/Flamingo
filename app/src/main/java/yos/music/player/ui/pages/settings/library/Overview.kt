@@ -3,9 +3,12 @@ package yos.music.player.ui.pages.settings.library
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +52,8 @@ import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.R
 import yos.music.player.code.utils.others.Vibrator
 import yos.music.player.data.libraries.Folder
+import yos.music.player.data.remote.RemoteServerManager
+import yos.music.player.ui.pages.settings.remote.displayLabel
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.libraries.MusicLibrary.allFolders
 import yos.music.player.data.objects.LibraryObject
@@ -167,10 +172,10 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
                 lineHeight = 16.sp,
             )
             if (isRemote) {
-                val serverLabel = folder.serverId?.let { yos.music.player.data.remote.RemoteServerManager.getServer(it)?.label }
-                if (serverLabel != null) {
+                val server = folder.serverId?.let { RemoteServerManager.getServer(it) }
+                if (server != null) {
                     Text(
-                        text = serverLabel,
+                        text = "${server.label} · ${server.type.displayLabel()}",
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -180,12 +185,27 @@ private fun LazyItemScope.FolderItem(folder: Folder, itemClick: () -> Unit) {
             }
         }
 
-        // 远程文件夹：卸载按钮（放在开关左侧，保持开关对齐）
+        // 远程文件夹：卸载按钮（圆角淡红底药丸、无涟漪、加大触控区，放在开关左侧保持对齐）
         if (isRemote) {
-            Text(
-                "卸载", fontSize = 12.sp, color = Color.Red.copy(alpha = 0.6f),
-                modifier = Modifier.clickable { showUnmount = true }.padding(horizontal = 4.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .padding(end = 14.dp)
+                    .defaultMinSize(minWidth = 52.dp, minHeight = 36.dp)
+                    .clip(YosRoundedCornerShape(12.dp))
+                    .background(
+                        Color.Red.copy(alpha = 0.08f) withNight Color.Red.copy(alpha = 0.18f)
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        Vibrator.click(context)
+                        showUnmount = true
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("卸载", fontSize = 13.sp, color = Color.Red.copy(alpha = 0.8f))
+            }
 
             if (showUnmount) {
                 OptionDialog(

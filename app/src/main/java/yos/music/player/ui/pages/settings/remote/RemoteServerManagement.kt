@@ -458,7 +458,7 @@ private fun buildSubTitle(config: ServerConfig, state: RemoteConnectionState): S
     return "$hostText · $status"
 }
 
-private fun ServerType.displayLabel(): String = if (this == ServerType.SMB) "SMB" else "WebDAV"
+internal fun ServerType.displayLabel(): String = if (this == ServerType.SMB) "SMB" else "WebDAV"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
