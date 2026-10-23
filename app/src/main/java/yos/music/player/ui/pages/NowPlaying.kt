@@ -60,6 +60,8 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
@@ -502,19 +504,28 @@ fun NowPlaying(
         }*/
 
 
-        // 触摸超时：仅在歌词页面且开启自动隐藏时隐藏控件
+        // 触摸超时：仅在歌词页面、播放中且开启自动隐藏时隐藏控件
         YosWrapper {
-            LaunchedEffect(splitWindow, showControl.value, nowPageLambda(), lastClickTime.longValue) {
+            LaunchedEffect(splitWindow, showControl.value, nowPageLambda(), lastClickTime.longValue,
+                isPlayingStatusLambda()) {
                 if (splitWindow) return@LaunchedEffect
                 if (nowPageLambda() != Lyric && !showControl.value) {
                     showControl.value = true
+                    return@LaunchedEffect
+                }
+                // 暂停时控制区域保持展示：已隐藏则唤醒，且不参与自动隐藏
+                if (!isPlayingStatusLambda()) {
+                    if (nowPageLambda() == Lyric && !showControl.value) {
+                        showControl.value = true
+                    }
                     return@LaunchedEffect
                 }
                 if (showControl.value && nowPageLambda() == Lyric && SettingsLibrary.LyricsHideControls) {
                     val time = 2500L
                     delay(time)
                     withContext(Dispatchers.Main) {
-                        if (TimeUtils.getNowMills() - lastClickTime.longValue >= time && nowPageLambda() == Lyric) {
+                        if (TimeUtils.getNowMills() - lastClickTime.longValue >= time && nowPageLambda() == Lyric
+                            && isPlayingStatusLambda()) {
                             showControl.value = false
                         }
                     }
@@ -1198,18 +1209,25 @@ fun NowPlaying(
                         // The APK places MSS as a sibling overlay of the whole
                         // control panel. Its expansion therefore grows upward
                         // without participating in PlayerControl measurement.
-                        if (showControl.value && nowPageLambda() == Lyric) {
-                            val vocalBottomOffset = if (compactWindow) {
-                                if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 157.5.dp
-                            } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = showControl.value && nowPageLambda() == Lyric,
+                            enter = fadeIn(tween(200, easing = EaseOutQuart)) + slideInVertically(
+                                animationSpec = tween(200, easing = EaseOutQuart),
+                                initialOffsetY = { it / 4 }),
+                            exit = fadeOut(tween(160, easing = EaseOutQuart)) + slideOutVertically(
+                                animationSpec = tween(160, easing = EaseOutQuart),
+                                targetOffsetY = { it / 4 }),
+                            modifier = with(this@playerOverlayBox) {
+                                Modifier.align(Alignment.BottomEnd)
+                            }.offset(
+                                x = -rememberAdaptive(25),
+                                y = -if (compactWindow) {
+                                    if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 157.5.dp
+                                } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
+                            )
+                        ) {
                             Row(verticalAlignment = Alignment.Bottom,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = with(this@playerOverlayBox) {
-                                    Modifier.align(Alignment.BottomEnd)
-                                }.offset(
-                                    x = -rememberAdaptive(25),
-                                    y = -vocalBottomOffset
-                                )
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 if (hasTranslation.value) {
                                     LyricTranslationButton(translationVisible, {
@@ -2652,12 +2670,17 @@ internal fun VocalSeparationControl(
     val selectedGainState = rememberUpdatedState(state.selectedGain)
 
     // H1 in the APK deliberately sequences these three values. Opening first
-    // grows the control and only then lowers the liquid; closing fills it,
-    // fades it out, and only then collapses the control.
+    // grows the control while the fill fades in, then lowers the liquid;
+    // closing fills it, fades it out, and only then collapses the control.
     LaunchedEffect(state.enabled) {
         if (state.enabled) {
             liquidFraction.snapTo(1f)
-            liquidAlpha.snapTo(1f)
+            launch {
+                liquidAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 240)
+                )
+            }
             expansion.animateTo(
                 targetValue = 1f,
                 animationSpec = spring(dampingRatio = 0.72f, stiffness = 250f)
@@ -2698,13 +2721,27 @@ internal fun VocalSeparationControl(
     )
     val adjustmentRangePx = with(density) { 60.dp.toPx() }
     val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f)).dp
-    // The continuous corner reaches beyond its nominal radius. 8dp keeps
+    // 激活后加宽便于起拖，拖动中进一步加宽（显示与触控同域）
+    val draggingGain = remember { mutableStateOf(false) }
+    val controlWidthTarget = when {
+        draggingGain.value -> 60f
+        state.enabled -> 46f
+        else -> 34f
+    }
+    val controlWidth = remember { Animatable(34f) }
+    LaunchedEffect(controlWidthTarget) {
+        controlWidth.animateTo(
+            targetValue = controlWidthTarget,
+            animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f)
+        )
+    }
+    // The continuous corner reaches beyond its nominal radius. 12dp keeps
     // adjacent curves apart even in the 34dp square before expansion.
-    val smoothShape = remember { YosRoundedCornerShape(roundSize = 8.dp) }
+    val smoothShape = remember { YosRoundedCornerShape(roundSize = 12.dp) }
 
     Box(
         modifier = modifier
-            .width(34.dp)
+            .width(controlWidth.value.dp)
             .height(controlHeight)
             .overlayEffect(outset = 48.dp)
             .graphicsLayer {
@@ -2739,7 +2776,12 @@ internal fun VocalSeparationControl(
                 if (!state.available || !state.enabled) return@pointerInput
                 var dragGain = selectedGainState.value
                 detectVerticalDragGestures(
-                    onDragStart = { dragGain = selectedGainState.value },
+                    onDragStart = {
+                        dragGain = selectedGainState.value
+                        draggingGain.value = true
+                    },
+                    onDragEnd = { draggingGain.value = false },
+                    onDragCancel = { draggingGain.value = false },
                     onVerticalDrag = { change, dragAmount ->
                         change.consume()
                         dragGain = (dragGain - dragAmount / adjustmentRangePx).coerceIn(0f, 1f)

@@ -32,7 +32,7 @@ internal fun LyricTranslationButton(
 ) {
     val backgroundAlpha = animateFloatAsState(if (checked) 0.92f else 0f, label = "TranslationBackground")
     val tint = animateColorAsState(if (checked) Color.Black else Color.White, label = "TranslationTint")
-    val shape = remember { YosRoundedCornerShape(9.dp) }
+    val shape = remember { YosRoundedCornerShape(12.dp) }
     Box(modifier.size(34.dp).overlayEffect().clip(shape)
         .background(Color.White.copy(alpha = 0.10f))
         .drawBehind { drawRect(Color.White.copy(alpha = backgroundAlpha.value)) }
