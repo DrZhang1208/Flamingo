@@ -1,19 +1,24 @@
 package yos.music.player.ui.pages.settings.library
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,14 +37,17 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.navigation.NavController
 import io.github.alexzhirkevich.cupertino.CupertinoSwitch
 import kotlinx.coroutines.Dispatchers
@@ -128,23 +136,95 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
         bottomEnd = if (isLast) 9.dp else 0.dp
     )
 
+    // 左滑露出「卸载」操作（iOS 滑动操作，仅远程文件夹）
+    val density = LocalDensity.current
+    val actionWidth = 78.dp
+    val actionWidthPx = with(density) { actionWidth.toPx() }
+    // 行内容横向偏移：0f（闭合）.. -actionWidthPx（完全展开）
+    val revealOffset = remember { Animatable(0f) }
+
+    val closeReveal: () -> Unit = {
+        if (revealOffset.value != 0f) {
+            scope.launch { revealOffset.animateTo(0f, spring(stiffness = Spring.StiffnessMedium)) }
+        }
+    }
+
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxWidth()
-                .background(highlight, rowShape)
-                .clickable(
-                    interactionSource = rowInteraction,
-                    indication = null,
-                    onClick = itemClick
+                .clip(rowShape)
+                .then(
+                    if (isRemote) Modifier.pointerInput(actionWidthPx) {
+                        detectHorizontalDragGestures(
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                scope.launch {
+                                    revealOffset.snapTo(
+                                        (revealOffset.value + dragAmount).coerceIn(-actionWidthPx, 0f)
+                                    )
+                                }
+                            },
+                            onDragEnd = {
+                                scope.launch {
+                                    val open = revealOffset.value < -actionWidthPx * 0.5f
+                                    if (open) Vibrator.click(context)
+                                    revealOffset.animateTo(
+                                        if (open) -actionWidthPx else 0f,
+                                        spring(stiffness = Spring.StiffnessMedium)
+                                    )
+                                }
+                            }
+                        )
+                    } else Modifier
                 )
-                .height(80.dp)
-                .padding(start = 16.dp, end = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
         ) {
+            // 底层：右缘滑动操作按钮
+            if (isRemote) {
+                Box(Modifier.matchParentSize()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(actionWidth)
+                            .fillMaxHeight()
+                            .background(Color(0xFFFF453A))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                Vibrator.click(context)
+                                showUnmount = true
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("卸载", color = Color.White, fontSize = 14.5.sp)
+                    }
+                }
+            }
+            // 上层：行内容，不透明底色遮住操作层，随拖动平移
+            Row(
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset { IntOffset(revealOffset.value.roundToInt(), 0) }
+                    .background(MaterialTheme.colorScheme.onSecondary)
+                    .background(highlight, rowShape)
+                    .clickable(
+                        interactionSource = rowInteraction,
+                        indication = null
+                    ) {
+                        if (revealOffset.value < -actionWidthPx * 0.5f) {
+                            // 已展开时点击行 = 先收起，不进入文件夹
+                            closeReveal()
+                        } else {
+                            itemClick()
+                        }
+                    }
+                    .height(80.dp)
+                    .padding(start = 16.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
 
             val shape = YosRoundedCornerShape(4.dp)
-            val density = LocalDensity.current
 
             // 深色模式跟随应用内主题而非系统设置，需代码切换深色图标
             Image(painter = painterResource(
@@ -192,36 +272,14 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
                 if (isRemote) {
                     val server = folder.serverId?.let { RemoteServerManager.getServer(it) }
                     if (server != null) {
-                        // 卸载按钮放副标题行末尾：不挤占标题宽度，也远离开关
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${server.label} · ${server.type.displayLabel()}",
-                                fontSize = 13.2.sp,
-                                lineHeight = 16.2.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).alpha(0.45f)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Box(
-                                modifier = Modifier
-                                    .defaultMinSize(minWidth = 40.dp, minHeight = 28.dp)
-                                    .clip(YosRoundedCornerShape(10.dp))
-                                    .background(
-                                        Color.Red.copy(alpha = 0.08f) withNight Color.Red.copy(alpha = 0.18f)
-                                    )
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        Vibrator.click(context)
-                                        showUnmount = true
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("卸载", fontSize = 12.sp, color = Color.Red.copy(alpha = 0.8f))
-                            }
-                        }
+                        Text(
+                            text = "${server.label} · ${server.type.displayLabel()}",
+                            fontSize = 13.2.sp,
+                            lineHeight = 16.2.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.alpha(0.45f)
+                        )
                     }
                 }
             }
@@ -243,6 +301,7 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
                     .height(12.dp)
                     .alpha(0.3f), tint = MaterialTheme.colorScheme.onBackground
             )
+        }
         }
 
         if (!isLast) {
@@ -272,8 +331,14 @@ private fun FolderItem(folder: Folder, isFirst: Boolean, isLast: Boolean, itemCl
                 }
             },
             negativeContent = "取消",
-            onNegative = { showUnmount = false },
-            onDismissRequest = { showUnmount = false }
+            onNegative = {
+                showUnmount = false
+                closeReveal()
+            },
+            onDismissRequest = {
+                showUnmount = false
+                closeReveal()
+            }
         )
     }
 }
