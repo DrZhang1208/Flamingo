@@ -2737,8 +2737,14 @@ internal fun VocalSeparationControl(
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 200f),
         label = "MssControlScale"
     )
+    // 切歌过渡期播放器重建会让 available 短暂回落——可用过一次就粘性保持显示，
+    // 控件不再熄灭重现；从未可用的设备仍然隐藏
+    val everAvailable = remember { mutableStateOf(false) }
+    LaunchedEffect(state.available) {
+        if (state.available) everAvailable.value = true
+    }
     val controlAlpha by animateFloatAsState(
-        targetValue = if (state.available) 1f else 0f,
+        targetValue = if (everAvailable.value) 1f else 0f,
         animationSpec = spring(dampingRatio = 1f, stiffness = 405f),
         label = "MssControlVisibility"
     )
