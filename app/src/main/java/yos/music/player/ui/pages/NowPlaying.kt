@@ -1221,10 +1221,9 @@ fun NowPlaying(
                                 Modifier.align(Alignment.BottomEnd)
                             }.offset(
                                 x = -rememberAdaptive(25),
-                                // 隐藏音量条时按钮在合并空间居中：常规下移 18.25dp、紧凑下移 13.25dp，工具行同步
-                                y = -if (compactWindow) {
-                                    if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 170.75.dp
-                                } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 281.75.dp
+                                // 面板总高度不随音量条显隐变化（隐藏时高度并入按钮留白），
+                                // 用常量偏移即把工具行钉在相对进度条固定的位置，不再跟随三键升降
+                                y = -(if (compactWindow) 184.dp else 300.dp)
                             )
                         ) {
                             Row(verticalAlignment = Alignment.Bottom,
