@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +55,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -123,9 +126,31 @@ private fun YosBottomSheetDialog(
         shape = RectangleShape,
         content = {
             DialogRefreshRate()
+            // M3 1.2 的 sheet 窗口是裸 WindowManager 面板：宽取 displayMetrics 且默认避让
+            // 挖孔，横屏会在摄像头一侧留下未遮罩亮条。改成 MATCH_PARENT + SHORT_EDGES
+            // 让窗口（含遮罩）全屏铺满
+            val sheetView = LocalView.current
+            DisposableEffect(sheetView) {
+                val root = sheetView.rootView
+                val wm = root.context.getSystemService(android.content.Context.WINDOW_SERVICE)
+                    as? android.view.WindowManager
+                val lp = root.layoutParams as? android.view.WindowManager.LayoutParams
+                if (wm != null && lp != null) {
+                    lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT
+                    if (android.os.Build.VERSION.SDK_INT >= 28) {
+                        lp.layoutInDisplayCutoutMode =
+                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                    runCatching { wm.updateViewLayout(root, lp) }
+                }
+                onDispose { }
+            }
+            // 横屏给卡片左右留边距：全宽卡片贴边观感差（竖屏维持原 5dp）
+            val isLandscape = LocalConfiguration.current.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
             Surface(modifier = Modifier
                 .containDialogScroll(elastic)
-                .padding(vertical = 5.dp, horizontal = 5.dp)
+                .padding(vertical = 5.dp, horizontal = if (isLandscape) 48.dp else 5.dp)
                 .graphicsLayer {
                     this.shape = if (radius != 0.dp) {
                         shape
