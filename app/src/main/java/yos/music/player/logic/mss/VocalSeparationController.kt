@@ -27,14 +27,6 @@ object VocalSeparationController {
     private val mutableState = MutableStateFlow(VocalSeparationState())
     val state: StateFlow<VocalSeparationState> = mutableState.asStateFlow()
 
-    /** 新曲目开始：重置可用性判定，待音频链路重新 configure 后再置位，
-     *  供歌词翻译按钮与人声按钮在同一时机出场 */
-    fun beginTrack() {
-        val current = mutableState.value
-        if (!current.decided) return
-        mutableState.value = current.copy(decided = false)
-    }
-
     fun toggle() = setEnabled(!mutableState.value.enabled)
 
     fun setEnabled(enabled: Boolean) {

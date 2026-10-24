@@ -502,7 +502,6 @@ class YosPlaybackService : MediaSessionService() {
     }
 
     private val localLyricsLoader by lazy { LocalLyricsLoader(this, serviceScope) }
-    private var mssDecidedResetUri: String? = null
 
     /**
      * 队列顺序与播放器条目一致：切歌后预解码下一首的封面、背景纹理与本地歌词，
@@ -899,13 +898,6 @@ class YosPlaybackService : MediaSessionService() {
                                 MusicLibrary.updateSongInFullList(corrected)
                             }
                         }
-                    }
-
-                    // 人声可用性随新曲目重新判定；与歌词按钮同步出场的门控依赖此重置。
-                    // onTracksChanged 同曲可能多次触发，按 URI 去重避免误清已判定状态
-                    if (mssDecidedResetUri != rawUri) {
-                        mssDecidedResetUri = rawUri
-                        yos.music.player.logic.mss.VocalSeparationController.beginTrack()
                     }
 
                     // 将文件 I/O 移到后台线程，避免阻塞 UI

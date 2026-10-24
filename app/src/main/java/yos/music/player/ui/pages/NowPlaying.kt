@@ -1209,12 +1209,16 @@ fun NowPlaying(
                         // The APK places MSS as a sibling overlay of the whole
                         // control panel. Its expansion therefore grows upward
                         // without participating in PlayerControl measurement.
+                        // 翻译与人声按钮同帧出场：首次等歌词判定完成且人声可用性已判定，
+                        // 之后粘性保持——换歌不退出重进（那会先隐后显地闪一次），
+                        // 只在行内平滑更新内容
+                        val vocalDecided = VocalSeparationController.state.collectAsState().value.decided
+                        val toolsReady = remember { mutableStateOf(false) }
+                        LaunchedEffect(lyricState.value.isLoading, vocalDecided) {
+                            if (!lyricState.value.isLoading && vocalDecided) toolsReady.value = true
+                        }
                         androidx.compose.animation.AnimatedVisibility(
-                            // 翻译与人声按钮同时出场：等歌词解析完成（loading 结束）
-                            // 且人声可用性已判定（音频链路配置过）后一起淡入
-                            visible = showControl.value && nowPageLambda() == Lyric &&
-                                !lyricState.value.isLoading &&
-                                VocalSeparationController.state.collectAsState().value.decided,
+                            visible = showControl.value && nowPageLambda() == Lyric && toolsReady.value,
                             // 只做淡入淡出：人声控件自带 48dp 外扩的 Add 混合层，
                             // 叠加位移会逐帧重混合并在镂空处采样到层外黑边
                             enter = fadeIn(tween(200, easing = EaseOutQuart)),
@@ -1231,7 +1235,12 @@ fun NowPlaying(
                             Row(verticalAlignment = Alignment.Bottom,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                if (hasTranslation.value) {
+                                // 有无翻译随曲目切换平滑淡变，不再瞬间弹出/消失
+                                AnimatedVisibility(
+                                    visible = hasTranslation.value,
+                                    enter = fadeIn(tween(200, easing = EaseOutQuart)),
+                                    exit = fadeOut(tween(160, easing = EaseOutQuart))
+                                ) {
                                     LyricTranslationButton(translationVisible, {
                                         SettingsLibrary.NowPlayingTranslation = it
                                         Vibrator.click(context)
