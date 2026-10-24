@@ -302,7 +302,7 @@ fun NormalMusic(navController: NavController) {
     }
 }
 
-private fun List<YosMediaItem>.sortX() =
+internal fun List<YosMediaItem>.sortX() =
     this.sortedBy { song ->
         when (SongSort) {
             SettingsLibrary.SongSortEnum.MUSIC_TITLE.ordinal -> Pinyin.toPinyin(

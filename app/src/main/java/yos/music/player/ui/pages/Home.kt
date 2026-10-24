@@ -19,6 +19,7 @@ import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.UI
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.Title
+import yos.music.player.ui.widgets.basic.paneDivider
 
 @Composable
 fun Home(
@@ -36,31 +37,32 @@ fun Home(
             navController.toUI(UI.Settings.Main)
         },
         content = {
-            // 横屏双栏：入口渐变卡与在听时段收左栏，最近播放（歌/专辑）提为右栏
+            // 横屏三区：左上四张渐变入口卡 | 竖线 | 右上最近播放；下方最近专辑占满横向空间
             if (isLandscape) {
                 item("HomeLandscape") {
                     HomeSectionEntrance(0) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Column(Modifier.weight(1.35f)) {
-                                if (songs.isNotEmpty()) {
-                                    HomeQuickEntries(navController, songs, listenStats)
+                        Column {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Column(Modifier.weight(1.1f)) {
+                                    if (songs.isNotEmpty()) {
+                                        HomeQuickEntries(navController, songs, listenStats, compact = true)
+                                    }
                                 }
-                                if (SettingsLibrary.ListenHistory && listenStats != null) {
-                                    HomeListenStatsCard(navController, listenStats)
-                                }
-                            }
-                            Column(Modifier.weight(1f)) {
-                                if (SettingsLibrary.ListenHistory && listenStats != null) {
-                                    if (listenStats.recentSongs.isNotEmpty()) {
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .paneDivider()
+                                ) {
+                                    if (SettingsLibrary.ListenHistory && listenStats != null) {
                                         HomeRecentSongsSection(navController, listenStats)
                                     }
-                                    if (listenStats.recentAlbums.isNotEmpty()) {
-                                        HomeRecentAlbumsSection(navController, listenStats)
-                                    }
                                 }
+                            }
+                            if (SettingsLibrary.ListenHistory && listenStats != null) {
+                                HomeRecentAlbumsSection(navController, listenStats)
                             }
                         }
                     }
