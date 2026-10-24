@@ -2790,7 +2790,11 @@ internal fun VocalSeparationControl(
         modifier = modifier
             .width(controlWidth)
             .height(controlHeight)
-            .overlayEffect(outset = 48.dp)
+            // 普通混合的磨砂底：不用 Add 层（那会把模糊「叠加」在背景上而非透出背景）。
+            // 离屏层让形状外圈的 Clear 抠剪只作用于本控件，不穿到页面背景
+            .graphicsLayer {
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
             .graphicsLayer {
                 scaleX = controlScale
                 scaleY = controlScale
@@ -2815,13 +2819,16 @@ internal fun VocalSeparationControl(
                 }
                 onDrawWithContent {
                     if (frosted != null) {
+                        // 普通混合下磨砂场直接替换背衬（85%）：观感是"按钮后的背景
+                        // 被多模糊了一层"，与背景同源匹配而非叠一层亮膜
                         drawImage(frosted,
                             srcOffset = IntOffset.Zero,
                             srcSize = IntSize(frosted.width, frosted.height),
                             dstOffset = IntOffset.Zero,
                             dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                            alpha = 0.85f,
                             filterQuality = FilterQuality.Medium)
-                        drawRect(Color.White.copy(alpha = 0.05f))
+                        drawRect(Color.White.copy(alpha = 0.08f))
                     } else {
                         drawRect(Color.White.copy(alpha = 0.10f))
                     }

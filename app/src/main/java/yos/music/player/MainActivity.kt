@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -565,7 +566,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         Spacer(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .windowInsetsPadding(WindowInsets.navigationBars).height(128.dp)
+                                                .windowInsetsBottomHeight(WindowInsets.navigationBars).height(128.dp)
                                                 .background(bottomBarBrush)
                                         )
                                         if (SettingsLibrary.BarBlurEffect) {
@@ -581,7 +582,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 Spacer(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .windowInsetsPadding(WindowInsets.navigationBars).height(128.dp)
+                                                        .windowInsetsBottomHeight(WindowInsets.navigationBars).height(128.dp)
                                                         .graphicsLayer {
                                                             alpha = blurAlpha.value
                                                             compositingStrategy =

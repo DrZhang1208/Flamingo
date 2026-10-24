@@ -40,7 +40,8 @@ internal fun LyricTranslationButton(
     val backgroundAlpha = animateFloatAsState(if (checked) 0.92f else 0f, label = "TranslationBackground")
     val tint = animateColorAsState(if (checked) Color.Black else Color.White, label = "TranslationTint")
     val shape = remember { YosRoundedCornerShape(10.dp) }
-    Box(modifier.size(34.dp).overlayEffect().clip(shape)
+    // 普通混合的磨砂底：不用 Add 层（会把模糊「叠加」在背景上而非透出背景）
+    Box(modifier.size(34.dp).clip(shape)
         .drawBehind {
             if (frosted != null) {
                 drawImage(frosted,
@@ -48,8 +49,9 @@ internal fun LyricTranslationButton(
                     srcSize = IntSize(frosted.width, frosted.height),
                     dstOffset = IntOffset.Zero,
                     dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                    alpha = 0.85f,
                     filterQuality = FilterQuality.Medium)
-                drawRect(Color.White.copy(alpha = 0.05f))
+                drawRect(Color.White.copy(alpha = 0.08f))
             } else {
                 drawRect(Color.White.copy(alpha = 0.10f))
             }

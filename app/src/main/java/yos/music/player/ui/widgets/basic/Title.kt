@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -469,8 +470,9 @@ private fun TitleBar(
         modifier = Modifier
             .fillMaxWidth()
             // foundation 实时 insets：accompanist 版在旋转/状态栏显隐后不更新，
-            // 顶栏高度会取决于打开时的方向（横屏过高、竖屏文字被状态栏裁剪）
-            .windowInsetsPadding(WindowInsets.statusBars)
+            // 顶栏高度会取决于打开时的方向。用 TopHeight 只占位不缩内容，
+            // 遮挡面（白底/模糊层）才能继续覆盖状态栏条带
+            .windowInsetsTopHeight(WindowInsets.statusBars)
             .height(54.dp)
             .clickable(enabled = false, onClick = {})
     ) {
@@ -504,7 +506,7 @@ private fun TitleBar(
                 .fillMaxWidth()
                 .padding(top = 5.dp)
         ) {
-            Box(Modifier.windowInsetsPadding(WindowInsets.statusBars).height(48.dp),
+            Box(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(48.dp),
                 contentAlignment = Alignment.CenterStart) {
                 if (onBack != null) {
                     Icon(
