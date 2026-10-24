@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import yos.music.player.R
 import yos.music.player.ui.theme.YosRoundedCornerShape
+import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.widgets.effects.overlayEffect
 
 @Composable
@@ -40,7 +41,8 @@ internal fun LyricTranslationButton(
     val backgroundAlpha = animateFloatAsState(if (checked) 0.92f else 0f, label = "TranslationBackground")
     val tint = animateColorAsState(if (checked) Color.Black else Color.White, label = "TranslationTint")
     val shape = remember { YosRoundedCornerShape(10.dp) }
-    // 普通混合的磨砂底：不用 Add 层（会把模糊「叠加」在背景上而非透出背景）
+    // 独立磨砂底：固定纹理+昼夜玻璃色调，不跟随背景
+    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.62f)
     Box(modifier.size(34.dp).clip(shape)
         .drawBehind {
             if (frosted != null) {
@@ -51,7 +53,7 @@ internal fun LyricTranslationButton(
                     dstSize = IntSize(size.width.toInt(), size.height.toInt()),
                     alpha = 0.85f,
                     filterQuality = FilterQuality.Medium)
-                drawRect(Color.White.copy(alpha = 0.08f))
+                drawRect(glassTint)
             } else {
                 drawRect(Color.White.copy(alpha = 0.10f))
             }

@@ -242,6 +242,7 @@ import yos.music.player.ui.widgets.basic.dialogListFade
 import yos.music.player.ui.widgets.basic.LocalDialogContainerColor
 import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.songMenuTrigger
+import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.theme.withNight
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
@@ -602,7 +603,7 @@ fun NowPlaying(
         }*/
 
             val artworkPainter = artwork
-            val frostedArtwork = yos.music.player.ui.widgets.effects.rememberFrostedBackdrop { backgroundState.value }
+            val frostedArtwork = yos.music.player.ui.widgets.effects.rememberStandaloneFrosted()
             val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
             SideEffect { artworkBridge.pauseProgress = { artworkPauseProgress.value } }
 
@@ -2705,6 +2706,8 @@ internal fun VocalSeparationControl(
 
     val density = LocalDensity.current
     val interactionSource = remember { MutableInteractionSource() }
+    // 独立磨砂底的昼夜玻璃色调（drawWithCache 内无法调用 @Composable，组合期取好）
+    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.62f)
     val pressed by interactionSource.collectIsPressedAsState()
     val expansion = remember { Animatable(if (state.enabled) 1f else 0f) }
     val liquidFraction = remember {
@@ -2819,8 +2822,7 @@ internal fun VocalSeparationControl(
                 }
                 onDrawWithContent {
                     if (frosted != null) {
-                        // 普通混合下磨砂场直接替换背衬（85%）：观感是"按钮后的背景
-                        // 被多模糊了一层"，与背景同源匹配而非叠一层亮膜
+                        // 独立磨砂底：固定纹理+昼夜玻璃色调，不跟随背景
                         drawImage(frosted,
                             srcOffset = IntOffset.Zero,
                             srcSize = IntSize(frosted.width, frosted.height),
@@ -2828,7 +2830,7 @@ internal fun VocalSeparationControl(
                             dstSize = IntSize(size.width.toInt(), size.height.toInt()),
                             alpha = 0.85f,
                             filterQuality = FilterQuality.Medium)
-                        drawRect(Color.White.copy(alpha = 0.08f))
+                        drawRect(glassTint)
                     } else {
                         drawRect(Color.White.copy(alpha = 0.10f))
                     }
