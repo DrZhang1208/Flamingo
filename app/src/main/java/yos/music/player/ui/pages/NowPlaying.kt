@@ -242,7 +242,10 @@ import yos.music.player.ui.widgets.basic.dialogListFade
 import yos.music.player.ui.widgets.basic.LocalDialogContainerColor
 import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.songMenuTrigger
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import yos.music.player.ui.theme.isFlamingoInDarkMode
+import yos.music.player.ui.widgets.toolButtonHazeStyle
 import yos.music.player.ui.theme.withNight
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
@@ -446,6 +449,9 @@ fun NowPlaying(
         val backgroundState: MutableState<NowPlayingBackgroundState> =
             MediaViewModelObject.nowPlayingBackground
 
+        // 歌词工具按钮（翻译/人声）的实时背景模糊源：挂在背景流光层上
+        val playerHazeState = remember { HazeState() }
+
         val lastClickTime = rememberSaveable(key = "NowPlaying_lastClickTime") {
             mutableLongStateOf(0L)
         }
@@ -567,18 +573,12 @@ fun NowPlaying(
         }
 
 
-        // 背景流光
+        // 背景流光（注册为 haze 源：歌词工具按钮实时模糊它）
         YosWrapper {
-            /*BlendBackgroundView(
-        bitmapLambda = { bitmap.value },
-        isPlayingLambda = { isPlaying.value },
-        nowPage = { nowPage.value }
-    )*/
-
             YosFloatingLight(
                   backgroundState = { backgroundState.value },
                 isPlaying = isPlayingStatusLambda,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().haze(playerHazeState),
                 nowPage = { nowPageLambda() },
                 showMiniPlayer = showMiniPlayer,
                 expansionProgress = { artworkBridge.progress() }
@@ -603,7 +603,6 @@ fun NowPlaying(
         }*/
 
             val artworkPainter = artwork
-            val frostedArtwork = yos.music.player.ui.widgets.effects.rememberStandaloneFrosted()
             val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
             SideEffect { artworkBridge.pauseProgress = { artworkPauseProgress.value } }
 
@@ -757,8 +756,8 @@ fun NowPlaying(
                                         if (hasTranslation.value) LyricTranslationButton(translationVisible, {
                                             SettingsLibrary.NowPlayingTranslation = it
                                             Vibrator.click(context)
-                                        }, frosted = frostedArtwork)
-                                        VocalSeparationControl(context = context, onSlider = {}, frosted = frostedArtwork)
+                                        }, hazeState = playerHazeState)
+                                        VocalSeparationControl(context = context, onSlider = {}, hazeState = playerHazeState)
                                     }
                                 }
                             }
@@ -1262,7 +1261,7 @@ fun NowPlaying(
                                         SettingsLibrary.NowPlayingTranslation = it
                                         Vibrator.click(context)
                                         lastClickTime.longValue = TimeUtils.getNowMills()
-                                    }, frosted = frostedArtwork)
+                                    }, hazeState = playerHazeState)
                                 }
                                 if (!compactWindow) VocalSeparationControl(
                                     context = context,
@@ -1270,7 +1269,7 @@ fun NowPlaying(
                                         showControl.value = true
                                         lastClickTime.longValue = TimeUtils.getNowMills()
                                     },
-                                    frosted = frostedArtwork
+                                    hazeState = playerHazeState
                                 )
                             }
                         }
@@ -2691,8 +2690,8 @@ internal fun VocalSeparationControl(
     context: Context,
     onSlider: () -> Unit,
     modifier: Modifier = Modifier,
-    // 封面双重模糊色场：磨砂底（无则回退半透明白）
-    frosted: ImageBitmap? = null
+    // 播放页背景的 haze 源：控件实时模糊其背后的背景（与翻译按钮同款）
+    hazeState: HazeState
 ) {
     val state by VocalSeparationController.state.collectAsState()
     val failureText = stringResource(R.string.now_playing_mss_failed)
@@ -2706,9 +2705,6 @@ internal fun VocalSeparationControl(
 
     val density = LocalDensity.current
     val interactionSource = remember { MutableInteractionSource() }
-    // 独立磨砂底的昼夜玻璃色调（drawWithCache 内无法调用 @Composable，组合期取好）；
-    // 未激活压暗避免过白，与翻译按钮保持一致
-    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.30f)
     val pressed by interactionSource.collectIsPressedAsState()
     val expansion = remember { Animatable(if (state.enabled) 1f else 0f) }
     val liquidFraction = remember {
@@ -2794,8 +2790,9 @@ internal fun VocalSeparationControl(
         modifier = modifier
             .width(controlWidth)
             .height(controlHeight)
-            // 普通混合的磨砂底：不用 Add 层（那会把模糊「叠加」在背景上而非透出背景）。
+            // 实时磨砂底：haze 模糊播放页背景，绘制在最底层。
             // 离屏层让形状外圈的 Clear 抠剪只作用于本控件，不穿到页面背景
+            .then(toolButtonHazeStyle(hazeState))
             .graphicsLayer {
                 compositingStrategy = CompositingStrategy.Offscreen
             }
@@ -2822,19 +2819,6 @@ internal fun VocalSeparationControl(
                     else reset() // A zero-sized entrance frame has no visible corner to mask.
                 }
                 onDrawWithContent {
-                    if (frosted != null) {
-                        // 独立磨砂底：固定纹理+昼夜玻璃色调，不跟随背景
-                        drawImage(frosted,
-                            srcOffset = IntOffset.Zero,
-                            srcSize = IntSize(frosted.width, frosted.height),
-                            dstOffset = IntOffset.Zero,
-                            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                            alpha = 0.85f,
-                            filterQuality = FilterQuality.Medium)
-                        drawRect(glassTint)
-                    } else {
-                        drawRect(Color.White.copy(alpha = 0.10f))
-                    }
                     drawContent()
                     drawPath(outside, Color.Transparent, blendMode = BlendMode.Clear)
                 }

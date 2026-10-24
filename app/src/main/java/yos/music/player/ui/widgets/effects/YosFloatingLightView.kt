@@ -248,30 +248,6 @@ private suspend fun loadBackgroundAssets(
 
 internal const val ARTWORK_TEXTURE_SIZE = 256
 
-/** 独立磨砂纹理的进程级缓存：内容恒定，所有小控件共用同一张 */
-private var standaloneFrostedCache: ImageBitmap? = null
-
-/** 独立磨砂底：固定灰度噪点双重模糊的纹理，不采样封面/背景——
- *  切歌、滚动、换背景时按钮观感恒定。24px 级别生成极快，直接同步产出。 */
-@Composable
-internal fun rememberStandaloneFrosted(): ImageBitmap = remember {
-    standaloneFrostedCache ?: run {
-        val size = 24
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        // 固定种子：纹理跨进程启动也一致，避免每次打开按钮"换质感"
-        val rnd = java.util.Random(42)
-        val px = IntArray(size * size)
-        for (i in px.indices) {
-            val v = 118 + rnd.nextInt(20)
-            px[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
-        }
-        bmp.setPixels(px, 0, size, 0, 0, size, size)
-        runCatching {
-            Toolkit.blur(Toolkit.blur(bmp, 6), 6).asImageBitmap()
-        }.getOrDefault(bmp.asImageBitmap()).also { standaloneFrostedCache = it }
-    }
-}
-
 /** Keep the original colour detail until the layered GPU field has been blurred.
  * Center-crop rather than distort non-square artwork. F16 avoids rounding each
  * resampling / interrupted cover blend back into an 8-bit intermediate bitmap.
