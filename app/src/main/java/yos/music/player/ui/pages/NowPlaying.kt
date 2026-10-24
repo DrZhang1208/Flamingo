@@ -1211,12 +1211,10 @@ fun NowPlaying(
                         // without participating in PlayerControl measurement.
                         androidx.compose.animation.AnimatedVisibility(
                             visible = showControl.value && nowPageLambda() == Lyric,
-                            enter = fadeIn(tween(200, easing = EaseOutQuart)) + slideInVertically(
-                                animationSpec = tween(200, easing = EaseOutQuart),
-                                initialOffsetY = { it / 4 }),
-                            exit = fadeOut(tween(160, easing = EaseOutQuart)) + slideOutVertically(
-                                animationSpec = tween(160, easing = EaseOutQuart),
-                                targetOffsetY = { it / 4 }),
+                            // 只做淡入淡出：人声控件自带 48dp 外扩的 Add 混合层，
+                            // 叠加位移会逐帧重混合并在镂空处采样到层外黑边
+                            enter = fadeIn(tween(200, easing = EaseOutQuart)),
+                            exit = fadeOut(tween(160, easing = EaseOutQuart)),
                             modifier = with(this@playerOverlayBox) {
                                 Modifier.align(Alignment.BottomEnd)
                             }.offset(
@@ -2585,11 +2583,10 @@ private fun PlayerControl(
                                     fadeIn() togetherWith fadeOut()
                                 }) {
                                 if (it) {
-                                    // 激活态实心圆角方块为镂空：保留矢量自身黑白，透出流光背景
+                                    // 激活态：白色实心瓷砖+镂空图形（透出流光背景），与未激活描边款同亮度语言
                                     Icon(
                                         painterResource(id = R.drawable.ic_nowplaying_lyricson),
                                         contentDescription = null,
-                                        tint = Color.Unspecified,
                                         modifier = Modifier
                                             .size(dp)
                                     )
@@ -2632,7 +2629,6 @@ private fun PlayerControl(
                                     Icon(
                                         painterResource(id = R.drawable.ic_nowplaying_queueon),
                                         contentDescription = null,
-                                        tint = Color.Unspecified,
                                         modifier = Modifier
                                             .size(dp)
                                     )
