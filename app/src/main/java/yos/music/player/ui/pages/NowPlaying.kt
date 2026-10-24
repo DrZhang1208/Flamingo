@@ -1221,9 +1221,10 @@ fun NowPlaying(
                                 Modifier.align(Alignment.BottomEnd)
                             }.offset(
                                 x = -rememberAdaptive(25),
+                                // 隐藏音量条时按钮在合并空间居中（下移 13.25dp），工具行同步
                                 y = -if (compactWindow) {
-                                    if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 157.5.dp
-                                } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 273.5.dp
+                                    if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 170.75.dp
+                                } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 286.75.dp
                             )
                         ) {
                             Row(verticalAlignment = Alignment.Bottom,
@@ -2736,9 +2737,6 @@ internal fun VocalSeparationControl(
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f)
         )
     }
-    // 拖到满格时的一次性放大回弹
-    val scope = rememberCoroutineScope()
-    val maxPulse = remember { Animatable(1f) }
     val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value).dp
     val controlWidth = (34f + 12f * dragActive.value).dp
     // The continuous corner reaches beyond its nominal radius. 10dp keeps
@@ -2751,8 +2749,8 @@ internal fun VocalSeparationControl(
             .height(controlHeight)
             .overlayEffect(outset = 48.dp)
             .graphicsLayer {
-                scaleX = controlScale * maxPulse.value
-                scaleY = controlScale * maxPulse.value
+                scaleX = controlScale
+                scaleY = controlScale
                 alpha = controlAlpha
                 transformOrigin = TransformOrigin(0.5f, 1f)
             }
@@ -2790,17 +2788,7 @@ internal fun VocalSeparationControl(
                     onDragCancel = { draggingGain.value = false },
                     onVerticalDrag = { change, dragAmount ->
                         change.consume()
-                        val newGain = (dragGain - dragAmount / adjustmentRangePx).coerceIn(0f, 1f)
-                        if (newGain >= 0.999f && dragGain < 0.999f) {
-                            scope.launch {
-                                maxPulse.snapTo(1.16f)
-                                maxPulse.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 380f)
-                                )
-                            }
-                        }
-                        dragGain = newGain
+                        dragGain = (dragGain - dragAmount / adjustmentRangePx).coerceIn(0f, 1f)
                         VocalSeparationController.setSelectedGain(dragGain)
                         onSlider()
                     }
