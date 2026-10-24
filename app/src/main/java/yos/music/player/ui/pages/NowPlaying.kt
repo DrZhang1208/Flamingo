@@ -2585,9 +2585,11 @@ private fun PlayerControl(
                                     fadeIn() togetherWith fadeOut()
                                 }) {
                                 if (it) {
+                                    // 激活态实心圆角方块为镂空：保留矢量自身黑白，透出流光背景
                                     Icon(
                                         painterResource(id = R.drawable.ic_nowplaying_lyricson),
                                         contentDescription = null,
+                                        tint = Color.Unspecified,
                                         modifier = Modifier
                                             .size(dp)
                                     )
@@ -2595,6 +2597,7 @@ private fun PlayerControl(
                                     Icon(
                                         painterResource(id = R.drawable.ic_nowplaying_lyrics),
                                         contentDescription = null,
+                                        tint = Color.Unspecified,
                                         modifier = Modifier
                                             .size(dp)
                                     )
@@ -2629,6 +2632,7 @@ private fun PlayerControl(
                                     Icon(
                                         painterResource(id = R.drawable.ic_nowplaying_queueon),
                                         contentDescription = null,
+                                        tint = Color.Unspecified,
                                         modifier = Modifier
                                             .size(dp)
                                     )
@@ -2636,6 +2640,7 @@ private fun PlayerControl(
                                     Icon(
                                         painterResource(id = R.drawable.ic_nowplaying_queue),
                                         contentDescription = null,
+                                        tint = Color.Unspecified,
                                         modifier = Modifier
                                             .size(dp)
                                     )
