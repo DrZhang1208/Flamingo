@@ -2457,10 +2457,16 @@ private fun PlayerControl(
                     }
 
 
+                    // 隐藏音量条时进度条与底部栏位置不动：音量条高度(26.5dp)均分进
+                    // 按钮上下留白，三键在合并后的空间内垂直居中
+                    val hiddenVolumeShare = if (SettingsLibrary.NowPlayingShowVolumeBar) 0.dp else 26.5.dp / 2
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = if (compactWindow) 4.dp else 25.dp, bottom = if (compactWindow) 4.dp else 35.dp),
+                            .padding(
+                                top = (if (compactWindow) 4.dp else 25.dp) + hiddenVolumeShare,
+                                bottom = (if (compactWindow) 4.dp else 35.dp) + hiddenVolumeShare
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -2719,7 +2725,8 @@ internal fun VocalSeparationControl(
         animationSpec = spring(dampingRatio = 1f, stiffness = 405f),
         label = "MssControlVisibility"
     )
-    val adjustmentRangePx = with(density) { 60.dp.toPx() }
+    // 140dp 手指行程走完 0..1 全量：降低拖动灵敏度
+    val adjustmentRangePx = with(density) { 140.dp.toPx() }
     // 拖动音量时高宽一起增大、松手弹回；仅开启不改变尺寸
     val draggingGain = remember { mutableStateOf(false) }
     val dragActive = remember { Animatable(0f) }
@@ -2729,8 +2736,11 @@ internal fun VocalSeparationControl(
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f)
         )
     }
+    // 拖到满格时的一次性放大回弹
+    val scope = rememberCoroutineScope()
+    val maxPulse = remember { Animatable(1f) }
     val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value).dp
-    val controlWidth = (34f + 26f * dragActive.value).dp
+    val controlWidth = (34f + 12f * dragActive.value).dp
     // The continuous corner reaches beyond its nominal radius. 10dp keeps
     // adjacent curves apart even in the 34dp square before expansion.
     val smoothShape = remember { YosRoundedCornerShape(roundSize = 10.dp) }
@@ -2741,8 +2751,8 @@ internal fun VocalSeparationControl(
             .height(controlHeight)
             .overlayEffect(outset = 48.dp)
             .graphicsLayer {
-                scaleX = controlScale
-                scaleY = controlScale
+                scaleX = controlScale * maxPulse.value
+                scaleY = controlScale * maxPulse.value
                 alpha = controlAlpha
                 transformOrigin = TransformOrigin(0.5f, 1f)
             }
@@ -2780,7 +2790,17 @@ internal fun VocalSeparationControl(
                     onDragCancel = { draggingGain.value = false },
                     onVerticalDrag = { change, dragAmount ->
                         change.consume()
-                        dragGain = (dragGain - dragAmount / adjustmentRangePx).coerceIn(0f, 1f)
+                        val newGain = (dragGain - dragAmount / adjustmentRangePx).coerceIn(0f, 1f)
+                        if (newGain >= 0.999f && dragGain < 0.999f) {
+                            scope.launch {
+                                maxPulse.snapTo(1.16f)
+                                maxPulse.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 380f)
+                                )
+                            }
+                        }
+                        dragGain = newGain
                         VocalSeparationController.setSelectedGain(dragGain)
                         onSlider()
                     }
