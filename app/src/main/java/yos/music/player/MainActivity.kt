@@ -609,11 +609,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     if (isLandscape) {
                                         // 横屏：tab 栏变左侧边栏，迷你条仍在底部（右移让出边栏）
                                         val railBrush = remember(color, density) {
+                                            // 与底部栏"下实上淡"镜像：靠屏幕左缘实色、向右淡出
                                             Brush.horizontalGradient(
-                                                0f to Color.Transparent,
-                                                0.5f to color.copy(alpha = 0.6f),
-                                                1f to color,
-                                                endX = with(density) { 48.dp.toPx() }
+                                                0f to color,
+                                                0.55f to color.copy(alpha = 0.6f),
+                                                1f to Color.Transparent,
+                                                endX = with(density) { 132.dp.toPx() }
                                             )
                                         }
                                         Box(
@@ -818,8 +819,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
                                     Surface(
                                         modifier = Modifier.graphicsLayer {
+                                            // 横屏无底部 tab 栏，迷你条容器底部 ~10dp 空白会露出；
+                                            // 收起状态整体下移贴底（竖屏该空隙被 tab 栏遮挡）
+                                            val landscapeMiniDrop =
+                                                (if (isSheetLandscape) 10.dp else 0.dp).toPx()
                                             translationY =
-                                                ((parentHeight.intValue - miniPlayerHeightPx) * (1 - yosBottomSheetConfig.progress))
+                                                (parentHeight.intValue - miniPlayerHeightPx + landscapeMiniDrop) *
+                                                    (1 - yosBottomSheetConfig.progress)
 
                                             if (yosBottomSheetConfig.barShowCorner) {
                                                 shape = YosRoundedCornerShape(

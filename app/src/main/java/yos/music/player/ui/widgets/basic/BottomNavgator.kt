@@ -84,7 +84,7 @@ fun SideNavigator(
 ) = Column(
     modifier
         .fillMaxHeight()
-        .width(108.dp),
+        .width(132.dp),
     verticalArrangement = Arrangement.Center
 ) {
     items.forEach { item ->
@@ -115,7 +115,7 @@ private fun SideNavigatorItem(
             ) {
                 onLabelChange(item.label)
             }
-            .padding(horizontal = 16.dp, vertical = 13.dp)
+            .padding(start = 24.dp, end = 12.dp, top = 13.dp, bottom = 13.dp)
     ) {
         Icon(
             painterResource(item.iconResId),
@@ -123,7 +123,7 @@ private fun SideNavigatorItem(
             tint = color.value,
             modifier = Modifier.size(26.dp)
         )
-        Spacer(Modifier.width(11.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             item.label,
             color = color.value,
