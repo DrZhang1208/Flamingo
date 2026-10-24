@@ -55,7 +55,6 @@ import yos.music.player.ui.toUI
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
-import yos.music.player.ui.widgets.basic.paneDivider
 
 /** 设置分区：标题 + 该区内容（open 打开二级页：竖屏整页导航 / 横屏右栏渲染） */
 private class SettingsSection(
@@ -176,14 +175,9 @@ fun Settings(navController: NavController) =
                                 }
                                 Spacer(Modifier.height(20.dp))
                             }
-                            // 右列：二级页面（返回仅清除右栏，不退出设置）；左缘外侧画分栏竖线
+                            // 右列：二级页面（返回仅清除右栏，不退出设置）
                             val onBackPage = { selectedPage = null }
-                            Box(
-                                Modifier
-                                    .weight(1.3f)
-                                    .fillMaxHeight()
-                                    .paneDivider()
-                            ) {
+                            Box(Modifier.weight(1.3f).fillMaxHeight()) {
                                 when (selectedPage) {
                                     UI.Settings.LibraryOverview ->
                                         yos.music.player.ui.pages.settings.library.LibraryOverview(navController, onBackPage)

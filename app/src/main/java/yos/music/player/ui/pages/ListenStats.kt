@@ -1336,8 +1336,7 @@ private fun TopAlbumRow(
 fun HomeQuickEntries(
     navController: NavController,
     songs: List<YosMediaItem>,
-    stats: ListenStatsUiData?,
-    compact: Boolean = false
+    stats: ListenStatsUiData?
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1365,8 +1364,7 @@ fun HomeQuickEntries(
                 painter = painterResource(id = R.drawable.button_icon_shuffle),
                 title = stringResource(id = R.string.home_quick_shuffle),
                 subtitle = stringResource(id = R.string.home_quick_shuffle_desc),
-                modifier = Modifier.weight(1f),
-                compact = compact
+                modifier = Modifier.weight(1f)
             ) {
                 scope.launch(Dispatchers.IO) {
                     MediaController.startWander()
@@ -1377,8 +1375,7 @@ fun HomeQuickEntries(
                 painter = painterResource(id = R.drawable.ic_nowplaying_favorite),
                 title = stringResource(id = R.string.home_quick_favorites),
                 subtitle = stringResource(id = R.string.home_entry_songs_count, favCount),
-                modifier = Modifier.weight(1f),
-                compact = compact
+                modifier = Modifier.weight(1f)
             ) {
                 openListPage(context.getString(R.string.page_library_playlists_fav_title)) {
                     FavPlayListLibrary.favPlayList
@@ -1393,8 +1390,7 @@ fun HomeQuickEntries(
                 subtitle = stringResource(
                     id = R.string.home_entry_songs_count, stats?.recentSongCount ?: 0
                 ),
-                modifier = Modifier.weight(1f),
-                compact = compact
+                modifier = Modifier.weight(1f)
             ) {
                 openListPage(context.getString(R.string.listen_stats_recent_songs)) {
                     val uriToSong = HashMap<String, YosMediaItem>()
@@ -1409,8 +1405,7 @@ fun HomeQuickEntries(
                 painter = rememberVectorPainter(CupertinoIcons.Outlined.CalendarBadgePlus),
                 title = stringResource(id = R.string.home_quick_recent_added),
                 subtitle = stringResource(id = R.string.home_entry_songs_count, songs.size),
-                modifier = Modifier.weight(1f),
-                compact = compact
+                modifier = Modifier.weight(1f)
             ) {
                 openListPage(context.getString(R.string.home_quick_recent_added)) {
                     MusicLibrary.songs.sortedByDescending { it.addDate ?: 0L }
@@ -1428,50 +1423,18 @@ private fun QuickCard(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
-    compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    val clickable = Modifier
-        .clip(YosRoundedCornerShape(14.dp))
-        .clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onClick
-        )
-    if (compact) {
-        // 横屏窄栏：整卡渐变的彩色按钮（图标上、标题下），文字区不足时省去副标题
-        Column(
-            modifier = modifier
-                .height(64.dp)
-                .then(clickable)
-                .background(Brush.linearGradient(colors)),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                painter = painter,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(22.dp)
-            )
-            Text(
-                text = title,
-                fontSize = 11.sp,
-                lineHeight = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = Color.White,
-                modifier = Modifier.padding(top = 5.dp, start = 4.dp, end = 4.dp)
-            )
-        }
-        return
-    }
     Row(
         modifier = modifier
             .height(rememberAdaptive(64))
-            .then(clickable)
-            .background((Color.Black withNight Color.White).copy(alpha = 0.05f)),
+            .clip(YosRoundedCornerShape(14.dp))
+            .background((Color.Black withNight Color.White).copy(alpha = 0.05f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
