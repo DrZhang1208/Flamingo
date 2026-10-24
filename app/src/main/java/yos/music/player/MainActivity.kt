@@ -74,6 +74,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -138,6 +139,7 @@ import yos.music.player.data.models.MainViewModel
 import yos.music.player.data.models.MediaViewModel
 import yos.music.player.data.objects.MediaViewModelObject
 import yos.music.player.ui.UI
+import yos.music.player.ui.toUI
 import yos.music.player.ui.UI.Settings.Companion.ExoplayerSetting
 import yos.music.player.ui.pages.HomeNav
 import yos.music.player.ui.pages.ListenStatsPage
@@ -578,7 +580,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             context.getString(R.string.page_home_title)
                                         val library =
                                             context.getString(R.string.page_library_title)
-                                        if (route.value == UI.HomePage) {
+                                        val settings =
+                                            context.getString(R.string.page_settings_title)
+                                        if (it == settings) {
+                                            // 设置作为横屏侧栏独立 tag：进设置页
+                                            navController.toUI(UI.Settings.Main)
+                                        } else if (route.value == UI.HomePage) {
                                             scope.launch {
                                                 pagerState.animateScrollToPage(
                                                     when (it) {
@@ -604,19 +611,41 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             )
                                         }
                                     }
-                                    val navItems = listOf(
-                                        NavItem(
-                                            stringResource(id = R.string.page_home_title),
-                                            R.drawable.flamingo_icon
-                                        ),
-                                        NavItem(
-                                            stringResource(id = R.string.page_library_title),
-                                            R.drawable.ic_uitabbar_library
-                                        )
-                                    )
-                                    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                                    val isLandscapeTabBar = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
                                         android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                                    if (isLandscape) {
+                                    val homeItem = NavItem(
+                                        stringResource(id = R.string.page_home_title),
+                                        R.drawable.flamingo_icon
+                                    )
+                                    val libraryItem = NavItem(
+                                        stringResource(id = R.string.page_library_title),
+                                        R.drawable.ic_uitabbar_library
+                                    )
+                                    // 竖屏保持两个 tab；横屏侧栏在下面加设置
+                                    val settingsItem = NavItem(
+                                        stringResource(id = R.string.page_settings_title),
+                                        R.drawable.ic_tab_settings
+                                    )
+                                    val navItems = if (isLandscapeTabBar)
+                                        listOf(homeItem, libraryItem, settingsItem)
+                                    else listOf(homeItem, libraryItem)
+                                    // 侧栏高亮跟随实际路由（从设置返回、页面切换时校正）
+                                    LaunchedEffect(route.value, pagerState.currentPage) {
+                                        val home = context.getString(R.string.page_home_title)
+                                        val library = context.getString(R.string.page_library_title)
+                                        val settings = context.getString(R.string.page_settings_title)
+                                        nowLabel.value = when {
+                                            route.value == UI.Settings.Main -> settings
+                                            pagerState.currentPage == 1 -> library
+                                            else -> home
+                                        }
+                                    }
+                                    if (isLandscapeTabBar) {
+                                        // 横屏：tab 栏变左侧边栏；播放页展开时淡出隐藏（展开是全屏）
+                                        val railVisible by remember("MainActivity_railVisible") {
+                                            derivedStateOf { yosBottomSheetConfig.progress < 0.95f }
+                                        }
+                                        if (railVisible) {
                                         // 横屏：tab 栏变左侧边栏，迷你条仍在底部（右移让出边栏）
                                         val railBrush = remember(color, density) {
                                             // 与底部栏"下实上淡"镜像：靠屏幕左缘实色、向右淡出
@@ -653,6 +682,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             if (height.intValue < 1) {
                                                 height.intValue = 1
                                             }
+                                        }
                                         }
                                     } else {
                                     Box(
@@ -749,17 +779,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         YosWrapper {
                             if (height.intValue == 0) return@YosWrapper
 
-                            // 横屏：整组播放 UI（迷你条+播放页）右移让出左侧边栏
+                            // 横屏：展开后全屏；收起时迷你条自身右移让出左侧边栏
                             val isSheetLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
                                 android.content.res.Configuration.ORIENTATION_LANDSCAPE
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .then(
-                                        if (isSheetLandscape && railWidth.intValue > 0)
-                                            Modifier.padding(start = with(density) { railWidth.intValue.toDp() })
-                                        else Modifier
-                                    )
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height
@@ -829,13 +854,18 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
                                     Surface(
                                         modifier = Modifier.graphicsLayer {
-                                            // 横屏无底部 tab 栏，迷你条容器底部 ~10dp 空白会露出；
+                                            // 横屏无底部 tab 栏，迷你条容器底部空白会露出；
                                             // 收起状态整体下移贴底（竖屏该空隙被 tab 栏遮挡）
                                             val landscapeMiniDrop =
-                                                (if (isSheetLandscape) 10.dp else 0.dp).toPx()
+                                                (if (isSheetLandscape) 12.dp else 0.dp).toPx()
                                             translationY =
                                                 (parentHeight.intValue - miniPlayerHeightPx + landscapeMiniDrop) *
                                                     (1 - yosBottomSheetConfig.progress)
+                                            // 收起时迷你条右移让出侧栏，展开过程滑回全屏
+                                            if (isSheetLandscape) {
+                                                translationX =
+                                                    railWidth.intValue.toFloat() * (1f - yosBottomSheetConfig.progress)
+                                            }
 
                                             if (yosBottomSheetConfig.barShowCorner) {
                                                 shape = YosRoundedCornerShape(

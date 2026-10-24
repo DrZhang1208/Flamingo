@@ -4,20 +4,25 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,10 +36,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import io.github.alexzhirkevich.cupertino.icons.CupertinoIcons
@@ -71,7 +78,7 @@ fun Library(navController: NavController) {
         ) {
             if (isLandscape) {
                 item("LibraryLandscape") {
-                    LibraryLandscapePanes(navController)
+                    LibraryLandscapeSplit(navController, Modifier.fillParentMaxHeight())
                 }
                 return@Title
             }
@@ -129,78 +136,162 @@ fun Library(navController: NavController) {
     }
 }
 
-/** 横屏三栏：歌单 / 歌手 / 专辑 各一栏卡片，头部链接 + 前几项预览（样式与竖屏一致） */
+/** 横屏分栏：左侧资料库菜单，右侧所选分类的内容列表 */
+private enum class LibrarySection { PLAYLISTS, ARTISTS, ALBUMS, SONGS }
+
 @Composable
-private fun LibraryLandscapePanes(navController: NavController) {
+private fun LibraryLandscapeSplit(navController: NavController, modifier: Modifier = Modifier) {
+    var section by remember { mutableStateOf(LibrarySection.PLAYLISTS) }
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        // 菜单列
+        RoundColumn(Modifier.weight(0.95f).fillMaxHeight()) {
+            LibraryMenuRow(
+                iconRes = R.drawable.ic_library_link_icon_playlists,
+                label = stringResource(id = R.string.page_library_playlists),
+                selected = section == LibrarySection.PLAYLISTS
+            ) { section = LibrarySection.PLAYLISTS }
+            LibraryDivider()
+            LibraryMenuRow(
+                iconRes = R.drawable.ic_library_link_icon_artists,
+                label = stringResource(id = R.string.page_library_artists),
+                selected = section == LibrarySection.ARTISTS
+            ) { section = LibrarySection.ARTISTS }
+            LibraryDivider()
+            LibraryMenuRow(
+                iconRes = R.drawable.ic_library_link_icon_album,
+                label = stringResource(id = R.string.page_library_albums),
+                selected = section == LibrarySection.ALBUMS
+            ) { section = LibrarySection.ALBUMS }
+            LibraryDivider()
+            YosWrapper {
+                val songsTitle = stringResource(id = R.string.page_library_songs)
+                LibraryMenuRow(
+                    iconRes = R.drawable.ic_library_link_icon_songs,
+                    label = songsTitle,
+                    selected = section == LibrarySection.SONGS
+                ) {
+                    section = LibrarySection.SONGS
+                    LibraryObject.setTargetListWithTitle(songsTitle, songs)
+                }
+            }
+        }
+        // 内容列
+        RoundColumn(Modifier.weight(2.05f).fillMaxHeight()) {
+            when (section) {
+                LibrarySection.PLAYLISTS -> LibraryPlaylistsContent(navController)
+                LibrarySection.ARTISTS -> LibraryArtistsContent(navController)
+                LibrarySection.ALBUMS -> LibraryAlbumsContent(navController)
+                LibrarySection.SONGS -> LibrarySongsContent()
+            }
+        }
+    }
+}
+
+/** 菜单行：与 SmallLabelItem 同款，选中态珊瑚红 */
+@Composable
+private fun LibraryMenuRow(iconRes: Int, label: String, selected: Boolean, onClick: () -> Unit) =
     Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically
     ) {
-        val entries = remember(songs) { artistLibraryEntries(songs) }
-        val albums = remember(songs) { albumLibraryEntries(songs) }
-        val playlists = PlayListLibrary.playList
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier
+                .padding(start = 18.dp, end = 2.dp)
+                .size(40.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = label,
+            fontSize = 20.sp,
+            color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            fontWeight = if (selected) FontWeight.Bold else null,
+            modifier = Modifier.fillMaxWidth().weight(1f)
+        )
+        if (selected) Icon(
+            painter = painterResource(id = R.drawable.ic_action_next), contentDescription = null,
+            modifier = Modifier
+                .padding(end = 21.dp)
+                .height(12.dp)
+                .alpha(0.3f), tint = MaterialTheme.colorScheme.primary
+        )
+    }
 
-        // 歌单
-        LibraryPane(
-            modifier = Modifier.weight(1f),
-            iconRes = R.drawable.ic_library_link_icon_playlists,
-            title = stringResource(id = R.string.page_library_playlists),
-            onMore = { navController.toUI(UI.PlayLists) }
-        ) {
-            playlists.take(4).forEachIndexed { index, pl ->
-                if (index > 0) LibraryPaneDivider()
-                LibraryPaneRow(
-                    cover = pl.songDataList.firstNotNullOfOrNull { uri ->
-                        songs.find { it.uri == uri }?.thumb
-                    },
-                    name = pl.name,
-                    meta = "${pl.songDataList.size} 首"
-                ) {
-                    LibraryObject.setTargetListWithTitle(
-                        pl.name, pl.songDataList.mapNotNull { uri -> songs.find { it.uri == uri } }
-                    )
-                    navController.toUI(UI.NormalMusic)
-                }
+@Composable
+private fun LibraryPlaylistsContent(navController: NavController) {
+    val playlists = PlayListLibrary.playList
+    if (playlists.isEmpty()) { LibraryEmptyHint(); return }
+    LazyColumn(Modifier.fillMaxHeight()) {
+        itemsIndexed(playlists) { index, pl ->
+            if (index > 0) LibraryPaneDivider()
+            LibraryPaneRow(
+                cover = pl.songDataList.firstNotNullOfOrNull { uri -> songs.find { it.uri == uri }?.thumb },
+                name = pl.name,
+                meta = "${pl.songDataList.size} 首"
+            ) {
+                LibraryObject.setTargetListWithTitle(
+                    pl.name, pl.songDataList.mapNotNull { uri -> songs.find { it.uri == uri } }
+                )
+                navController.toUI(UI.NormalMusic)
             }
         }
+    }
+}
 
-        // 歌手
-        LibraryPane(
-            modifier = Modifier.weight(1f),
-            iconRes = R.drawable.ic_library_link_icon_artists,
-            title = stringResource(id = R.string.page_library_artists),
-            onMore = { navController.toUI(UI.LocalArtists) }
-        ) {
-            entries.take(4).forEachIndexed { index, artist ->
-                if (index > 0) LibraryPaneDivider()
-                LibraryPaneRow(
-                    cover = artist.songs.firstOrNull()?.thumb,
-                    name = artist.name,
-                    meta = "${artist.songs.size} 首 · ${artist.albumCount} 专辑",
-                    roundCover = true
-                ) {
-                    LibraryObject.setTargetArtistName(artist.name)
-                    navController.toUI(UI.ArtistInfo)
-                }
+@Composable
+private fun LibraryArtistsContent(navController: NavController) {
+    val entries = remember(songs) { artistLibraryEntries(songs).sortedBy { it.name } }
+    if (entries.isEmpty()) { LibraryEmptyHint(); return }
+    LazyColumn(Modifier.fillMaxHeight()) {
+        itemsIndexed(entries) { index, artist ->
+            if (index > 0) LibraryPaneDivider()
+            LibraryPaneRow(
+                cover = artist.songs.firstOrNull()?.thumb,
+                name = artist.name,
+                meta = "${artist.songs.size} 首 · ${artist.albumCount} 专辑",
+                roundCover = true
+            ) {
+                LibraryObject.setTargetArtistName(artist.name)
+                navController.toUI(UI.ArtistInfo)
             }
         }
+    }
+}
 
-        // 专辑
-        LibraryPane(
-            modifier = Modifier.weight(1.15f),
-            iconRes = R.drawable.ic_library_link_icon_album,
-            title = stringResource(id = R.string.page_library_albums),
-            onMore = { navController.toUI(UI.LocalAlbums) }
-        ) {
-            albums.take(4).forEachIndexed { index, album ->
-                if (index > 0) LibraryPaneDivider()
-                LibraryPaneRow(
-                    cover = album.songs.firstOrNull()?.thumb,
-                    name = album.name,
-                    meta = "${album.songs.size} 首"
-                ) {
-                    LibraryObject.setTargetAlbumName(album.name)
-                    navController.toUI(UI.AlbumInfo)
+@Composable
+private fun LibraryAlbumsContent(navController: NavController) {
+    val albums = remember(songs) { albumLibraryEntries(songs).sortedBy { it.name } }
+    if (albums.isEmpty()) { LibraryEmptyHint(); return }
+    LazyColumn(Modifier.fillMaxHeight()) {
+        itemsIndexed(albums) { index, album ->
+            if (index > 0) LibraryPaneDivider()
+            LibraryPaneRow(
+                cover = album.songs.firstOrNull()?.thumb,
+                name = album.name,
+                meta = "${album.songs.size} 首"
+            ) {
+                LibraryObject.setTargetAlbumName(album.name)
+                navController.toUI(UI.AlbumInfo)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibrarySongsContent() {
+    val target = LibraryObject.getTargetListWithTitle()
+    val list = remember(target) { target.second }
+    val scope = rememberCoroutineScope()
+    if (list.isEmpty()) { LibraryEmptyHint(); return }
+    LazyColumn(Modifier.fillMaxHeight()) {
+        itemsIndexed(list, key = { _, m -> m.uri?.toString() ?: (m.mediaId ?: "") }) { index, music ->
+            if (index > 0) LibraryPaneDivider()
+            MusicList(music, null) {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    yos.music.player.code.MediaController.prepare(music, list)
                 }
             }
         }
@@ -208,18 +299,10 @@ private fun LibraryLandscapePanes(navController: NavController) {
 }
 
 @Composable
-private fun LibraryPane(
-    modifier: Modifier = Modifier,
-    iconRes: Int,
-    title: String,
-    onMore: () -> Unit,
-    rows: @Composable () -> Unit
-) {
-    RoundColumn(modifier = modifier.fillMaxWidth()) {
-        SmallLabelItem(icon = painterResource(id = iconRes), label = title, onClick = onMore)
-        rows()
+private fun LibraryEmptyHint() =
+    Box(Modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
+        Text("暂无内容", fontSize = 14.sp, color = (Color.Black withNight Color.White).copy(alpha = 0.35f))
     }
-}
 
 @Composable
 private fun LibraryPaneDivider() =
