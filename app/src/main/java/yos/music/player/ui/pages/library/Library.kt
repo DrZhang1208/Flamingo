@@ -3,6 +3,7 @@ package yos.music.player.ui.pages.library
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.composed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -141,38 +144,39 @@ private enum class LibrarySection { PLAYLISTS, ARTISTS, ALBUMS, SONGS }
 
 @Composable
 private fun LibraryLandscapeSplit(navController: NavController, modifier: Modifier = Modifier) {
-    var section by remember { mutableStateOf(LibrarySection.PLAYLISTS) }
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        // 菜单列
+    var section by remember { mutableStateOf(LibrarySection.SONGS) }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 菜单列：与设置页分栏同款（超出可独立滚动）
         RoundColumn(Modifier.weight(0.95f).fillMaxHeight()) {
-            LibraryMenuRow(
-                iconRes = R.drawable.ic_library_link_icon_playlists,
-                label = stringResource(id = R.string.page_library_playlists),
-                selected = section == LibrarySection.PLAYLISTS
-            ) { section = LibrarySection.PLAYLISTS }
-            LibraryDivider()
-            LibraryMenuRow(
-                iconRes = R.drawable.ic_library_link_icon_artists,
-                label = stringResource(id = R.string.page_library_artists),
-                selected = section == LibrarySection.ARTISTS
-            ) { section = LibrarySection.ARTISTS }
-            LibraryDivider()
-            LibraryMenuRow(
-                iconRes = R.drawable.ic_library_link_icon_album,
-                label = stringResource(id = R.string.page_library_albums),
-                selected = section == LibrarySection.ALBUMS
-            ) { section = LibrarySection.ALBUMS }
-            LibraryDivider()
-            YosWrapper {
-                val songsTitle = stringResource(id = R.string.page_library_songs)
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                LibraryMenuRow(
+                    iconRes = R.drawable.ic_library_link_icon_playlists,
+                    label = stringResource(id = R.string.page_library_playlists),
+                    selected = section == LibrarySection.PLAYLISTS
+                ) { section = LibrarySection.PLAYLISTS }
+                LibraryDivider()
+                LibraryMenuRow(
+                    iconRes = R.drawable.ic_library_link_icon_artists,
+                    label = stringResource(id = R.string.page_library_artists),
+                    selected = section == LibrarySection.ARTISTS
+                ) { section = LibrarySection.ARTISTS }
+                LibraryDivider()
+                LibraryMenuRow(
+                    iconRes = R.drawable.ic_library_link_icon_album,
+                    label = stringResource(id = R.string.page_library_albums),
+                    selected = section == LibrarySection.ALBUMS
+                ) { section = LibrarySection.ALBUMS }
+                LibraryDivider()
                 LibraryMenuRow(
                     iconRes = R.drawable.ic_library_link_icon_songs,
-                    label = songsTitle,
+                    label = stringResource(id = R.string.page_library_songs),
                     selected = section == LibrarySection.SONGS
-                ) {
-                    section = LibrarySection.SONGS
-                    LibraryObject.setTargetListWithTitle(songsTitle, songs)
-                }
+                ) { section = LibrarySection.SONGS }
             }
         }
         // 内容列
@@ -187,36 +191,43 @@ private fun LibraryLandscapeSplit(navController: NavController, modifier: Modifi
     }
 }
 
-/** 菜单行：与 SmallLabelItem 同款，选中态珊瑚红 */
+/** 菜单行：与设置分栏菜单同款（左红竖条+选中浅红底），横屏紧凑行高避让迷你条 */
 @Composable
 private fun LibraryMenuRow(iconRes: Int, label: String, selected: Boolean, onClick: () -> Unit) =
     Row(
         Modifier
             .fillMaxWidth()
-            .height(54.dp)
-            .clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically
+            .height(40.dp)
+            .androidxSelectedBg(selected)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        Box(
+            Modifier
+                .size(width = 3.dp, height = 14.dp)
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    RoundedCornerShape(50)
+                )
+        )
         Icon(
             painter = painterResource(iconRes),
             contentDescription = null,
             modifier = Modifier
-                .padding(start = 18.dp, end = 2.dp)
-                .size(40.dp),
-            tint = MaterialTheme.colorScheme.primary
+                .padding(start = 8.dp)
+                .size(22.dp),
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
         )
         Text(
             text = label,
-            fontSize = 20.sp,
+            fontSize = 14.5.sp,
             color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
-            fontWeight = if (selected) FontWeight.Bold else null,
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        )
-        if (selected) Icon(
-            painter = painterResource(id = R.drawable.ic_action_next), contentDescription = null,
+            fontWeight = if (selected) FontWeight.SemiBold else null,
             modifier = Modifier
-                .padding(end = 21.dp)
-                .height(12.dp)
-                .alpha(0.3f), tint = MaterialTheme.colorScheme.primary
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(start = 8.dp)
         )
     }
 
@@ -282,8 +293,8 @@ private fun LibraryAlbumsContent(navController: NavController) {
 
 @Composable
 private fun LibrarySongsContent() {
-    val target = LibraryObject.getTargetListWithTitle()
-    val list = remember(target) { target.second }
+    // 直接读音乐库实况，不依赖竖屏入口设置的 LibraryObject target（默认进入即有数据）
+    val list = songs
     val scope = rememberCoroutineScope()
     if (list.isEmpty()) { LibraryEmptyHint(); return }
     LazyColumn(Modifier.fillMaxHeight()) {
@@ -355,4 +366,13 @@ private fun LibraryPaneRow(
             tint = MaterialTheme.colorScheme.onBackground
         )
     }
+}
+
+
+/** 菜单选中底色：珊瑚红浅底（与竖屏 iOS 选中行一致） */
+private fun Modifier.androidxSelectedBg(selected: Boolean): Modifier = composed {
+    background(
+        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+        else Color.Transparent
+    )
 }

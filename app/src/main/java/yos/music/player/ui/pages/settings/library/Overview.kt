@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import androidx.navigation.NavController
+import yos.music.player.ui.pages.settings.backOr
 import io.github.alexzhirkevich.cupertino.CupertinoSwitch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -77,15 +78,13 @@ import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
-fun LibraryOverview(navController: NavController) =
+fun LibraryOverview(navController: NavController, onBack: (() -> Unit)? = null) =
     SettingBackground {
     // 观察 folderListVersion 确保远程文件夹变更时重组
     @Suppress("UNUSED_VARIABLE") val fv = MusicLibrary.folderListVersion
     val folders = allFolders.sortedBy { it.name }
     Title(title = stringResource(id = R.string.settings_library_overview),
-        onBack = {
-            navController.popBackStack()
-        },
+        onBack = navController.backOr(onBack),
         content = {
             if (folders.isNotEmpty()) {
                 item(key = "library_overview_card") {

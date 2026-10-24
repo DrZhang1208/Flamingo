@@ -84,7 +84,7 @@ fun SideNavigator(
 ) = Column(
     modifier
         .fillMaxHeight()
-        .width(132.dp),
+        .width(150.dp),
     verticalArrangement = Arrangement.Center
 ) {
     items.forEach { item ->
@@ -129,7 +129,9 @@ private fun SideNavigatorItem(
             color = color.value,
             fontSize = 16.sp,
             lineHeight = 20.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }

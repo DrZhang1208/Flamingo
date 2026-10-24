@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.R
 import yos.music.player.code.MediaController
 import yos.music.player.code.MediaController.mediaControl
@@ -19,12 +20,10 @@ import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun NotificationSetting(navController: NavController) =
+fun NotificationSetting(navController: NavController, onBack: (() -> Unit)? = null) =
     SettingBackground {
         Title(title = stringResource(id = R.string.settings_performance_notification_title),
-            onBack = {
-                navController.popBackStack()
-            },
+            onBack = navController.backOr(onBack),
             content = {
                 item("settings") {
                     Column(Modifier.fillMaxSize()) {

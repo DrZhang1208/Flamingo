@@ -56,11 +56,11 @@ import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
-/** 设置分区：标题 + 该区内容（竖屏顺序拼排 / 横屏右栏按选中渲染） */
+/** 设置分区：标题 + 该区内容（open 打开二级页：竖屏整页导航 / 横屏右栏渲染） */
 private class SettingsSection(
     val key: String,
     val title: String,
-    val content: @Composable (NavController) -> Unit
+    val content: @Composable (NavController, (String) -> Unit) -> Unit
 )
 
 @Composable
@@ -69,36 +69,36 @@ fun Settings(navController: NavController) =
         val context = LocalContext.current
 
         val sections = listOf(
-            SettingsSection("library", stringResource(id = R.string.page_library_title)) { nc ->
-                SettingsLibrarySection(nc, context)
+            SettingsSection("library", stringResource(id = R.string.page_library_title)) { nc, open ->
+                SettingsLibrarySection(nc, context, open)
             },
-            SettingsSection("remote", stringResource(id = R.string.settings_remote_title)) { nc ->
+            SettingsSection("remote", stringResource(id = R.string.settings_remote_title)) { nc, open ->
                 RoundColumn {
                     LabelItem(title = stringResource(id = R.string.settings_remote_server_management)) {
-                        nc.toUI(UI.Settings.RemoteServerManagement)
+                        open(UI.Settings.RemoteServerManagement)
                     }
                 }
             },
-            SettingsSection("performance", stringResource(id = R.string.settings_performance)) { nc ->
+            SettingsSection("performance", stringResource(id = R.string.settings_performance)) { nc, open ->
                 RoundColumn {
                     LabelItem(title = stringResource(id = R.string.settings_performance_lyric_title)) {
-                        nc.toUI(UI.Settings.LyricSetting)
+                        open(UI.Settings.LyricSetting)
                     }
                     Divider()
                     LabelItem(title = stringResource(id = R.string.settings_performance_ui_title)) {
-                        nc.toUI(UI.Settings.UserInterfaceSetting)
+                        open(UI.Settings.UserInterfaceSetting)
                     }
                     Divider()
                     LabelItem(title = stringResource(id = R.string.settings_performance_notification_title)) {
-                        nc.toUI(UI.Settings.NotificationSetting)
+                        open(UI.Settings.NotificationSetting)
                     }
                 }
             },
-            SettingsSection("audio", stringResource(id = R.string.settings_audio)) { nc ->
+            SettingsSection("audio", stringResource(id = R.string.settings_audio)) { nc, open ->
                 Column {
                     RoundColumn {
                         LabelItem(title = stringResource(id = R.string.settings_audio_exoplayer)) {
-                            nc.toUI(UI.Settings.ExoplayerSetting)
+                            open(UI.Settings.ExoplayerSetting)
                         }
                         Divider()
                         SwitchItem(
@@ -110,7 +110,7 @@ fun Settings(navController: NavController) =
                     ListHeader(content = stringResource(id = R.string.settings_audio_fade_in_out_desc))
                 }
             },
-            SettingsSection("play", stringResource(id = R.string.settings_play)) {
+            SettingsSection("play", stringResource(id = R.string.settings_play)) { nc, open ->
                 Column {
                     RoundColumn {
                         SwitchItem(
@@ -122,21 +122,21 @@ fun Settings(navController: NavController) =
                     ListHeader(content = stringResource(id = R.string.settings_play_history_desc))
                 }
             },
-            SettingsSection("extend", stringResource(id = R.string.settings_extend)) { nc ->
+            SettingsSection("extend", stringResource(id = R.string.settings_extend)) { nc, open ->
                 RoundColumn {
                     LabelItem(
                         title = stringResource(id = R.string.settings_extend_statusbarlyric),
                     ) {
-                        nc.toUI(UI.Settings.LyricGetter)
+                        open(UI.Settings.LyricGetter)
                     }
                 }
             },
-            SettingsSection("others", stringResource(id = R.string.settings_others)) { nc ->
+            SettingsSection("others", stringResource(id = R.string.settings_others)) { nc, open ->
                 RoundColumn {
                     LabelItem(
                         title = stringResource(id = R.string.settings_others_about),
                     ) {
-                        nc.toUI(UI.Settings.About)
+                        open(UI.Settings.About)
                     }
                 }
             }
@@ -151,40 +151,70 @@ fun Settings(navController: NavController) =
             content = {
                 item("settings") {
                     if (isLandscape) {
-                        // 横屏分栏：左分类菜单，右所选分区内容
-                        var selectedKey by remember { mutableStateOf(sections.first().key) }
+                        // 横屏三段式：中列=与竖屏首页一致的分区列表，右列=二级页面
+                        var selectedPage by remember { mutableStateOf<String?>(null) }
+                        val open: (String) -> Unit = { selectedPage = it }
                         Row(
-                            Modifier.fillMaxWidth().fillParentMaxHeight(),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            Modifier
+                                .fillMaxWidth()
+                                .fillParentMaxHeight()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            RoundColumn(Modifier.weight(0.9f).fillMaxHeight()) {
-                                sections.forEachIndexed { index, section ->
-                                    if (index > 0) Divider()
-                                    SettingsMenuRow(
-                                        title = section.title,
-                                        selected = selectedKey == section.key
-                                    ) { selectedKey = section.key }
-                                }
-                            }
+                            // 中列：竖屏同款设置首页，可独立滚动
                             Column(
                                 Modifier
-                                    .weight(2.1f)
+                                    .weight(1f)
                                     .fillMaxHeight()
                                     .verticalScroll(rememberScrollState())
                             ) {
-                                sections.firstOrNull { it.key == selectedKey }?.let { section ->
+                                sections.forEachIndexed { index, section ->
+                                    if (index > 0) GroupSpacer()
                                     ListHeader(section.title)
-                                    section.content(navController)
+                                    section.content(navController, open)
                                 }
                                 Spacer(Modifier.height(20.dp))
+                            }
+                            // 右列：二级页面（返回仅清除右栏，不退出设置）
+                            val onBackPage = { selectedPage = null }
+                            Box(Modifier.weight(1.3f).fillMaxHeight()) {
+                                when (selectedPage) {
+                                    UI.Settings.LibraryOverview ->
+                                        yos.music.player.ui.pages.settings.library.LibraryOverview(navController, onBackPage)
+                                    UI.Settings.RemoteServerManagement ->
+                                        yos.music.player.ui.pages.settings.remote.RemoteServerManagement(navController, onBackPage)
+                                    UI.Settings.LyricSetting ->
+                                        yos.music.player.ui.pages.settings.performance.LyricSetting(navController, onBackPage)
+                                    UI.Settings.UserInterfaceSetting ->
+                                        yos.music.player.ui.pages.settings.performance.userinterface.UserInterfaceSetting(navController, onBackPage)
+                                    UI.Settings.NotificationSetting ->
+                                        yos.music.player.ui.pages.settings.performance.NotificationSetting(navController, onBackPage)
+                                    UI.Settings.ExoplayerSetting ->
+                                        yos.music.player.ui.pages.settings.audio.exoPlayer.ExoPlayerSettings(navController, onBackPage)
+                                    UI.Settings.LyricGetter ->
+                                        yos.music.player.ui.pages.settings.extend.statusBarLyric.LyricGetter(navController, onBackPage)
+                                    UI.Settings.About ->
+                                        yos.music.player.ui.pages.settings.others.About(navController, onBackPage)
+                                    null -> Box(
+                                        Modifier.fillMaxSize().padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            stringResource(id = R.string.settings_pane_empty_hint),
+                                            fontSize = 14.sp,
+                                            color = (Color.Black withNight Color.White).copy(alpha = 0.35f)
+                                        )
+                                    }
+                                }
                             }
                         }
                     } else {
                         Column(Modifier.fillMaxSize()) {
+                            val open: (String) -> Unit = { navController.toUI(it) }
                             sections.forEachIndexed { index, section ->
                                 if (index > 0) GroupSpacer()
                                 ListHeader(section.title)
-                                section.content(navController)
+                                section.content(navController, open)
                             }
                         }
                     }
@@ -193,7 +223,7 @@ fun Settings(navController: NavController) =
     }
 
 @Composable
-private fun SettingsLibrarySection(navController: NavController, context: Context) {
+private fun SettingsLibrarySection(navController: NavController, context: Context, open: (String) -> Unit) {
     Column {
         RoundColumn {
             SwitchItem(
@@ -207,7 +237,7 @@ private fun SettingsLibrarySection(navController: NavController, context: Contex
 
             Divider()
             LabelItem(title = stringResource(id = R.string.settings_library_overview)) {
-                navController.toUI(UI.Settings.LibraryOverview)
+                open(UI.Settings.LibraryOverview)
             }
         }
 
@@ -248,34 +278,6 @@ private fun SettingsLibrarySection(navController: NavController, context: Contex
         ListHeader(content = stringResource(id = R.string.settings_library_refresh_now_desc))
     }
 }
-
-/** 横屏设置菜单行：与 LabelItem 同风格，选中态珊瑚红浅底 */
-@Composable
-private fun SettingsMenuRow(title: String, selected: Boolean, onClick: () -> Unit) =
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(50.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier.size(width = 3.dp, height = 18.dp)
-                .background(
-                    if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                    CircleShape
-                )
-        )
-        Spacer(Modifier.padding(start = 10.dp))
-        Text(
-            title,
-            fontSize = 15.sp,
-            color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
-            fontWeight = if (selected) FontWeight.SemiBold else null
-        )
-    }
-
 
 fun safeStartActivity(context: Context, intent: Intent, options: Bundle?) {
     if (intent.resolveActivity(context.packageManager) != null) {

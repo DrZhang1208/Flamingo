@@ -653,7 +653,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 0f to color,
                                                 0.55f to color.copy(alpha = 0.6f),
                                                 1f to Color.Transparent,
-                                                endX = with(density) { 132.dp.toPx() }
+                                                endX = with(density) { 150.dp.toPx() }
                                             )
                                         }
                                         Box(
