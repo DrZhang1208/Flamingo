@@ -1221,10 +1221,10 @@ fun NowPlaying(
                                 Modifier.align(Alignment.BottomEnd)
                             }.offset(
                                 x = -rememberAdaptive(25),
-                                // 隐藏音量条时按钮在合并空间居中（下移 13.25dp），工具行同步
+                                // 隐藏音量条时按钮在合并空间居中：常规下移 18.25dp、紧凑下移 13.25dp，工具行同步
                                 y = -if (compactWindow) {
                                     if (SettingsLibrary.NowPlayingShowVolumeBar) 184.dp else 170.75.dp
-                                } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 286.75.dp
+                                } else if (SettingsLibrary.NowPlayingShowVolumeBar) 300.dp else 281.75.dp
                             )
                         ) {
                             Row(verticalAlignment = Alignment.Bottom,
@@ -2458,16 +2458,19 @@ private fun PlayerControl(
                     }
 
 
-                    // 隐藏音量条时进度条与底部栏位置不动：音量条高度(26.5dp)均分进
-                    // 按钮上下留白，三键在合并后的空间内垂直居中
-                    val hiddenVolumeShare = if (SettingsLibrary.NowPlayingShowVolumeBar) 0.dp else 26.5.dp / 2
+                    // 隐藏音量条时进度条与底部栏位置不动：音量条高度(26.5dp)并入按钮区，
+                    // 上下留白取合并后的对称值，三键在合并空间内真正垂直居中
+                    val buttonSpacing = if (SettingsLibrary.NowPlayingShowVolumeBar) {
+                        (if (compactWindow) 4.dp else 25.dp) to (if (compactWindow) 4.dp else 35.dp)
+                    } else {
+                        val merged = ((if (compactWindow) 4.dp else 25.dp) +
+                            (if (compactWindow) 4.dp else 35.dp) + 26.5.dp) / 2
+                        merged to merged
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(
-                                top = (if (compactWindow) 4.dp else 25.dp) + hiddenVolumeShare,
-                                bottom = (if (compactWindow) 4.dp else 35.dp) + hiddenVolumeShare
-                            ),
+                            .padding(top = buttonSpacing.first, bottom = buttonSpacing.second),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
