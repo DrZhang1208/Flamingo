@@ -2561,8 +2561,9 @@ private fun PlayerControl(
                 YosWrapper {
                     //println("重组：控制区域内部 - 底部栏")
                     Row(
+                        // 不挂 overlayEffect：黑色激活态瓷砖需走普通混合才能可见
+                        //（Add 混合下黑色加零=全透明，激活图标会消失）
                         modifier = Modifier
-                            .overlayEffect()
                             .fillMaxWidth()
                             .alpha(0.4f),
                         horizontalArrangement = Arrangement.Center
