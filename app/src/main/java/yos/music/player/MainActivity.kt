@@ -257,6 +257,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         val height = remember("MainActivity_height") { mutableIntStateOf(0) }
                         // 横屏左侧边栏宽度（0=未测量/竖屏）：播放条右移让出边栏用
                         val railWidth = remember("MainActivity_railWidth") { mutableIntStateOf(0) }
+                        val isMainLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                            android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
                         val navHeight = remember("MainActivity_navHeight") {
                             with(density) {
@@ -439,13 +441,21 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         AnimatedNavHost(
                                             // haze 内容源常驻，不随播放页展开/收起挂摘：
                                             // 否则底栏模糊背景会在切换帧采样不到内容源，出现底部闪条
-                                            modifier = Modifier.then(
-                                                if (SettingsLibrary.BarBlurEffect) {
-                                                    Modifier.haze(state = hazeState)
-                                                } else {
-                                                    Modifier
-                                                }
-                                            ),
+                                            modifier = Modifier
+                                                // 横屏内容区右移让出左侧边栏
+                                                .then(
+                                                    if (isMainLandscape && railWidth.intValue > 0)
+                                                        Modifier.padding(
+                                                            start = with(density) { railWidth.intValue.toDp() }
+                                                        ) else Modifier
+                                                )
+                                                .then(
+                                                    if (SettingsLibrary.BarBlurEffect) {
+                                                        Modifier.haze(state = hazeState)
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                ),
                                             navController = navController,
                                             startDestination = UI.HomePage,
                                             enterTransition = { slideInHorizontally(offsetSpec) { it } },

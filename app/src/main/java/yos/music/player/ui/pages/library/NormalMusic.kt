@@ -68,6 +68,8 @@ fun NormalMusic(navController: NavController) {
     val context = LocalContext.current
     // 捕获首次进入时的标题，后续 refreshTrigger 变化不改变标题
     val pageTitle = rememberSaveable { LibraryObject.getTargetListWithTitle().first }
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Column(
         Modifier
@@ -226,7 +228,40 @@ fun NormalMusic(navController: NavController) {
                         }
                     }
 
-                    itemsIndexed(
+                    if (isLandscape) {
+                        itemsIndexed(
+                            List((list.value.size + 1) / 2) { it * 2 },
+                            key = { _, start -> "pair_${list.value.getOrNull(start)?.uri?.toString() ?: start}" }
+                        ) { _, start ->
+                            Row(Modifier.fillMaxWidth()) {
+                                Box(Modifier.weight(1f)) {
+                                    list.value.getOrNull(start)?.let { music ->
+                                        MusicList(music, navController, showRemoveFromPlaylist = true) {
+                                            scope.launch(Dispatchers.IO) {
+                                                MediaController.prepare(music, list.value)
+                                            }
+                                        }
+                                    }
+                                }
+                                Box(Modifier.weight(1f)) {
+                                    list.value.getOrNull(start + 1)?.let { music ->
+                                        MusicList(music, navController, showRemoveFromPlaylist = true) {
+                                            scope.launch(Dispatchers.IO) {
+                                                MediaController.prepare(music, list.value)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(0.15f)
+                                    .height(0.5.dp)
+                                    .background(Color.Black withNight Color.White)
+                            )
+                        }
+                    } else itemsIndexed(
                         list.value,
                         key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "music_$index" }
                     ) { index, music ->
