@@ -41,8 +41,8 @@ internal fun LyricTranslationButton(
     val backgroundAlpha = animateFloatAsState(if (checked) 0.92f else 0f, label = "TranslationBackground")
     val tint = animateColorAsState(if (checked) Color.Black else Color.White, label = "TranslationTint")
     val shape = remember { YosRoundedCornerShape(10.dp) }
-    // 独立磨砂底：固定纹理+昼夜玻璃色调，不跟随背景
-    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.62f)
+    // 独立磨砂底：固定纹理+昼夜玻璃色调，不跟随背景（未激活压暗，避免过白）
+    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.30f)
     Box(modifier.size(34.dp).clip(shape)
         .drawBehind {
             if (frosted != null) {

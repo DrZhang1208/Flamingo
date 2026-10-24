@@ -2706,8 +2706,9 @@ internal fun VocalSeparationControl(
 
     val density = LocalDensity.current
     val interactionSource = remember { MutableInteractionSource() }
-    // 独立磨砂底的昼夜玻璃色调（drawWithCache 内无法调用 @Composable，组合期取好）
-    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.62f)
+    // 独立磨砂底的昼夜玻璃色调（drawWithCache 内无法调用 @Composable，组合期取好）；
+    // 未激活压暗避免过白，与翻译按钮保持一致
+    val glassTint = if (isFlamingoInDarkMode()) Color.Black.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.30f)
     val pressed by interactionSource.collectIsPressedAsState()
     val expansion = remember { Animatable(if (state.enabled) 1f else 0f) }
     val liquidFraction = remember {
