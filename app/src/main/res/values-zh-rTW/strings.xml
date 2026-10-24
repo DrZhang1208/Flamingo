@@ -113,7 +113,6 @@
     <string name="settings_performance_ui_notification_others_smaller_icon_title">小號圖標</string>
     <string name="settings_performance_ui_notification_others_smaller_icon_desc">用於修復在某些系統（如 HyperOS）上媒體按鈕圖標過大的問題。</string>
     <string name="tip_corner_title">需要調整</string>
-    <string name="settings_pane_empty_hint">在左側選擇一項以查看詳情</string>
     <string name="tip_corner_desc">這通常略大或等於您的屏幕圓角。</string>
     <string name="tip_corner_save">保存更改</string>
     <string name="tip_corner_subtitle">需要手動調整圓角以獲得最佳觀感。</string>

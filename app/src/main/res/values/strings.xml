@@ -142,7 +142,6 @@
     <string name="settings_performance_ui_notification_others_smaller_icon_title">Smaller Icons</string>
     <string name="settings_performance_ui_notification_others_smaller_icon_desc">Fixes the issue of media button icons being too large on some systems (HyperOS, etc.).</string>
     <string name="tip_corner_title">Needs Adjustment</string>
-    <string name="settings_pane_empty_hint">Select a settings item to view details</string>
     <string name="tip_corner_desc">This is usually slightly larger or equal to the screen corners.</string>
     <string name="tip_corner_save">Save Changes</string>
     <string name="tip_corner_subtitle">Manual adjustment of the corners is needed for the best visual experience.</string>

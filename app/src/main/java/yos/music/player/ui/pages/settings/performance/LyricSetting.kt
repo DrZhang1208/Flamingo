@@ -35,7 +35,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import yos.music.player.ui.pages.settings.backOr
 import io.github.alexzhirkevich.cupertino.CupertinoSlider
 import yos.music.player.R
 import yos.music.player.code.utils.others.Vibrator
@@ -56,10 +55,10 @@ private fun weightName(value: Float): String = weightOptions.getOrElse(value.toI
 private fun weightValue(name: String): Float = weightOptions.indexOf(name).coerceAtLeast(0).toFloat()
 
 @Composable
-fun LyricSetting(navController: NavController, onBack: (() -> Unit)? = null) =
+fun LyricSetting(navController: NavController) =
     SettingBackground {
         Title(title = stringResource(id = R.string.settings_performance_lyric_title),
-            onBack = navController.backOr(onBack),
+            onBack = { navController.popBackStack() },
             content = {
                 item("settings") {
                     Column(Modifier.fillMaxSize()) {

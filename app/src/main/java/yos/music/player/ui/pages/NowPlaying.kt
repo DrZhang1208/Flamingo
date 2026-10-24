@@ -358,12 +358,6 @@ fun NowPlaying(
         val navBarLeftPx = systemBars.getLeft(density, layoutDir)
         val navBarRightPx = systemBars.getRight(density, layoutDir)
         val navBarBottomPx = systemBars.getBottom(density)
-        val context = LocalContext.current
-        // 物理状态栏高度（横屏隐藏状态栏后实时 inset 归零，横屏留白取这个恒定值）
-        val statusBarHeightPx = remember(context) {
-            val id = context.resources.getIdentifier("status_bar_height", "dimen", "android")
-            if (id > 0) context.resources.getDimensionPixelSize(id) else 0
-        }
         val view = LocalView.current
         val displayCutout = remember(view) { mutableStateOf(Insets.NONE) }
         DisposableEffect(view) {
@@ -378,13 +372,12 @@ fun NowPlaying(
             onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
         }
         val landscapePadding = with(density) {
-            // 横屏左右留白 = 状态栏高度（横屏状态栏被隐藏、实时 inset 为 0，
-            // 取系统资源的物理高度）；同时兜底摄像头挖孔上报为 0 的设备
-            val landscapeSideBase = if (maxWidth > maxHeight) statusBarHeightPx else 0
+            // 横屏给左右留基础边距：摄像头挖孔在某些设备横屏下上报为 0，仍会压住内容
+            val landscapeSideBase = if (maxWidth > maxHeight) 14.dp else 0.dp
             PaddingValues.Absolute(
-                left = maxOf(navBarLeftPx, displayCutout.value.left, landscapeSideBase).toDp(),
+                left = maxOf(navBarLeftPx, displayCutout.value.left, landscapeSideBase.roundToPx()).toDp(),
                 top = maxOf(statusBarTopPx, displayCutout.value.top).toDp(),
-                right = maxOf(navBarRightPx, displayCutout.value.right, landscapeSideBase).toDp(),
+                right = maxOf(navBarRightPx, displayCutout.value.right, landscapeSideBase.roundToPx()).toDp(),
                 bottom = maxOf(navBarBottomPx, displayCutout.value.bottom).toDp()
             )
         }
@@ -427,6 +420,7 @@ fun NowPlaying(
         } else mainContentHeight
         val albumHeight = minOf(preferredAlbumHeight, availableMainHeight)
         val albumPage = nowPageLambda() == Album
+        val context = LocalContext.current
         val audioOutput = rememberPlaybackAudioOutput()
         val outputResolver = remember(context) { SystemMediaControlResolver(context) }
         val showOutputDialog = remember { mutableStateOf(false) }

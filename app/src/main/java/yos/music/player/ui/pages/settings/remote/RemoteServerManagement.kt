@@ -55,7 +55,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import yos.music.player.ui.pages.settings.backOr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,7 +76,7 @@ import yos.music.player.ui.widgets.basic.Title
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RemoteServerManagement(navController: NavController, onBack: (() -> Unit)? = null) {
+fun RemoteServerManagement(navController: NavController) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var refreshKey by remember { mutableStateOf(0) }
@@ -104,7 +103,7 @@ fun RemoteServerManagement(navController: NavController, onBack: (() -> Unit)? =
     val connectionStates by RemoteServerManager.connectionStates.collectAsState()
 
     SettingBackground {
-        Title(title = "远程服务器", onBack = navController.backOr(onBack), content = {
+        Title(title = "远程服务器", onBack = { navController.popBackStack() }, content = {
             item("space_1") { GroupSpacer() }
 
             if (servers.isEmpty()) {

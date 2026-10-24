@@ -10,7 +10,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
-import yos.music.player.ui.pages.settings.backOr
 import cn.lyric.getter.api.API
 import yos.music.player.R
 import yos.music.player.data.libraries.SettingsLibrary
@@ -26,7 +25,7 @@ import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
-fun LyricGetter(navController: NavController, onBack: (() -> Unit)? = null) =
+fun LyricGetter(navController: NavController) =
     YosWrapper {
         val lyricAPI by lazy { API() }
         Column(
@@ -40,7 +39,9 @@ fun LyricGetter(navController: NavController, onBack: (() -> Unit)? = null) =
             }
             Title(title = stringResource(id = R.string.settings_extend_statusbarlyric),
                 subTitle = "Lyric Getter API ${apiVersion.intValue}",
-                onBack = navController.backOr(onBack),
+                onBack = {
+                    navController.popBackStack()
+                },
                 content = {
                     item("settings") {
                         Column(Modifier.fillMaxSize()) {

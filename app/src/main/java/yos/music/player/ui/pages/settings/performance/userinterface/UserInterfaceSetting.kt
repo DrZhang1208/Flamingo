@@ -8,7 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
-import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.R
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.pages.settings.Divider
@@ -23,10 +22,12 @@ import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun UserInterfaceSetting(navController: NavController, onBack: (() -> Unit)? = null) =
+fun UserInterfaceSetting(navController: NavController) =
     SettingBackground {
         Title(title = stringResource(id = R.string.settings_performance_ui_title),
-            onBack = navController.backOr(onBack),
+            onBack = {
+                navController.popBackStack()
+            },
             content = {
                 item("settings") {
                     Column(Modifier.fillMaxSize()) {
