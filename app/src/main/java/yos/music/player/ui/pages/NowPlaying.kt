@@ -1209,16 +1209,15 @@ fun NowPlaying(
                         // The APK places MSS as a sibling overlay of the whole
                         // control panel. Its expansion therefore grows upward
                         // without participating in PlayerControl measurement.
-                        // 翻译与人声按钮同帧出场：首次等歌词判定完成且人声可用性已判定，
-                        // 之后粘性保持——换歌不退出重进（那会先隐后显地闪一次），
-                        // 只在行内平滑更新内容
-                        val vocalDecided = VocalSeparationController.state.collectAsState().value.decided
-                        val toolsReady = remember { mutableStateOf(false) }
-                        LaunchedEffect(lyricState.value.isLoading, vocalDecided) {
-                            if (!lyricState.value.isLoading && vocalDecided) toolsReady.value = true
+                        // 歌曲加载出来（开始播放）后两按钮一起出现：以播放启动为锚点——
+                        // 该时刻音频链路已 configure（人声可用性已定）、歌词通常也已就绪，
+                        // 两按钮同帧淡入；粘性保持，换歌不退出重进，只在行内更新内容
+                        val trackStarted = remember { mutableStateOf(false) }
+                        LaunchedEffect(isPlayingStatusLambda()) {
+                            if (isPlayingStatusLambda()) trackStarted.value = true
                         }
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = showControl.value && nowPageLambda() == Lyric && toolsReady.value,
+                            visible = showControl.value && nowPageLambda() == Lyric && trackStarted.value,
                             // 只做淡入淡出：人声控件自带 48dp 外扩的 Add 混合层，
                             // 叠加位移会逐帧重混合并在镂空处采样到层外黑边
                             enter = fadeIn(tween(200, easing = EaseOutQuart)),
