@@ -7,12 +7,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -67,6 +71,66 @@ fun BottomNavigator(
                 NavigatorItem(item, nowLabel, onLabelChange)
             }
         }
+    }
+}
+
+/** 横屏左侧边栏：导航项横排（图标左、文字右），等价于底部 tab 栏的侧栏形态 */
+@Composable
+fun SideNavigator(
+    nowLabel: () -> String,
+    onLabelChange: (String) -> Unit,
+    items: List<NavItem>,
+    modifier: Modifier = Modifier
+) = Column(
+    modifier
+        .fillMaxHeight()
+        .width(108.dp),
+    verticalArrangement = Arrangement.Center
+) {
+    items.forEach { item ->
+        SideNavigatorItem(item, nowLabel, onLabelChange)
+    }
+}
+
+@Composable
+private fun SideNavigatorItem(
+    item: NavItem,
+    nowLabel: () -> String,
+    onLabelChange: (String) -> Unit
+) {
+    val isSelected = remember(item) {
+        derivedStateOf {
+            nowLabel() == item.label
+        }
+    }
+    val color = animateColorAsState(if (isSelected.value) MaterialTheme.colorScheme.primary else Color.Gray)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                onLabelChange(item.label)
+            }
+            .padding(horizontal = 16.dp, vertical = 13.dp)
+    ) {
+        Icon(
+            painterResource(item.iconResId),
+            contentDescription = null,
+            tint = color.value,
+            modifier = Modifier.size(26.dp)
+        )
+        Spacer(Modifier.width(11.dp))
+        Text(
+            item.label,
+            color = color.value,
+            fontSize = 16.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

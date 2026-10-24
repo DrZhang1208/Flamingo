@@ -73,6 +73,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,6 +81,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -164,6 +166,7 @@ import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.BottomNavigator
+import yos.music.player.ui.widgets.basic.SideNavigator
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.NavItem
 import yos.music.player.ui.widgets.basic.ShadowImageWithCache
@@ -252,6 +255,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     ) {*/
                         val miniPlayerHeight = rememberAdaptive(62)
                         val height = remember("MainActivity_height") { mutableIntStateOf(0) }
+                        // 横屏左侧边栏宽度（0=未测量/竖屏）：播放条右移让出边栏用
+                        val railWidth = remember("MainActivity_railWidth") { mutableIntStateOf(0) }
 
                         val navHeight = remember("MainActivity_navHeight") {
                             with(density) {
@@ -543,7 +548,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     }
                                 }
 
-                                // 底部导航栏
+                                // 底部导航栏（横屏：左侧边栏）
                                 YosWrapper {
                                     val color =
                                         Color(0xFFF5F5F5) withNight /*Color(0xFF111111)*/ Color.Black
@@ -556,6 +561,89 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             endY = with(density) { 48.dp.toPx() }
                                         )
                                     }
+                                    val onTabChange: (String) -> Unit = {
+                                        nowLabel.value = it
+
+                                        val home =
+                                            context.getString(R.string.page_home_title)
+                                        val library =
+                                            context.getString(R.string.page_library_title)
+                                        if (route.value == UI.HomePage) {
+                                            scope.launch {
+                                                pagerState.animateScrollToPage(
+                                                    when (it) {
+                                                        home -> 0
+                                                        library -> 1
+                                                        else -> 0
+                                                    }
+                                                )
+                                            }
+                                        } else {
+                                            scope.launch {
+                                                pagerState.scrollToPage(
+                                                    when (it) {
+                                                        home -> 0
+                                                        library -> 1
+                                                        else -> 0
+                                                    }
+                                                )
+                                            }
+                                            navController.popBackStack(
+                                                UI.HomePage,
+                                                false
+                                            )
+                                        }
+                                    }
+                                    val navItems = listOf(
+                                        NavItem(
+                                            stringResource(id = R.string.page_home_title),
+                                            R.drawable.flamingo_icon
+                                        ),
+                                        NavItem(
+                                            stringResource(id = R.string.page_library_title),
+                                            R.drawable.ic_uitabbar_library
+                                        )
+                                    )
+                                    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                                        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                                    if (isLandscape) {
+                                        // 横屏：tab 栏变左侧边栏，迷你条仍在底部（右移让出边栏）
+                                        val railBrush = remember(color, density) {
+                                            Brush.horizontalGradient(
+                                                0f to Color.Transparent,
+                                                0.5f to color.copy(alpha = 0.6f),
+                                                1f to color,
+                                                endX = with(density) { 48.dp.toPx() }
+                                            )
+                                        }
+                                        Box(
+                                            Modifier
+                                                .fillMaxSize()
+                                                .zIndex(1f),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            Spacer(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .width(with(density) { railWidth.intValue.toDp() })
+                                                    .background(railBrush)
+                                            )
+                                            SideNavigator(
+                                                nowLabel = { nowLabel.value },
+                                                onLabelChange = onTabChange,
+                                                items = navItems,
+                                                modifier = Modifier.onSizeChanged {
+                                                    railWidth.intValue = it.width
+                                                }
+                                            )
+                                        }
+                                        // 横屏无底部条：迷你条只需避开导航栏
+                                        SideEffect {
+                                            if (height.intValue < 1) {
+                                                height.intValue = 1
+                                            }
+                                        }
+                                    } else {
                                     Box(
                                         Modifier
                                             .fillMaxSize(),
@@ -617,54 +705,14 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
                                         BottomNavigator(
                                             nowLabel = { nowLabel.value },
-                                            onLabelChange = {
-                                                nowLabel.value = it
-
-                                                val home =
-                                                    context.getString(R.string.page_home_title)
-                                                val library =
-                                                    context.getString(R.string.page_library_title)
-                                                if (route.value == UI.HomePage) {
-                                                    scope.launch {
-                                                        pagerState.animateScrollToPage(
-                                                            when (it) {
-                                                                home -> 0
-                                                                library -> 1
-                                                                else -> 0
-                                                            }
-                                                        )
-                                                    }
-                                                } else {
-                                                    scope.launch {
-                                                        pagerState.scrollToPage(
-                                                            when (it) {
-                                                                home -> 0
-                                                                library -> 1
-                                                                else -> 0
-                                                            }
-                                                        )
-                                                    }
-                                                    navController.popBackStack(
-                                                        UI.HomePage,
-                                                        false
-                                                    )
-                                                }
-                                            },
-                                            items = listOf(
-                                                NavItem(
-                                                    stringResource(id = R.string.page_home_title),
-                                                    R.drawable.flamingo_icon
-                                                ),
-                                                NavItem(
-                                                    stringResource(id = R.string.page_library_title),
-                                                    R.drawable.ic_uitabbar_library
-                                                )
-                                            ),
+                                            onLabelChange = onTabChange,
+                                            items = navItems,
                                             modifier = Modifier
                                                 .onSizeChanged {
                                                     height.intValue = it.height
                                                 }
                                         )
+                                    }
                                     }
                                 }
                             }
@@ -690,9 +738,17 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         YosWrapper {
                             if (height.intValue == 0) return@YosWrapper
 
+                            // 横屏：整组播放 UI（迷你条+播放页）右移让出左侧边栏
+                            val isSheetLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                                android.content.res.Configuration.ORIENTATION_LANDSCAPE
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .then(
+                                        if (isSheetLandscape && railWidth.intValue > 0)
+                                            Modifier.padding(start = with(density) { railWidth.intValue.toDp() })
+                                        else Modifier
+                                    )
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height
