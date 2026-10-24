@@ -47,6 +47,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -183,6 +185,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastMap
@@ -586,6 +590,7 @@ fun NowPlaying(
         }*/
 
             val artworkPainter = artwork
+            val frostedArtwork = yos.music.player.ui.widgets.effects.rememberFrostedBackdrop { backgroundState.value }
             val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
             SideEffect { artworkBridge.pauseProgress = { artworkPauseProgress.value } }
 
@@ -739,8 +744,8 @@ fun NowPlaying(
                                         if (hasTranslation.value) LyricTranslationButton(translationVisible, {
                                             SettingsLibrary.NowPlayingTranslation = it
                                             Vibrator.click(context)
-                                        })
-                                        VocalSeparationControl(context = context, onSlider = {})
+                                        }, frosted = frostedArtwork)
+                                        VocalSeparationControl(context = context, onSlider = {}, frosted = frostedArtwork)
                                     }
                                 }
                             }
@@ -1244,14 +1249,15 @@ fun NowPlaying(
                                         SettingsLibrary.NowPlayingTranslation = it
                                         Vibrator.click(context)
                                         lastClickTime.longValue = TimeUtils.getNowMills()
-                                    })
+                                    }, frosted = frostedArtwork)
                                 }
                                 if (!compactWindow) VocalSeparationControl(
                                     context = context,
                                     onSlider = {
                                         showControl.value = true
                                         lastClickTime.longValue = TimeUtils.getNowMills()
-                                    }
+                                    },
+                                    frosted = frostedArtwork
                                 )
                             }
                         }
@@ -2670,7 +2676,9 @@ private fun PlayerControl(
 internal fun VocalSeparationControl(
     context: Context,
     onSlider: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // 封面双重模糊色场：磨砂底（无则回退半透明白）
+    frosted: ImageBitmap? = null
 ) {
     val state by VocalSeparationController.state.collectAsState()
     val failureText = stringResource(R.string.now_playing_mss_failed)
@@ -2793,7 +2801,17 @@ internal fun VocalSeparationControl(
                     else reset() // A zero-sized entrance frame has no visible corner to mask.
                 }
                 onDrawWithContent {
-                    drawRect(Color.White.copy(alpha = 0.10f))
+                    if (frosted != null) {
+                        drawImage(frosted,
+                            srcOffset = IntOffset.Zero,
+                            srcSize = IntSize(frosted.width, frosted.height),
+                            dstOffset = IntOffset.Zero,
+                            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                            filterQuality = FilterQuality.Medium)
+                        drawRect(Color.White.copy(alpha = 0.05f))
+                    } else {
+                        drawRect(Color.White.copy(alpha = 0.10f))
+                    }
                     drawContent()
                     drawPath(outside, Color.Transparent, blendMode = BlendMode.Clear)
                 }

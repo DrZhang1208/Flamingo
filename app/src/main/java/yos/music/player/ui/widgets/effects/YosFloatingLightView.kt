@@ -36,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import yos.music.player.data.libraries.SettingsLibrary.NowplayingBackgroundEffect
@@ -246,6 +247,33 @@ private suspend fun loadBackgroundAssets(
 }
 
 internal const val ARTWORK_TEXTURE_SIZE = 256
+
+/** 封面纹理缩到 24px 双重模糊的色场：小控件（翻译/人声按钮）的磨砂底。
+ *  复用背景资源缓存（getOrLoad 命中即零额外 IO），加载与模糊均在后台线程。 */
+@Composable
+internal fun rememberFrostedBackdrop(backgroundState: () -> NowPlayingBackgroundState): ImageBitmap? {
+    val context = LocalContext.current
+    val background = backgroundState()
+    val requestKey = background.requestKey
+    val artworkUri = background.artworkUri
+    val frosted = remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(requestKey) {
+        frosted.value = null
+        if (requestKey == null || artworkUri == null) return@LaunchedEffect
+        val assets = loadBackgroundAssets(context, artworkUri, requestKey) ?: return@LaunchedEffect
+        val texture = assets.flow ?: return@LaunchedEffect
+        frosted.value = withContext(Dispatchers.Default) {
+            runCatching {
+                // 纹理可能是 F16 配置，Toolkit 模糊需要 8888
+                val software = if (texture.config == Bitmap.Config.RGBA_F16)
+                    texture.copy(Bitmap.Config.ARGB_8888, false) else texture
+                val small = Bitmap.createScaledBitmap(software, 24, 24, true)
+                Toolkit.blur(Toolkit.blur(small, 6), 6).asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    return frosted.value
+}
 
 /** Keep the original colour detail until the layered GPU field has been blurred.
  * Center-crop rather than distort non-square artwork. F16 avoids rounding each
