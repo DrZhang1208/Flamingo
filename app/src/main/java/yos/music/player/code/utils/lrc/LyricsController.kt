@@ -217,6 +217,13 @@ object LyricsController {
     private fun identityContent(content: String, translationText: String?): String =
         if (translationText.isNullOrBlank()) content else "$content\n\u2425translation\u2425\n$translationText"
 
+    /** 该曲目确认无任何可用歌词源：结束 loading 状态，UI 不再等待歌词 */
+    fun submitNone(trackKey: String?, currentPositionMs: Int) {
+        if (trackKey == null || trackKey != activeTrackKey) return
+        if (activeDocument != null) return // 已有缓存文档，早已 settle
+        publish(null, currentPositionMs.toLong(), loading = false)
+    }
+
     fun submitParsedLyrics(
         trackKey: String?,
         entries: List<YosLyricLine>,

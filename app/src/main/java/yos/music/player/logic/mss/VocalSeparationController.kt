@@ -14,7 +14,9 @@ data class VocalSeparationState(
     val accompanimentGain: Float = 1f,
     val mode: VocalAdjustmentMode = VocalAdjustmentMode.VOCAL,
     val status: VocalSeparationStatus = VocalSeparationStatus.UNAVAILABLE,
-    val usingGpu: Boolean = false
+    val usingGpu: Boolean = false,
+    // 音频链路是否已跑过一次可用性判定（配置完成），供 UI 与歌词按钮同步出场
+    val decided: Boolean = false
 ) {
     val selectedGain: Float
         get() = if (mode == VocalAdjustmentMode.VOCAL) vocalGain else accompanimentGain
@@ -59,7 +61,8 @@ object VocalSeparationController {
             enabled = current.enabled && available,
             status = if (!available) VocalSeparationStatus.UNAVAILABLE
             else if (current.enabled) VocalSeparationStatus.ACTIVE else VocalSeparationStatus.READY,
-            usingGpu = usingGpu
+            usingGpu = usingGpu,
+            decided = true
         )
     }
 

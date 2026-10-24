@@ -1210,7 +1210,11 @@ fun NowPlaying(
                         // control panel. Its expansion therefore grows upward
                         // without participating in PlayerControl measurement.
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = showControl.value && nowPageLambda() == Lyric,
+                            // 翻译与人声按钮同时出场：等歌词解析完成（loading 结束）
+                            // 且人声可用性已判定（音频链路配置过）后一起淡入
+                            visible = showControl.value && nowPageLambda() == Lyric &&
+                                !lyricState.value.isLoading &&
+                                VocalSeparationController.state.collectAsState().value.decided,
                             // 只做淡入淡出：人声控件自带 48dp 外扩的 Add 混合层，
                             // 叠加位移会逐帧重混合并在镂空处采样到层外黑边
                             enter = fadeIn(tween(200, easing = EaseOutQuart)),

@@ -57,6 +57,11 @@ class LocalLyricsLoader(
                         translationText = selected.translation
                     )
                 }
+            } else {
+                // 无任何歌词源也要结束 loading，否则依赖歌词 settle 的 UI 会一直等待
+                withContext(Dispatchers.Main.immediate) {
+                    LyricsController.submitNone(trackKey, currentPositionMs)
+                }
             }
         }
     }
