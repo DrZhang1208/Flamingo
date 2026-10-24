@@ -27,7 +27,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.accompanist.insets.navigationBarsHeight
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 
 @Stable
 data class NavItem(val label: String, val iconResId: Int)
@@ -42,7 +44,7 @@ fun BottomNavigator(
     Box(
         modifier
             .fillMaxWidth()
-            .navigationBarsHeight(64.dp)
+            .windowInsetsPadding(WindowInsets.navigationBars).height(64.dp)
         //.background(Color.White withNight Color.Black)
     ) {
         /*Spacer(

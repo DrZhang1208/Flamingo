@@ -25,7 +25,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -57,8 +61,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cormor.overscroll.core.overScrollVertical
 import com.cormor.overscroll.core.rememberOverscrollFlingBehavior
-import com.google.accompanist.insets.navigationBarsHeight
-import com.google.accompanist.insets.statusBarsHeight
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
@@ -299,7 +301,7 @@ private fun BaseTitleGrid(
             }
             content()
             item("navbar", span = { GridItemSpan(columns()) }) {
-                Spacer(modifier = Modifier.navigationBarsHeight(134.dp))
+                Spacer(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(134.dp))
             }
         }
 
@@ -360,7 +362,7 @@ private fun BaseTitleList(
             }
             content()
             item("navbar") {
-                Spacer(modifier = Modifier.navigationBarsHeight(bottomPadding))
+                Spacer(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(bottomPadding))
             }
         }
 
@@ -466,7 +468,10 @@ private fun TitleBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsHeight(54.dp)
+            // foundation 实时 insets：accompanist 版在旋转/状态栏显隐后不更新，
+            // 顶栏高度会取决于打开时的方向（横屏过高、竖屏文字被状态栏裁剪）
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .height(54.dp)
             .clickable(enabled = false, onClick = {})
     ) {
         // Occlusion must be present in the first scrolled frame. Only the title
@@ -499,7 +504,8 @@ private fun TitleBar(
                 .fillMaxWidth()
                 .padding(top = 5.dp)
         ) {
-            Box(Modifier.statusBarsHeight(48.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.windowInsetsPadding(WindowInsets.statusBars).height(48.dp),
+                contentAlignment = Alignment.CenterStart) {
                 if (onBack != null) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_back),

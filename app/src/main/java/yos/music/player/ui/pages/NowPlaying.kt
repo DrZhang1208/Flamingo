@@ -178,6 +178,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -198,10 +199,12 @@ import androidx.media3.common.Player.REPEAT_MODE_ONE
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import com.blankj.utilcode.util.TimeUtils
-import com.google.accompanist.insets.LocalWindowInsets
-import com.google.accompanist.insets.navigationBarsPadding
-import com.google.accompanist.insets.statusBarsHeight
-import com.google.accompanist.insets.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -347,7 +350,14 @@ fun NowPlaying(
         BoxWithConstraints(Modifier.fillMaxSize()) {
         val windowHeight = maxHeight.value
         val density = LocalDensity.current
-        val windowInsets = LocalWindowInsets.current
+        // foundation 实时 insets：accompanist 的 LocalWindowInsets 在旋转/状态栏显隐后
+        // 不再更新，导致顶栏高度取决于打开时的方向（横屏过高、竖屏被状态栏裁剪）
+        val systemBars = WindowInsets.systemBars
+        val layoutDir = LocalLayoutDirection.current
+        val statusBarTopPx = systemBars.getTop(density)
+        val navBarLeftPx = systemBars.getLeft(density, layoutDir)
+        val navBarRightPx = systemBars.getRight(density, layoutDir)
+        val navBarBottomPx = systemBars.getBottom(density)
         val view = LocalView.current
         val displayCutout = remember(view) { mutableStateOf(Insets.NONE) }
         DisposableEffect(view) {
@@ -362,11 +372,13 @@ fun NowPlaying(
             onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
         }
         val landscapePadding = with(density) {
+            // 横屏给左右留基础边距：摄像头挖孔在某些设备横屏下上报为 0，仍会压住内容
+            val landscapeSideBase = if (maxWidth > maxHeight) 14.dp else 0.dp
             PaddingValues.Absolute(
-                left = maxOf(windowInsets.navigationBars.left, displayCutout.value.left).toDp(),
-                top = maxOf(windowInsets.statusBars.top, displayCutout.value.top).toDp(),
-                right = maxOf(windowInsets.navigationBars.right, displayCutout.value.right).toDp(),
-                bottom = maxOf(windowInsets.navigationBars.bottom, displayCutout.value.bottom).toDp()
+                left = maxOf(navBarLeftPx, displayCutout.value.left, landscapeSideBase.roundToPx()).toDp(),
+                top = maxOf(statusBarTopPx, displayCutout.value.top).toDp(),
+                right = maxOf(navBarRightPx, displayCutout.value.right, landscapeSideBase.roundToPx()).toDp(),
+                bottom = maxOf(navBarBottomPx, displayCutout.value.bottom).toDp()
             )
         }
         val fullyCollapsed by remember(artworkBridge) {
@@ -397,13 +409,13 @@ fun NowPlaying(
             }
         }
         val mainTopPadding = if (compactWindow) 8.dp else 22.dp
-        val mainContentHeight = (maxHeight - with(density) { windowInsets.statusBars.top.toDp() } - mainTopPadding)
+        val mainContentHeight = (maxHeight - with(density) { statusBarTopPx.toDp() } - mainTopPadding)
             .coerceAtLeast(0.dp)
         val preferredAlbumHeight = mainContentHeight * if (splitWindow) 1f else if (compactWindow)
             (1f - 220f / windowHeight).coerceIn(0.25f, 0.595f) else 0.595f
         val availableMainHeight = if (!splitWindow && controlsHeightPx.intValue > 0) {
             (mainContentHeight - with(density) {
-                (windowInsets.navigationBars.bottom + controlsHeightPx.intValue).toDp()
+                (navBarBottomPx + controlsHeightPx.intValue).toDp()
             } - 8.dp).coerceAtLeast(0.dp)
         } else mainContentHeight
         val albumHeight = minOf(preferredAlbumHeight, availableMainHeight)
@@ -457,8 +469,8 @@ fun NowPlaying(
             lyricState = { lyricState.value },
             widthPx = if (splitWindow) {
                 (with(density) { maxWidth.roundToPx() } -
-                    maxOf(windowInsets.navigationBars.left, displayCutout.value.left) -
-                    maxOf(windowInsets.navigationBars.right, displayCutout.value.right))
+                    maxOf(navBarLeftPx, displayCutout.value.left) -
+                    maxOf(navBarRightPx, displayCutout.value.right))
                     .coerceAtLeast(0) / 2
             } else with(density) { maxWidth.roundToPx() },
             allowed = {
@@ -1746,7 +1758,8 @@ private fun Lyric(
             // Measure the fixed spacer, not global bounds inside the animated layer.
             // Graphics-layer motion need not dispatch another layout callback.
             val topSpace = if (insetsHandled) Modifier.height(16.dp) else
-                Modifier.statusBarsHeight(if (splitWindow) 16.dp else if (compactWindow) 94.dp else 110.dp)
+                Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                    .height(if (splitWindow) 16.dp else if (compactWindow) 94.dp else 110.dp)
             Spacer(modifier = topSpace.onSizeChanged { onViewportInsetChanged(it.height) })
 
               // 歌词控件较重，首次打开播放页时延后到展开动画结束后再初始化；

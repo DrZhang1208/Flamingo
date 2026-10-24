@@ -58,8 +58,10 @@ import yos.music.player.ui.UI
 import yos.music.player.ui.toUI
 import com.cormor.overscroll.core.overScrollVertical
 import com.cormor.overscroll.core.rememberOverscrollFlingBehavior
-import com.google.accompanist.insets.navigationBarsHeight
-import com.google.accompanist.insets.statusBarsHeight
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import yos.music.player.R
@@ -328,7 +330,7 @@ fun AlbumInfo(
                 }
 
                 item("album_bottom_navbar") {
-                    Spacer(modifier = Modifier.navigationBarsHeight(24.dp))
+                    Spacer(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(24.dp))
                 }
             }
         }

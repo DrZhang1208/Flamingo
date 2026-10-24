@@ -48,6 +48,9 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -111,7 +114,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.google.accompanist.insets.ProvideWindowInsets
-import com.google.accompanist.insets.navigationBarsHeight
 import com.google.accompanist.navigation.animation.AnimatedNavHost
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import dev.chrisbanes.haze.HazeState
@@ -563,7 +565,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         Spacer(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .navigationBarsHeight(128.dp)
+                                                .windowInsetsPadding(WindowInsets.navigationBars).height(128.dp)
                                                 .background(bottomBarBrush)
                                         )
                                         if (SettingsLibrary.BarBlurEffect) {
@@ -579,7 +581,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 Spacer(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .navigationBarsHeight(128.dp)
+                                                        .windowInsetsPadding(WindowInsets.navigationBars).height(128.dp)
                                                         .graphicsLayer {
                                                             alpha = blurAlpha.value
                                                             compositingStrategy =
