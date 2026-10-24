@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -466,14 +466,14 @@ private fun TitleBar(
     showSmallTitle: State<Boolean>,
     hazeState: HazeState
 ) {
+    // foundation 实时 insets：accompanist 版在旋转/状态栏显隐后不更新，顶栏高度
+    // 会取决于打开时的方向。显式求和（inset+固定高）：内容不被内缩，遮挡面覆盖
+    // 状态栏条带；不能用 windowInsetsTopHeight——它的总高=inset 本身，隐藏时塌成 0
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            // foundation 实时 insets：accompanist 版在旋转/状态栏显隐后不更新，
-            // 顶栏高度会取决于打开时的方向。用 TopHeight 只占位不缩内容，
-            // 遮挡面（白底/模糊层）才能继续覆盖状态栏条带
-            .windowInsetsTopHeight(WindowInsets.statusBars)
-            .height(54.dp)
+            .height(statusBarTop + 54.dp)
             .clickable(enabled = false, onClick = {})
     ) {
         // Occlusion must be present in the first scrolled frame. Only the title
@@ -506,7 +506,7 @@ private fun TitleBar(
                 .fillMaxWidth()
                 .padding(top = 5.dp)
         ) {
-            Box(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(48.dp),
+            Box(Modifier.height(statusBarTop + 48.dp),
                 contentAlignment = Alignment.CenterStart) {
                 if (onBack != null) {
                     Icon(

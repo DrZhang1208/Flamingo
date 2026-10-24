@@ -51,7 +51,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -234,6 +234,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     }
 
                     val scope = rememberCoroutineScope()
+                    // 实时导航栏高度（底栏留白显式求和用）
+                    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
                     /*val parentHeightDp = remember(parentHeight.intValue) {
                         with(density) {
@@ -566,7 +568,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         Spacer(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .windowInsetsBottomHeight(WindowInsets.navigationBars).height(128.dp)
+                                                .height(navBarBottom + 128.dp)
                                                 .background(bottomBarBrush)
                                         )
                                         if (SettingsLibrary.BarBlurEffect) {
@@ -582,7 +584,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 Spacer(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .windowInsetsBottomHeight(WindowInsets.navigationBars).height(128.dp)
+                                                        .height(navBarBottom + 128.dp)
                                                         .graphicsLayer {
                                                             alpha = blurAlpha.value
                                                             compositingStrategy =

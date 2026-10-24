@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.asPaddingValues
 
 @Stable
 data class NavItem(val label: String, val iconResId: Int)
@@ -41,11 +41,13 @@ fun BottomNavigator(
     onLabelChange: (String) -> Unit,
     items: List<NavItem>,
     modifier: Modifier
-) =
+) {
+    // 显式求和：windowInsetsBottomHeight 总高=inset 本身（手势导航下仅几十像素，内容被压没）
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(
         modifier
             .fillMaxWidth()
-            .windowInsetsBottomHeight(WindowInsets.navigationBars).height(64.dp)
+            .height(navBottom + 64.dp)
         //.background(Color.White withNight Color.Black)
     ) {
         /*Spacer(
@@ -66,6 +68,7 @@ fun BottomNavigator(
             }
         }
     }
+}
 
 @Composable
 fun RowScope.NavigatorItem(
