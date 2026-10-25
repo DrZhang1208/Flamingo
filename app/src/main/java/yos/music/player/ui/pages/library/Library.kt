@@ -269,8 +269,22 @@ private fun LibraryLandscape(navController: NavController) {
                     )
                     LibraryPane.Songs -> NormalMusic(navController)
                     is LibraryPane.PlaylistSongs -> NormalMusic(navController, onBack = popPane)
-                    is LibraryPane.Artist -> ArtistInfo(navController, onBack = popPane)
-                    is LibraryPane.Album -> AlbumInfo(navController, onBack = popPane)
+                    is LibraryPane.Artist -> ArtistInfo(
+                        navController,
+                        onBack = popPane,
+                        onOpenAlbum = { name ->
+                            LibraryObject.setTargetAlbumName(name)
+                            stack.add(LibraryPane.Album(name))
+                        }
+                    )
+                    is LibraryPane.Album -> AlbumInfo(
+                        navController,
+                        onBack = popPane,
+                        onOpenArtist = { name ->
+                            LibraryObject.setTargetArtistName(name)
+                            stack.add(LibraryPane.Artist(name))
+                        }
+                    )
                 }
             }
         }

@@ -90,7 +90,9 @@ fun AlbumInfo(
     navController: NavController,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedContentScope: AnimatedContentScope? = null,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    // 横屏资料库右栏内打开艺人：非空时点击艺人不走路由
+    onOpenArtist: ((String) -> Unit)? = null
 ) =
     Box(
         Modifier
@@ -312,9 +314,13 @@ fun AlbumInfo(
                         val artistSongs = MusicLibrary.Artist[artist]
                         val artistCover = artistSongs.firstOrNull()?.thumb
                         Row(
-                            Modifier.fillMaxWidth().clickable {
-                                yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
-                                navController.toUI(UI.ArtistInfo)
+                            Modifier.fillMaxWidth() .clickable {
+                                if (onOpenArtist != null) {
+                                    onOpenArtist(artist)
+                                } else {
+                                    yos.music.player.data.objects.LibraryObject.setTargetArtistName(artist)
+                                    navController.toUI(UI.ArtistInfo)
+                                }
                             }.padding(horizontal = 18.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

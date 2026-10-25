@@ -288,7 +288,7 @@ private fun BaseTitleGrid(
             contentPadding = PaddingValues(
                 start = 18.dp,
                 end = 18.dp/*, bottom = 18.dp*/,
-                top = 54.dp
+                top = if (showLargeTitle) 54.dp else 66.dp
             )
         ) {
             if (showLargeTitle) {
@@ -350,7 +350,8 @@ private fun BaseTitleList(
                 .haze(hazeState)
                 .overScrollVertical(),
             flingBehavior = rememberOverscrollFlingBehavior { state },
-            contentPadding = PaddingValues(top = 54.dp)
+            // 顶栏常显（无大标题）时，内容与顶栏分割线之间留一段呼吸间距
+            contentPadding = PaddingValues(top = if (showLargeTitle) 54.dp else 66.dp)
         ) {
             if (showLargeTitle) {
                 item("title") {

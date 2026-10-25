@@ -66,7 +66,12 @@ import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun ArtistInfo(navController: NavController, onBack: (() -> Unit)? = null) {
+fun ArtistInfo(
+    navController: NavController,
+    onBack: (() -> Unit)? = null,
+    // 横屏资料库右栏内打开专辑：非空时点击专辑不走路由
+    onOpenAlbum: ((String) -> Unit)? = null
+) {
     val artistName = rememberSaveable(key = "ArtistInfo_artistName") {
         mutableStateOf(LibraryObject.getTargetArtistName())
     }
@@ -182,8 +187,12 @@ fun ArtistInfo(navController: NavController, onBack: (() -> Unit)? = null) {
                 val year = MusicLibrary.albumYear(album)
                 Row(
                     Modifier.fillMaxWidth().clickable {
-                        yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
-                        navController.toUI(UI.AlbumInfo)
+                        if (onOpenAlbum != null) {
+                            onOpenAlbum(album)
+                        } else {
+                            yos.music.player.data.objects.LibraryObject.setTargetAlbumName(album)
+                            navController.toUI(UI.AlbumInfo)
+                        }
                     }.padding(horizontal = 18.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

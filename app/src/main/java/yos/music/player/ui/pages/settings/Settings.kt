@@ -6,6 +6,15 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -81,7 +90,10 @@ fun Settings(navController: NavController) =
                     ) {
                         item("settings_menu") {
                             Column(Modifier.fillMaxWidth()) {
-                                SettingsMenu(open = { selectedPage = it })
+                                SettingsMenu(
+                                    open = { selectedPage = it },
+                                    selectedPage = selectedPage
+                                )
                             }
                         }
                     }
@@ -140,7 +152,7 @@ fun Settings(navController: NavController) =
  * open：打开子页（竖屏 push 路由 / 横屏置右栏）。
  */
 @Composable
-private fun SettingsMenu(open: (String) -> Unit) {
+private fun SettingsMenu(open: (String) -> Unit, selectedPage: String? = null) {
     val context = LocalContext.current
 
     ListHeader(stringResource(id = R.string.page_library_title))
@@ -155,7 +167,10 @@ private fun SettingsMenu(open: (String) -> Unit) {
         )
 
         Divider()
-        LabelItem(title = stringResource(id = R.string.settings_library_overview)) {
+        SettingsMenuRow(
+            title = stringResource(id = R.string.settings_library_overview),
+            selected = selectedPage == UI.Settings.LibraryOverview
+        ) {
             open(UI.Settings.LibraryOverview)
         }
     }
@@ -200,7 +215,10 @@ private fun SettingsMenu(open: (String) -> Unit) {
     GroupSpacer()
     ListHeader(stringResource(id = R.string.settings_remote_title))
     RoundColumn {
-        LabelItem(title = stringResource(id = R.string.settings_remote_server_management)) {
+        SettingsMenuRow(
+            title = stringResource(id = R.string.settings_remote_server_management),
+            selected = selectedPage == UI.Settings.RemoteServerManagement
+        ) {
             open(UI.Settings.RemoteServerManagement)
         }
     }
@@ -208,15 +226,24 @@ private fun SettingsMenu(open: (String) -> Unit) {
     GroupSpacer()
     ListHeader(stringResource(id = R.string.settings_performance))
     RoundColumn {
-        LabelItem(title = stringResource(id = R.string.settings_performance_lyric_title)) {
+        SettingsMenuRow(
+            title = stringResource(id = R.string.settings_performance_lyric_title),
+            selected = selectedPage == UI.Settings.LyricSetting
+        ) {
             open(UI.Settings.LyricSetting)
         }
         Divider()
-        LabelItem(title = stringResource(id = R.string.settings_performance_ui_title)) {
+        SettingsMenuRow(
+            title = stringResource(id = R.string.settings_performance_ui_title),
+            selected = selectedPage == UI.Settings.UserInterfaceSetting
+        ) {
             open(UI.Settings.UserInterfaceSetting)
         }
         Divider()
-        LabelItem(title = stringResource(id = R.string.settings_performance_notification_title)) {
+        SettingsMenuRow(
+            title = stringResource(id = R.string.settings_performance_notification_title),
+            selected = selectedPage == UI.Settings.NotificationSetting
+        ) {
             open(UI.Settings.NotificationSetting)
         }
     }
@@ -224,7 +251,10 @@ private fun SettingsMenu(open: (String) -> Unit) {
     GroupSpacer()
     ListHeader(stringResource(id = R.string.settings_audio))
     RoundColumn {
-        LabelItem(title = stringResource(id = R.string.settings_audio_exoplayer)) {
+        SettingsMenuRow(
+            title = stringResource(id = R.string.settings_audio_exoplayer),
+            selected = selectedPage == UI.Settings.ExoplayerSetting
+        ) {
             open(UI.Settings.ExoplayerSetting)
         }
         Divider()
@@ -252,9 +282,9 @@ private fun SettingsMenu(open: (String) -> Unit) {
     GroupSpacer()
     ListHeader(stringResource(id = R.string.settings_extend))
     RoundColumn {
-        LabelItem(
+        SettingsMenuRow(
             title = stringResource(id = R.string.settings_extend_statusbarlyric),
-            // desc = stringResource(id = R.string.settings_extend_statusbarlyric_desc),
+            selected = selectedPage == UI.Settings.LyricGetter
         ) {
             open(UI.Settings.LyricGetter)
         }
@@ -263,15 +293,59 @@ private fun SettingsMenu(open: (String) -> Unit) {
     GroupSpacer()
     ListHeader(stringResource(id = R.string.settings_others))
     RoundColumn {
-        LabelItem(
+        SettingsMenuRow(
             title = stringResource(id = R.string.settings_others_about),
-            // desc = stringResource(id = R.string.settings_others_about_desc)
+            selected = selectedPage == UI.Settings.About
         ) {
             open(UI.Settings.About)
         }
     }
 }
 
+
+/** 设置左栏菜单行：LabelItem 同款视觉，叠加选中态（红竖条 + 浅红底 + 红字，与资料库菜单同语言） */
+@Composable
+private fun SettingsMenuRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) =
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(40.dp)
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+        )
+        Text(
+            text = title,
+            fontSize = 16.5.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else null,
+            color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 12.dp, vertical = 11.dp)
+        )
+        if (!selected) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_action_next), contentDescription = null,
+                modifier = Modifier
+                    .padding(end = 12.dp)
+                    .height(11.dp)
+                    .alpha(0.3f), tint = MaterialTheme.colorScheme.onBackground
+            )
+        }
+    }
 
 fun safeStartActivity(context: Context, intent: Intent, options: Bundle?) {
     if (intent.resolveActivity(context.packageManager) != null) {
