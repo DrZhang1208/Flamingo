@@ -1039,13 +1039,29 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 this.alpha =
                                                                     (1f - 4f * yosBottomSheetConfig.progress).coerceIn(0f, 1f)
                                                             }
-                                                            .padding(start = miniRailInset)
-                                                            .background(color)
+                                                            .then(
+                                                                // 横屏不画通栏背景——浮条自带
+                                                                // 边距与圆角背景，避免左侧
+                                                                // 延伸出一块直角色块
+                                                                if (isLandscapeNow) Modifier
+                                                                else Modifier
+                                                                    .padding(start = miniRailInset)
+                                                                    .background(color)
+                                                            )
                                                     ) {
                                                         Box(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
                                                                 .height(miniPlayerHeight)
+                                                                .then(
+                                                                    if (isLandscapeNow) Modifier
+                                                                        .padding(start = miniRailInset)
+                                                                        .padding(horizontal = 12.dp)
+                                                                        .background(
+                                                                            color,
+                                                                            YosRoundedCornerShape(12.dp)
+                                                                        ) else Modifier
+                                                                )
                                                                 .clickable(
                                                                     interactionSource = remember { MutableInteractionSource() },
                                                                     indication = null,
