@@ -242,10 +242,6 @@ import yos.music.player.ui.widgets.basic.dialogListFade
 import yos.music.player.ui.widgets.basic.LocalDialogContainerColor
 import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.widgets.basic.songMenuTrigger
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
-import yos.music.player.ui.theme.isFlamingoInDarkMode
-import yos.music.player.ui.widgets.toolButtonHazeStyle
 import yos.music.player.ui.theme.withNight
 import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.data.libraries.YosMediaItem
@@ -449,9 +445,6 @@ fun NowPlaying(
         val backgroundState: MutableState<NowPlayingBackgroundState> =
             MediaViewModelObject.nowPlayingBackground
 
-        // 歌词工具按钮（翻译/人声）的实时背景模糊源：挂在背景流光层上
-        val playerHazeState = remember { HazeState() }
-
         val lastClickTime = rememberSaveable(key = "NowPlaying_lastClickTime") {
             mutableLongStateOf(0L)
         }
@@ -573,12 +566,18 @@ fun NowPlaying(
         }
 
 
-        // 背景流光（注册为 haze 源：歌词工具按钮实时模糊它）
+        // 背景流光
         YosWrapper {
+            /*BlendBackgroundView(
+        bitmapLambda = { bitmap.value },
+        isPlayingLambda = { isPlaying.value },
+        nowPage = { nowPage.value }
+    )*/
+
             YosFloatingLight(
                   backgroundState = { backgroundState.value },
                 isPlaying = isPlayingStatusLambda,
-                modifier = Modifier.fillMaxSize().haze(playerHazeState),
+                modifier = Modifier.fillMaxSize(),
                 nowPage = { nowPageLambda() },
                 showMiniPlayer = showMiniPlayer,
                 expansionProgress = { artworkBridge.progress() }
@@ -603,6 +602,7 @@ fun NowPlaying(
         }*/
 
             val artworkPainter = artwork
+            val frostedArtwork = yos.music.player.ui.widgets.effects.rememberFrostedBackdrop { backgroundState.value }
             val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
             SideEffect { artworkBridge.pauseProgress = { artworkPauseProgress.value } }
 
@@ -756,8 +756,8 @@ fun NowPlaying(
                                         if (hasTranslation.value) LyricTranslationButton(translationVisible, {
                                             SettingsLibrary.NowPlayingTranslation = it
                                             Vibrator.click(context)
-                                        }, hazeState = playerHazeState)
-                                        VocalSeparationControl(context = context, onSlider = {}, hazeState = playerHazeState)
+                                        }, frosted = frostedArtwork)
+                                        VocalSeparationControl(context = context, onSlider = {}, frosted = frostedArtwork)
                                     }
                                 }
                             }
@@ -1261,7 +1261,7 @@ fun NowPlaying(
                                         SettingsLibrary.NowPlayingTranslation = it
                                         Vibrator.click(context)
                                         lastClickTime.longValue = TimeUtils.getNowMills()
-                                    }, hazeState = playerHazeState)
+                                    }, frosted = frostedArtwork)
                                 }
                                 if (!compactWindow) VocalSeparationControl(
                                     context = context,
@@ -1269,7 +1269,7 @@ fun NowPlaying(
                                         showControl.value = true
                                         lastClickTime.longValue = TimeUtils.getNowMills()
                                     },
-                                    hazeState = playerHazeState
+                                    frosted = frostedArtwork
                                 )
                             }
                         }
@@ -2690,8 +2690,8 @@ internal fun VocalSeparationControl(
     context: Context,
     onSlider: () -> Unit,
     modifier: Modifier = Modifier,
-    // 播放页背景的 haze 源：控件实时模糊其背后的背景（与翻译按钮同款）
-    hazeState: HazeState
+    // 封面双重模糊色场：磨砂底（无则回退半透明白）
+    frosted: ImageBitmap? = null
 ) {
     val state by VocalSeparationController.state.collectAsState()
     val failureText = stringResource(R.string.now_playing_mss_failed)
@@ -2780,11 +2780,8 @@ internal fun VocalSeparationControl(
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f)
         )
     }
-    // 按压缩放走布局尺寸而非 graphicsLayer：玻璃层（haze 玻璃+圆角 mask）在
-    // 缩放层之外，graphicsLayer 放大只会让内容溢出不动的玻璃边界，边缘横切一刀；
-    // 布局驱动则玻璃/镂空/图标三层同帧同步缩放
-    val controlHeight = ((34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value) * controlScale).dp
-    val controlWidth = ((34f + 12f * dragActive.value) * controlScale).dp
+    val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value).dp
+    val controlWidth = (34f + 12f * dragActive.value).dp
     // The continuous corner reaches beyond its nominal radius. 10dp keeps
     // adjacent curves apart even in the 34dp square before expansion.
     val smoothShape = remember { YosRoundedCornerShape(roundSize = 10.dp) }
@@ -2793,14 +2790,16 @@ internal fun VocalSeparationControl(
         modifier = modifier
             .width(controlWidth)
             .height(controlHeight)
-            // 实时磨砂底：haze 模糊播放页背景，绘制在最底层。
+            // 普通混合的磨砂底：不用 Add 层（那会把模糊「叠加」在背景上而非透出背景）。
             // 离屏层让形状外圈的 Clear 抠剪只作用于本控件，不穿到页面背景
-            .then(toolButtonHazeStyle(hazeState))
             .graphicsLayer {
                 compositingStrategy = CompositingStrategy.Offscreen
             }
             .graphicsLayer {
+                scaleX = controlScale
+                scaleY = controlScale
                 alpha = controlAlpha
+                transformOrigin = TransformOrigin(0.5f, 1f)
             }
             .drawWithCache {
                 val outline = smoothShape.createOutline(size, layoutDirection, this)
@@ -2819,6 +2818,20 @@ internal fun VocalSeparationControl(
                     else reset() // A zero-sized entrance frame has no visible corner to mask.
                 }
                 onDrawWithContent {
+                    if (frosted != null) {
+                        // 普通混合下磨砂场直接替换背衬（85%）：观感是"按钮后的背景
+                        // 被多模糊了一层"，与背景同源匹配而非叠一层亮膜
+                        drawImage(frosted,
+                            srcOffset = IntOffset.Zero,
+                            srcSize = IntSize(frosted.width, frosted.height),
+                            dstOffset = IntOffset.Zero,
+                            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                            alpha = 0.85f,
+                            filterQuality = FilterQuality.Medium)
+                        drawRect(Color.White.copy(alpha = 0.08f))
+                    } else {
+                        drawRect(Color.White.copy(alpha = 0.10f))
+                    }
                     drawContent()
                     drawPath(outside, Color.Transparent, blendMode = BlendMode.Clear)
                 }
@@ -2869,7 +2882,7 @@ internal fun VocalSeparationControl(
             tint = Color.White,
             modifier = Modifier
                 .padding(bottom = 3.dp)
-                .size((28f * controlScale).dp)
+                .size(28.dp)
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
