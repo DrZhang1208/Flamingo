@@ -991,6 +991,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 this.alpha =
                                                                     (1f - 4f * yosBottomSheetConfig.progress).coerceIn(0f, 1f)
                                                             }
+                                                            .padding(start = miniRailInset)
                                                             .background(color)
                                                     ) {
                                                         Box(
@@ -1014,7 +1015,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 Modifier
                                                                     .height(miniPlayerHeight)
                                                                     .fillMaxWidth()
-                                                                    .padding(start = miniRailInset)
                                                                     .padding(
                                                                         horizontal = 8.dp
                                                                     )

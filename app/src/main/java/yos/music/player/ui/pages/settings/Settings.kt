@@ -118,16 +118,16 @@ fun Settings(navController: NavController) =
                         }
                     } else {
                         key(page) {
-                            val closePane: () -> Unit = { selectedPage = null }
+                            // 横屏右栏子页不放返回键
                             when (page) {
-                                UI.Settings.LibraryOverview -> LibraryOverview(navController, onBack = closePane)
-                                UI.Settings.RemoteServerManagement -> RemoteServerManagement(navController, onBack = closePane)
-                                UI.Settings.LyricSetting -> LyricSetting(navController, onBack = closePane)
-                                UI.Settings.UserInterfaceSetting -> UserInterfaceSetting(navController, onBack = closePane)
-                                UI.Settings.NotificationSetting -> NotificationSetting(navController, onBack = closePane)
-                                UI.Settings.ExoplayerSetting -> ExoPlayerSettings(navController, onBack = closePane)
-                                UI.Settings.LyricGetter -> LyricGetter(navController, onBack = closePane)
-                                UI.Settings.About -> About(navController, onBack = closePane)
+                                UI.Settings.LibraryOverview -> LibraryOverview(navController)
+                                UI.Settings.RemoteServerManagement -> RemoteServerManagement(navController)
+                                UI.Settings.LyricSetting -> LyricSetting(navController)
+                                UI.Settings.UserInterfaceSetting -> UserInterfaceSetting(navController)
+                                UI.Settings.NotificationSetting -> NotificationSetting(navController)
+                                UI.Settings.ExoplayerSetting -> ExoPlayerSettings(navController)
+                                UI.Settings.LyricGetter -> LyricGetter(navController)
+                                UI.Settings.About -> About(navController)
                             }
                         }
                     }
