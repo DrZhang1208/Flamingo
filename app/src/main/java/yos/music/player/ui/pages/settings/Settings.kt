@@ -6,6 +6,13 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.foundation.background
@@ -138,8 +145,23 @@ fun Settings(
                             )
                         }
                     } else {
-                        key(page) {
-                            // 横屏右栏子页不放返回键；二级页面在右栏内压栈打开
+                        // 与资料库右栏同款方向位移动画：压栈从右滑入、退栈从左滑回
+                        AnimatedContent(
+                            targetState = page,
+                            transitionSpec = {
+                                val targetIdx = paneStack.indexOf(targetState)
+                                val initialIdx = paneStack.indexOf(initialState)
+                                val forward = initialIdx < 0 || (targetIdx >= 0 && targetIdx > initialIdx)
+                                if (forward) {
+                                    (slideInHorizontally(tween(220)) { it / 3 } + fadeIn(tween(220))) togetherWith
+                                        (slideOutHorizontally(tween(220)) { -it / 3 } + fadeOut(tween(160)))
+                                } else {
+                                    (slideInHorizontally(tween(220)) { -it / 3 } + fadeIn(tween(220))) togetherWith
+                                        (slideOutHorizontally(tween(220)) { it / 3 } + fadeOut(tween(160)))
+                                }
+                            },
+                            label = "settings_pane"
+                        ) { page ->
                             when (page) {
                                 UI.Settings.LibraryOverview -> LibraryOverview(
                                     navController,
