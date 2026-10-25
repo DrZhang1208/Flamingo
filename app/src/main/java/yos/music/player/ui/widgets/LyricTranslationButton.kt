@@ -20,27 +20,26 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import dev.chrisbanes.haze.materials.HazeMaterials
 import yos.music.player.R
 import yos.music.player.ui.theme.YosRoundedCornerShape
-import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.theme.withNight
 
-/** 歌词工具按钮共用的磨砂样式：实时模糊按钮背后的播放页背景，昼夜玻璃雾面 */
-@OptIn(ExperimentalHazeMaterialsApi::class)
+/** 歌词工具按钮共用的磨砂样式：透玻璃——实时模糊按钮背后的播放页背景，
+ *  tint 只留一丝保图标可辨，不加噪点，玻璃本身不改变底色 */
 @Composable
 internal fun toolButtonHazeStyle(hazeState: HazeState) =
-    HazeMaterials
-        .thin(Color.White withNight Color.Black)
-        .copy(
-            blurRadius = 18.dp,
-            tint = (Color.White withNight Color.Black).copy(
-                alpha = if (isFlamingoInDarkMode()) 0.45f else 0.30f
-            )
+    Modifier.hazeChild(
+        hazeState,
+        HazeStyle(
+            // haze 的 RenderEffect 路径要求垫底色（blur 采样边缘扩展用），中心区域被模糊内容覆盖
+            backgroundColor = Color.White withNight Color.Black,
+            blurRadius = 20.dp,
+            tint = (Color.White withNight Color.Black).copy(alpha = 0.10f),
+            noiseFactor = 0f
         )
-        .let { Modifier.hazeChild(hazeState, it) }
+    )
 
 @Composable
 internal fun LyricTranslationButton(
