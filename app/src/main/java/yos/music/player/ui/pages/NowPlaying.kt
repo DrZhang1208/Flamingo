@@ -826,7 +826,10 @@ fun NowPlaying(
                                     lyricState = { lyricState.value }, weightLambda = { false },
                                     onViewportInsetChanged = {}, compactWindow = true, splitWindow = true, insetsHandled = true,
                                     translationLambda = { translationVisible }, romajiLambda = { romajiVisible }, seekPreviewState = lyricSeekPreview,
-                                    shouldRenderContent = true, mainViewModel = mainViewModel,
+                                    // 收起时销毁歌词控件（重开=全新状态，入场淡入下直接就位到
+                                    // 当前行）——常驻旧状态会在重开时带着旧锚点走波纹快进，
+                                    // 大跨度时逐行级联既难看又卡；段仓进程级借用，重建近零成本
+                                    shouldRenderContent = !showMiniPlayer(), mainViewModel = mainViewModel,
                                     mediaViewModel = mediaViewModel, showMiniPlayer = showMiniPlayer,
                                     userScrollEnabled = visible, renderActive = visible,
                                     onLineLongPress = { index ->
