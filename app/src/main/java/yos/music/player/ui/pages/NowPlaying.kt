@@ -1757,10 +1757,13 @@ private fun Lyric(
 
             // Measure the fixed spacer, not global bounds inside the animated layer.
             // Graphics-layer motion need not dispatch another layout callback.
+            // onSizeChanged 必须在最外层：挂到 windowInsetsPadding 内层只报 height()
+            // 的值、少一个状态栏 inset，lyricsTop 比歌词视口真实顶部矮一截，
+            // 顶部 32dp 渐变整段落进空白垫高层——遮罩永远不可见。
             val topSpace = if (insetsHandled) Modifier.height(16.dp) else
                 Modifier.windowInsetsPadding(WindowInsets.statusBars)
                     .height(if (splitWindow) 16.dp else if (compactWindow) 94.dp else 110.dp)
-            Spacer(modifier = topSpace.onSizeChanged { onViewportInsetChanged(it.height) })
+            Spacer(modifier = Modifier.onSizeChanged { onViewportInsetChanged(it.height) }.then(topSpace))
 
               // 歌词控件较重，首次打开播放页时延后到展开动画结束后再初始化；
               // 若用户直接切到歌词页，则立即渲染，避免和页面展开动画争主线程。
