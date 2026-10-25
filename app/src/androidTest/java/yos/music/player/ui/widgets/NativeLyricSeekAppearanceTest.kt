@@ -41,7 +41,7 @@ class NativeLyricSeekAppearanceTest {
                     NativeLyricRow(line, line.tokens, staticText = false, active = false,
                         focused = false, past = past.value, blur = 0f, nextStart = 4000f,
                         seekRevision = revision.intValue, time = { time.floatValue },
-                        showTranslation = false, mainColor = Color.White, subColor = Color.White,
+                        showTranslation = false, showRomaji = false, mainColor = Color.White, subColor = Color.White,
                         measurer = rememberTextMeasurer(), fontFamily = null, onClick = {}, onLongClick = {})
                 }
             }

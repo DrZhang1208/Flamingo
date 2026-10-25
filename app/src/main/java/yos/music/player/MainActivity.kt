@@ -828,13 +828,19 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         YosWrapper {
                             if (height.intValue == 0) return@YosWrapper
 
+                            // 横屏收起态让位侧栏；展开过半切到全屏宽。宽度只在动画
+                            // 中点变一次（单帧重排，非每帧——歌词打开时的卡顿根源是
+                            // 每帧重排，这里避开），切换发生在半屏运动中视觉不可察
+                            val landscapeRailPad by remember(isLandscapeNow) {
+                                derivedStateOf {
+                                    if (isLandscapeNow && yosBottomSheetConfig.progress <= 0.5f)
+                                        SideNavigatorWidth else 0.dp
+                                }
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    // 横屏播放层恒定让位侧栏（静态值，动画无重排）：
-                                    // 迷你条与播放页的样式、缩放、阴影与竖屏完全一致，
-                                    // 只是整体宽度为内容区宽
-                                    .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
+                                    .padding(start = landscapeRailPad)
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height

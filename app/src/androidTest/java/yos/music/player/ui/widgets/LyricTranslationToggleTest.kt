@@ -61,7 +61,7 @@ class LyricTranslationToggleTest {
             Box(Modifier.size(320.dp, 180.dp).background(Color.Black)) {
                 NativeLyricRow(line, line.tokens, staticText = false, active = focused.value,
                     focused = focused.value, past = false, blur = 0f, nextStart = null,
-                    time = { 1000f }, showTranslation = true,
+                    time = { 1000f }, showTranslation = true, showRomaji = false,
                     mainColor = Color(config.mainTextBasicColor), subColor = Color(config.subTextBasicColor),
                     measurer = measurer, fontFamily = null, onClick = {}, onLongClick = {},
                     animationsEnabled = false)

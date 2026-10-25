@@ -71,7 +71,7 @@ class NativeLyricGlowPageTest {
                         androidx.compose.foundation.layout.Box(Modifier.testTag(if (line.hasWordTiming) "timed" else "ordinary")) {
                             NativeLyricRow(line = line, tokens = line.tokens, staticText = false,
                                 active = true, focused = false, past = false, blur = 0f, nextStart = 4000f,
-                                time = { 1700f }, showTranslation = true, mainColor = Color.White,
+                                time = { 1700f }, showTranslation = true, showRomaji = false, mainColor = Color.White,
                                 subColor = Color.White, measurer = measurer, fontFamily = null,
                                 onClick = {}, onLongClick = {}, animationsEnabled = false)
                         }

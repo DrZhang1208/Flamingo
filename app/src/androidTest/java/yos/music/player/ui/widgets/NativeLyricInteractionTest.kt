@@ -38,7 +38,7 @@ class NativeLyricInteractionTest {
             Box(Modifier.width(330.dp).testTag("lyrics")) {
                 NativeLyricRow(line, line.tokens, staticText = false, active = true,
                     focused = true, past = false, blur = 0f, nextStart = 5000f,
-                    time = { 1500f }, showTranslation = false, mainColor = Color.White,
+                    time = { 1500f }, showTranslation = false, showRomaji = false, mainColor = Color.White,
                     subColor = Color.Gray, measurer = rememberTextMeasurer(), fontFamily = null,
                     interactionEnabled = enabled.value, onPressChanged = { holding.value = it },
                     onClick = {}, onLongClick = { shares++; enabled.value = false })
@@ -73,7 +73,7 @@ class NativeLyricInteractionTest {
                 NativeLyricRow(line, line.tokens, staticText = false, active = false,
                     focused = false, past = past.value, blur = if (holding.value) 0f else 8f,
                     nextStart = 5000f, time = { if (past.value) 6000f else 0f },
-                    showTranslation = false, mainColor = Color.White, subColor = Color.Gray,
+                    showTranslation = false, showRomaji = false, mainColor = Color.White, subColor = Color.Gray,
                     measurer = rememberTextMeasurer(), fontFamily = null,
                     onPressChanged = { holding.value = it },
                     onClick = { seeks++ }, onLongClick = { shares++ })
@@ -113,7 +113,7 @@ class NativeLyricInteractionTest {
             Box(Modifier.width(330.dp).graphicsLayer { alpha = opacity.value }.testTag("lyrics")) {
                 NativeLyricRow(line, line.tokens, staticText = false, active = true,
                     focused = true, past = false, blur = 0f, nextStart = 4000f,
-                    time = { 1500f }, showTranslation = false, mainColor = Color.White,
+                    time = { 1500f }, showTranslation = false, showRomaji = false, mainColor = Color.White,
                     subColor = Color.Gray, measurer = rememberTextMeasurer(), fontFamily = null,
                     interactionEnabled = enabled.value,
                     onClick = { seeks++ }, onLongClick = { shares++ })
@@ -139,7 +139,7 @@ class NativeLyricInteractionTest {
             Box(Modifier.width(330.dp).background(Color.Black).testTag("lyrics")) {
                 NativeLyricRow(line, line.tokens, staticText = true, active = false,
                     focused = false, past = false, blur = 0f, nextStart = 4000f,
-                    time = { 1500f }, showTranslation = false, mainColor = Color.White,
+                    time = { 1500f }, showTranslation = false, showRomaji = false, mainColor = Color.White,
                     subColor = Color.Gray, measurer = rememberTextMeasurer(), fontFamily = null,
                     onClick = { seeks++ }, onLongClick = { shares++ })
             }
