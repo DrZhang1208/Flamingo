@@ -75,6 +75,7 @@ import yos.music.player.data.libraries.defaultArtists
 import yos.music.player.data.libraries.defaultArtistsName
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
+import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.ShadowImage
@@ -87,14 +88,16 @@ import yos.music.player.ui.widgets.effects.ShadowType
 @Composable
 fun AlbumInfo(
     navController: NavController,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedContentScope: AnimatedContentScope
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedContentScope: AnimatedContentScope? = null,
+    onBack: (() -> Unit)? = null
 ) =
     Box(
         Modifier
             .fillMaxSize()
         /*.statusBarsPadding()*/
     ) {
+        val landscape = isLandscape()
         val albumName = rememberSaveable(key = "AlbumInfo_albumName") {
             mutableStateOf(LibraryObject.getTargetAlbumName())
         }
@@ -107,9 +110,7 @@ fun AlbumInfo(
         if (hideMusic.value) {
             val message = stringResource(id = R.string.tip_no_album_info)
             Title(
-                title = stringResource(id = R.string.page_library_album_info_title), onBack = {
-                    navController.popBackStack()
-                }
+                title = stringResource(id = R.string.page_library_album_info_title), onBack = onBack
             ) {
                 item("tip_no_song") {
                     Column(
@@ -148,7 +149,7 @@ fun AlbumInfo(
 
             val scope = rememberCoroutineScope()
 
-            Title(title = albumName.value, onBack = { navController.popBackStack() }, showLargeTitle = false) {
+            Title(title = albumName.value, onBack = onBack, showLargeTitle = false) {
                 item("AlbumInfo") {
                     Column(
                         Modifier
@@ -250,36 +251,79 @@ fun AlbumInfo(
                             )
                         }
                     }
-                    itemsIndexed(
-                        discSongs.sortedWith(compareBy({ it.trackNumber ?: 0 }, { it.title })),
-                        key = { idx, music -> "disc${disc}_${music.uri?.toString() ?: music.mediaId ?: "album_song_$idx"}" }
-                    ) { index, music ->
-                        key(music) {
-                            AlbumSongsItem(
-                                music = music,
-                                mainArtists = mainArtists.value
-                            ) {
-                                scope.launch(Dispatchers.IO) {
-                                    MediaController.prepare(
-                                        music,
-                                        songs
-                                    )
+                    val discSongsSorted = discSongs.sortedWith(compareBy({ it.trackNumber ?: 0 }, { it.title }))
+                    if (landscape) {
+                        // 横屏：两行一组并排，行样式与长按菜单照旧
+                        itemsIndexed(
+                            List((discSongsSorted.size + 1) / 2) { it * 2 },
+                            key = { _, first ->
+                                "disc${disc}_pair_${discSongsSorted.getOrNull(first)?.uri ?: first}"
+                            }
+                        ) { _, first ->
+                            Row(Modifier.fillMaxWidth()) {
+                                Box(Modifier.weight(1f)) {
+                                    discSongsSorted.getOrNull(first)?.let { music ->
+                                        key(music) {
+                                            AlbumSongsItem(
+                                                music = music,
+                                                mainArtists = mainArtists.value
+                                            ) {
+                                                scope.launch(Dispatchers.IO) {
+                                                    MediaController.prepare(music, songs)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Box(Modifier.weight(1f)) {
+                                    discSongsSorted.getOrNull(first + 1)?.let { music ->
+                                        key(music) {
+                                            AlbumSongsItem(
+                                                music = music,
+                                                mainArtists = mainArtists.value
+                                            ) {
+                                                scope.launch(Dispatchers.IO) {
+                                                    MediaController.prepare(music, songs)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        itemsIndexed(
+                            discSongsSorted,
+                            key = { idx, music -> "disc${disc}_${music.uri?.toString() ?: music.mediaId ?: "album_song_$idx"}" }
+                        ) { index, music ->
+                            key(music) {
+                                AlbumSongsItem(
+                                    music = music,
+                                    mainArtists = mainArtists.value
+                                ) {
+                                    scope.launch(Dispatchers.IO) {
+                                        MediaController.prepare(
+                                            music,
+                                            songs
+                                        )
+                                    }
+                                }
+                            }
 
-                        key(index) {
-                            val isLastInDisc = index == discSongs.size - 1
-                            val isLastOverall = disc == discGroups.keys.last() && isLastInDisc
-                            if (!isLastOverall) {
-                                Spacer(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 50.dp, end = 18.dp)
-                                        .alpha(0.25f)
-                                        .height(0.5.dp)
-                                        .background(Color.Black withNight Color.White)
-                                )
+                            key(index) {
+                                val isLastInDisc = index == discSongs.size - 1
+                                val isLastOverall = disc == discGroups.keys.last() && isLastInDisc
+                                if (!isLastOverall) {
+                                    Spacer(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 50.dp, end = 18.dp)
+                                            .alpha(0.25f)
+                                            .height(0.5.dp)
+                                            .background(Color.Black withNight Color.White)
+                                    )
+                                }
                             }
                         }
                     }

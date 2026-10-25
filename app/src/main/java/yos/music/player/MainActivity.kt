@@ -161,9 +161,12 @@ import yos.music.player.ui.pages.settings.performance.userinterface.UserInterfac
 import yos.music.player.ui.theme.YosMusicTheme
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.isFlamingoInDarkMode
+import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.BottomNavigator
+import yos.music.player.ui.widgets.basic.SideNavigator
+import yos.music.player.ui.widgets.basic.SideNavigatorWidth
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.NavItem
 import yos.music.player.ui.widgets.basic.ShadowImageWithCache
@@ -252,6 +255,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     ) {*/
                         val miniPlayerHeight = rememberAdaptive(62)
                         val height = remember("MainActivity_height") { mutableIntStateOf(0) }
+
+                        // 横屏：底部 tab 栏移到左侧，页面内容右移让位；
+                        // 迷你条收起态平移到侧栏右侧、上滑展开时滑回全宽
+                        val isLandscapeNow = isLandscape()
 
                         val navHeight = remember("MainActivity_navHeight") {
                             with(density) {
@@ -434,13 +441,22 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         AnimatedNavHost(
                                             // haze 内容源常驻，不随播放页展开/收起挂摘：
                                             // 否则底栏模糊背景会在切换帧采样不到内容源，出现底部闪条
-                                            modifier = Modifier.then(
-                                                if (SettingsLibrary.BarBlurEffect) {
-                                                    Modifier.haze(state = hazeState)
-                                                } else {
-                                                    Modifier
-                                                }
-                                            ),
+                                            modifier = Modifier
+                                                .then(
+                                                    if (SettingsLibrary.BarBlurEffect) {
+                                                        Modifier.haze(state = hazeState)
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
+                                                // 横屏避开左侧导航栏
+                                                .then(
+                                                    if (isLandscapeNow) {
+                                                        Modifier.padding(start = SideNavigatorWidth)
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                ),
                                             navController = navController,
                                             startDestination = UI.HomePage,
                                             enterTransition = { slideInHorizontally(offsetSpec) { it } },
@@ -464,23 +480,24 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             }
 
                                             composable(UI.PlayLists) {
-                                                PlayLists(navController)
+                                                PlayLists(navController, onBack = { navController.popBackStack() })
                                             }
                                             composable(UI.NormalMusic) {
-                                                NormalMusic(navController)
+                                                NormalMusic(navController, onBack = { navController.popBackStack() })
                                             }
                                             composable(UI.LocalAlbums) {
                                                 LocalAlbums(
                                                     navController,
                                                     this@SharedTransitionLayout,
-                                                    this@composable
+                                                    this@composable,
+                                                    onBack = { navController.popBackStack() }
                                                 )
                                             }
                                             composable(UI.LocalArtists) {
-                                                LocalArtists(navController)
+                                                LocalArtists(navController, onBack = { navController.popBackStack() })
                                             }
                                             composable(UI.ArtistInfo) {
-                                                ArtistInfo(navController)
+                                                ArtistInfo(navController, onBack = { navController.popBackStack() })
                                             }
 
                                             composable(UI.ListenStats) {
@@ -491,7 +508,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 AlbumInfo(
                                                     navController,
                                                     this@SharedTransitionLayout,
-                                                    this@composable
+                                                    this@composable,
+                                                    onBack = { navController.popBackStack() }
                                                 )
                                             }
 
@@ -561,6 +579,58 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             .fillMaxSize(),
                                         contentAlignment = Alignment.BottomCenter
                                     ) {
+                                        val navItems = listOf(
+                                            NavItem(
+                                                stringResource(id = R.string.page_home_title),
+                                                R.drawable.flamingo_icon
+                                            ),
+                                            NavItem(
+                                                stringResource(id = R.string.page_library_title),
+                                                R.drawable.ic_uitabbar_library
+                                            )
+                                        )
+                                        val onTabSelected: (String) -> Unit = {
+                                            nowLabel.value = it
+
+                                            val home =
+                                                context.getString(R.string.page_home_title)
+                                            val library =
+                                                context.getString(R.string.page_library_title)
+                                            if (route.value == UI.HomePage) {
+                                                scope.launch {
+                                                    pagerState.animateScrollToPage(
+                                                        when (it) {
+                                                            home -> 0
+                                                            library -> 1
+                                                            else -> 0
+                                                        }
+                                                    )
+                                                }
+                                            } else {
+                                                scope.launch {
+                                                    pagerState.scrollToPage(
+                                                        when (it) {
+                                                            home -> 0
+                                                            library -> 1
+                                                            else -> 0
+                                                        }
+                                                    )
+                                                }
+                                                navController.popBackStack(
+                                                    UI.HomePage,
+                                                    false
+                                                )
+                                            }
+                                        }
+                                        // 横屏左侧栏渐变：左缘实色向右淡出（镜像底栏"下实上淡"）
+                                        val railBrush = remember(color, density) {
+                                            Brush.horizontalGradient(
+                                                0f to color,
+                                                0.55f to color.copy(alpha = 0.6f),
+                                                1f to Color.Transparent,
+                                                endX = with(density) { SideNavigatorWidth.toPx() }
+                                            )
+                                        }
                                         // 背景
                                         // 底层常驻静态渐变；实时模糊层仅在收起静止后 240ms 淡入盖上、
                                         // 展开时淡出。过渡期间露出的是同色系渐变而非页面内容，
@@ -615,56 +685,32 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             }
                                         }
 
-                                        BottomNavigator(
-                                            nowLabel = { nowLabel.value },
-                                            onLabelChange = {
-                                                nowLabel.value = it
-
-                                                val home =
-                                                    context.getString(R.string.page_home_title)
-                                                val library =
-                                                    context.getString(R.string.page_library_title)
-                                                if (route.value == UI.HomePage) {
-                                                    scope.launch {
-                                                        pagerState.animateScrollToPage(
-                                                            when (it) {
-                                                                home -> 0
-                                                                library -> 1
-                                                                else -> 0
-                                                            }
-                                                        )
-                                                    }
-                                                } else {
-                                                    scope.launch {
-                                                        pagerState.scrollToPage(
-                                                            when (it) {
-                                                                home -> 0
-                                                                library -> 1
-                                                                else -> 0
-                                                            }
-                                                        )
-                                                    }
-                                                    navController.popBackStack(
-                                                        UI.HomePage,
-                                                        false
-                                                    )
-                                                }
-                                            },
-                                            items = listOf(
-                                                NavItem(
-                                                    stringResource(id = R.string.page_home_title),
-                                                    R.drawable.flamingo_icon
-                                                ),
-                                                NavItem(
-                                                    stringResource(id = R.string.page_library_title),
-                                                    R.drawable.ic_uitabbar_library
+                                        if (isLandscapeNow) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.CenterStart)
+                                                    .fillMaxHeight()
+                                                    .width(SideNavigatorWidth)
+                                                    .background(railBrush)
+                                            ) {
+                                                SideNavigator(
+                                                    nowLabel = { nowLabel.value },
+                                                    onLabelChange = onTabSelected,
+                                                    items = navItems,
+                                                    modifier = Modifier
                                                 )
-                                            ),
-                                            modifier = Modifier
+                                            }
+                                        } else {
+                                            BottomNavigator(
+                                                nowLabel = { nowLabel.value },
+                                                onLabelChange = onTabSelected,
+                                                items = navItems,
+                                                modifier = Modifier
                                                 .onSizeChanged {
                                                     height.intValue = it.height
                                                 }
                                         )
+                                        }
                                     }
                                 }
                             }
@@ -764,6 +810,11 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         modifier = Modifier.graphicsLayer {
                                             translationY =
                                                 ((parentHeight.intValue - miniPlayerHeightPx) * (1 - yosBottomSheetConfig.progress))
+
+                                            if (isLandscapeNow) {
+                                                translationX =
+                                                    SideNavigatorWidth.toPx() * (1 - yosBottomSheetConfig.progress)
+                                            }
 
                                             if (yosBottomSheetConfig.barShowCorner) {
                                                 shape = YosRoundedCornerShape(

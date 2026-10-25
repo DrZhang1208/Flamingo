@@ -73,7 +73,12 @@ import yos.music.player.ui.widgets.basic.TitleBarIcon
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
-fun LocalArtists(navController: NavController) {
+fun LocalArtists(
+    navController: NavController,
+    onBack: (() -> Unit)? = null,
+    // 横屏资料库右栏内打开艺人：非空时点击不走路由
+    onOpenArtist: ((String) -> Unit)? = null
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -109,9 +114,7 @@ fun LocalArtists(navController: NavController) {
                     id = R.string.tip_no_song
                 )
             Title(
-                title = stringResource(id = R.string.page_library_artists), onBack = {
-                    navController.popBackStack()
-                }
+                title = stringResource(id = R.string.page_library_artists), onBack = onBack
             ) {
                 item("tip_no_song") {
                     Column(
@@ -132,9 +135,7 @@ fun LocalArtists(navController: NavController) {
             }
 
             Title(
-                title = stringResource(id = R.string.page_library_artists), onBack = {
-                    navController.popBackStack()
-                },
+                title = stringResource(id = R.string.page_library_artists), onBack = onBack,
                 state = listState,
                 rightBarIcon = {
                     TitleBarIcon(
@@ -169,8 +170,12 @@ fun LocalArtists(navController: NavController) {
                     contentType = { _, _ -> "LocalArtists_item" }*/
                 ) { index, artist ->
                     ArtistItem(entry = artist) {
-                        LibraryObject.setTargetArtistName(artist.name)
-                        navController.toUI(UI.ArtistInfo)
+                        if (onOpenArtist != null) {
+                            onOpenArtist(artist.name)
+                        } else {
+                            LibraryObject.setTargetArtistName(artist.name)
+                            navController.toUI(UI.ArtistInfo)
+                        }
                     }
 
                     key(index) {

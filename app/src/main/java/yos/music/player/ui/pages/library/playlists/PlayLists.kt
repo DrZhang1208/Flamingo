@@ -93,7 +93,12 @@ import yos.music.player.ui.widgets.basic.Title
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayLists(navController: NavController) {
+fun PlayLists(
+    navController: NavController,
+    onBack: (() -> Unit)? = null,
+    // 横屏资料库右栏内打开歌单：非空时点击歌单不走路由
+    onOpenPlaylist: ((title: String, list: List<YosMediaItem>) -> Unit)? = null
+) {
     val playLists = playList.sortedBy { it.name }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -126,7 +131,7 @@ fun PlayLists(navController: NavController) {
     }
 
     Title(title = stringResource(id = R.string.page_library_playlists),
-        onBack = { navController.popBackStack() },
+        onBack = onBack,
         content = {
             item("AddList") {
                 PlayListItem(playListType = PlayListType.Add, title = context.getString(R.string.page_library_playlists_add_title)) {
@@ -139,8 +144,13 @@ fun PlayLists(navController: NavController) {
                 PlayListItem(playListType = PlayListType.Favorite, title = context.getString(R.string.page_library_playlists_fav_title)) {
                     scope.launch(Dispatchers.IO) {
                         val targetList = FavPlayListLibrary.favPlayList
-                        LibraryObject.setTargetListWithTitle(context.getString(R.string.page_library_playlists_fav_title), targetList)
-                        withContext(Dispatchers.Main) { navController.toUI(UI.NormalMusic) }
+                        val title = context.getString(R.string.page_library_playlists_fav_title)
+                        if (onOpenPlaylist != null) {
+                            withContext(Dispatchers.Main) { onOpenPlaylist(title, targetList) }
+                        } else {
+                            LibraryObject.setTargetListWithTitle(title, targetList)
+                            withContext(Dispatchers.Main) { navController.toUI(UI.NormalMusic) }
+                        }
                     }
                 }
                 Spacer(Modifier.fillMaxWidth().padding(start = 86.dp).alpha(0.15f).height(0.5.dp).background(Color.Black withNight Color.White))
@@ -150,8 +160,12 @@ fun PlayLists(navController: NavController) {
                 PlayListItem(playList = pl) {
                     scope.launch(Dispatchers.IO) {
                         val targetList = convertToSongList(pl.songDataList, songs)
-                        LibraryObject.setTargetListWithTitle(pl.name, targetList)
-                        withContext(Dispatchers.Main) { navController.toUI(UI.NormalMusic) }
+                        if (onOpenPlaylist != null) {
+                            withContext(Dispatchers.Main) { onOpenPlaylist(pl.name, targetList) }
+                        } else {
+                            LibraryObject.setTargetListWithTitle(pl.name, targetList)
+                            withContext(Dispatchers.Main) { navController.toUI(UI.NormalMusic) }
+                        }
                     }
                 }
                 key(index) {

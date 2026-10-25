@@ -38,6 +38,15 @@ import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import yos.music.player.ui.theme.isLandscape
+import yos.music.player.ui.widgets.basic.PaneDivider
+import yos.music.player.ui.widgets.basic.TitlePinned
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -373,6 +382,94 @@ fun AnimatedListenDurationText(
 fun ListenStatsPage(navController: NavController) {
     val stats = rememberListenStatsUiData()
     var weekMode by rememberSaveable { mutableStateOf(true) }
+
+    if (isLandscape()) {
+        // 横屏双栏：时段选择+渐变统计卡+周图/胶囊在左，在听时段+热门榜在右；卡片原样复用、各栏独立滚动
+        TitlePinned(
+            title = stringResource(id = R.string.listen_stats_title),
+            onBack = { navController.popBackStack() }
+        ) {
+            if (!SettingsLibrary.ListenHistory) {
+                ListenStatsTip(text = stringResource(id = R.string.listen_stats_disabled))
+            } else if (stats == null) {
+                ListenStatsTip(text = stringResource(id = R.string.listen_stats_empty))
+            } else {
+                Row(Modifier.fillMaxSize()) {
+                    Column(
+                        Modifier
+                            .weight(1.15f)
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(end = 16.dp)
+                    ) {
+                        ListenRangeSelector(
+                            weekMode = weekMode,
+                            onSelect = { weekMode = it }
+                        )
+                        ListenStatGrid(stats, weekMode)
+                        if (weekMode) {
+                            ListenWeekChartCard(stats)
+                            ListenFactChips(stats)
+                        }
+                        Spacer(
+                            modifier = Modifier
+                                .windowInsetsPadding(WindowInsets.navigationBars)
+                                .height(134.dp)
+                        )
+                    }
+                    PaneDivider()
+                    LazyColumn(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                            .padding(start = 16.dp),
+                        contentPadding = PaddingValues(bottom = 134.dp)
+                    ) {
+                        if (weekMode) {
+                            item("listen_time_of_day") {
+                                ListenTimeOfDayCard(stats.hourHistogramWeek)
+                            }
+                        }
+
+                        val topSongs = if (weekMode) stats.topSongsWeek else stats.topSongsAll
+                        if (topSongs.isNotEmpty()) {
+                            item("listen_top_songs_header") {
+                                ListenSectionHeader(text = stringResource(id = R.string.listen_stats_top_songs))
+                            }
+                            itemsIndexed(topSongs, key = { _, entry -> entry.song.uri ?: entry.song.hashCode() }) { index, entry ->
+                                TopSongRow(
+                                    entry = entry,
+                                    rank = index + 1,
+                                    queue = topSongs.map { it.song }
+                                )
+                            }
+                        }
+
+                        val topArtists = if (weekMode) stats.topArtistsWeek else stats.topArtistsAll
+                        if (topArtists.isNotEmpty()) {
+                            item("listen_top_artists_header") {
+                                ListenSectionHeader(text = stringResource(id = R.string.listen_stats_top_artists))
+                            }
+                            item("listen_top_artists_row") {
+                                TopArtistRow(navController, topArtists)
+                            }
+                        }
+
+                        val topAlbums = if (weekMode) stats.topAlbumsWeek else stats.topAlbumsAll
+                        if (topAlbums.isNotEmpty()) {
+                            item("listen_top_albums_header") {
+                                ListenSectionHeader(text = stringResource(id = R.string.listen_stats_top_albums))
+                            }
+                            item("listen_top_albums_row") {
+                                TopAlbumRow(navController, topAlbums, showPlays = true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
 
     Title(
         title = stringResource(id = R.string.listen_stats_title),

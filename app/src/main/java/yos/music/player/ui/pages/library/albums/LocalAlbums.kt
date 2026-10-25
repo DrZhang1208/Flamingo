@@ -41,6 +41,7 @@ import yos.music.player.ui.widgets.basic.LibrarySortDialog
 import yos.music.player.data.libraries.MusicLibrary
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.UI
+import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.SearchTextField
@@ -53,8 +54,11 @@ import yos.music.player.ui.widgets.basic.TitleWithLazyVerticalGrid
 @Composable
 fun LocalAlbums(
     navController: NavController,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedContentScope: AnimatedContentScope
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedContentScope: AnimatedContentScope? = null,
+    onBack: (() -> Unit)? = null,
+    // 横屏资料库右栏内打开专辑：非空时点击不走路由
+    onOpenAlbum: ((String) -> Unit)? = null
 ) {
     Column(
         Modifier
@@ -85,15 +89,14 @@ fun LocalAlbums(
                 onDismiss = { showSort.value = false }
             )
         }
+        val albumColumns = if (isLandscape()) 3 else 2
         if (hideMusic.value) {
             val message =
                 stringResource(
                     id = R.string.tip_no_song
                 )
             Title(
-                title = stringResource(id = R.string.page_library_albums), onBack = {
-                    navController.popBackStack()
-                }
+                title = stringResource(id = R.string.page_library_albums), onBack = onBack
             ) {
                 item("tip_no_song") {
                     Column(
@@ -114,9 +117,8 @@ fun LocalAlbums(
             }
 
             TitleWithLazyVerticalGrid(
-                title = stringResource(id = R.string.page_library_albums), onBack = {
-                    navController.popBackStack()
-                },
+                title = stringResource(id = R.string.page_library_albums), onBack = onBack,
+                columns = { albumColumns },
                 state = listState,
                 rightBarIcon = {
                     TitleBarIcon(
@@ -152,8 +154,12 @@ fun LocalAlbums(
                         animatedContentScope = animatedContentScope,
                         sharedTransitionScope = sharedTransitionScope
                     ) {
-                        LibraryObject.setTargetAlbumName(album.name)
-                        navController.toUI(UI.AlbumInfo)
+                        if (onOpenAlbum != null) {
+                            onOpenAlbum(album.name)
+                        } else {
+                            LibraryObject.setTargetAlbumName(album.name)
+                            navController.toUI(UI.AlbumInfo)
+                        }
                     }
                 }
             }
@@ -165,8 +171,8 @@ fun LocalAlbums(
 @Composable
 private fun LazyGridItemScope.AlbumItems(
     entry: AlbumLibraryEntry,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedContentScope: AnimatedContentScope,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedContentScope: AnimatedContentScope?,
     onClick: () -> Unit
 ) {
     val albumName = entry.name

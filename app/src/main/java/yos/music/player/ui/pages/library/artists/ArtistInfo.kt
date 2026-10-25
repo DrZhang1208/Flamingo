@@ -58,6 +58,7 @@ import yos.music.player.data.libraries.artistsList
 import yos.music.player.data.libraries.artistsName
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
+import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.SongMenuIcon
 import yos.music.player.ui.UI
@@ -65,7 +66,7 @@ import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun ArtistInfo(navController: NavController) {
+fun ArtistInfo(navController: NavController, onBack: (() -> Unit)? = null) {
     val artistName = rememberSaveable(key = "ArtistInfo_artistName") {
         mutableStateOf(LibraryObject.getTargetArtistName())
     }
@@ -91,7 +92,8 @@ fun ArtistInfo(navController: NavController) {
         songCount to totalMinutes
     }
 
-    Title(title = artistName.value, onBack = { navController.popBackStack() }, showLargeTitle = false) {
+    val landscape = isLandscape()
+    Title(title = artistName.value, onBack = onBack, showLargeTitle = false) {
         item("ArtistHeader") {
             Column(
                 Modifier
@@ -148,15 +150,45 @@ fun ArtistInfo(navController: NavController) {
 
         item { ArtistDivider() }
 
-        itemsIndexed(songs.value, key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "artist_song_$index" }) { index, music ->
-            key(music) {
-                ArtistSongsItem(music, artistName.value) {
-                    scope.launch(Dispatchers.IO) { MediaController.prepare(music, songs.value) }
+        if (landscape) {
+            // 横屏：两行一组并排，行样式照旧
+            itemsIndexed(
+                List((songs.value.size + 1) / 2) { it * 2 },
+                key = { _, first -> "artist_pair_${songs.value.getOrNull(first)?.uri ?: first}" }
+            ) { _, first ->
+                Row(Modifier.fillMaxWidth()) {
+                    Box(Modifier.weight(1f)) {
+                        songs.value.getOrNull(first)?.let { music ->
+                            key(music) {
+                                ArtistSongsItem(music, artistName.value) {
+                                    scope.launch(Dispatchers.IO) { MediaController.prepare(music, songs.value) }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(Modifier.weight(1f)) {
+                        songs.value.getOrNull(first + 1)?.let { music ->
+                            key(music) {
+                                ArtistSongsItem(music, artistName.value) {
+                                    scope.launch(Dispatchers.IO) { MediaController.prepare(music, songs.value) }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            key(index) {
-                if (index < songs.value.size - 1) {
-                    Spacer(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp).alpha(0.25f).height(0.5.dp).background(Color.Black withNight Color.White))
+        } else {
+            itemsIndexed(songs.value, key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "artist_song_$index" }) { index, music ->
+                key(music) {
+                    ArtistSongsItem(music, artistName.value) {
+                        scope.launch(Dispatchers.IO) { MediaController.prepare(music, songs.value) }
+                    }
+                }
+                key(index) {
+                    if (index < songs.value.size - 1) {
+                        Spacer(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp).alpha(0.25f).height(0.5.dp).background(Color.Black withNight Color.White))
+                    }
                 }
             }
         }

@@ -31,9 +31,82 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 
 @Stable
 data class NavItem(val label: String, val iconResId: Int)
+
+/** 横屏侧栏宽度 */
+val SideNavigatorWidth = 132.dp
+
+/**
+ * 横屏侧栏导航：与底栏同源的导航项竖排在左侧，
+ * 视觉与底栏一致（30dp 图标 + 12sp Medium 文字，选中珊瑚红）。
+ */
+@Composable
+fun SideNavigator(
+    nowLabel: () -> String,
+    onLabelChange: (String) -> Unit,
+    items: List<NavItem>,
+    modifier: Modifier
+) {
+    Column(
+        modifier
+            .fillMaxHeight()
+            .width(SideNavigatorWidth),
+        verticalArrangement = Arrangement.Center
+    ) {
+        items.forEach { item ->
+            SideNavigatorItem(item, nowLabel, onLabelChange)
+        }
+    }
+}
+
+@Composable
+private fun SideNavigatorItem(
+    item: NavItem,
+    nowLabel: () -> String,
+    onLabelChange: (String) -> Unit
+) =
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                onLabelChange(item.label)
+            }
+    ) {
+        val isSelected = remember(item) {
+            derivedStateOf {
+                nowLabel() == item.label
+            }
+        }
+        val color = animateColorAsState(if (isSelected.value) MaterialTheme.colorScheme.primary else Color.Gray)
+
+        Icon(
+            painterResource(item.iconResId),
+            contentDescription = null,
+            tint = color.value,
+            modifier = Modifier
+                .padding(start = 24.dp)
+                .size(26.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            item.label,
+            color = color.value,
+            fontSize = 16.sp,
+            lineHeight = 16.sp,
+            maxLines = 1,
+            fontWeight = FontWeight.Medium
+        )
+    }
 
 @Composable
 fun BottomNavigator(
