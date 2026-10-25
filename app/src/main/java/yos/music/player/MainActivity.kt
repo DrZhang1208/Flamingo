@@ -607,8 +607,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     val color =
                                         Color(0xFFF5F5F5) withNight /*Color(0xFF111111)*/ Color.Black
                                     // Keep the fade above the tabs; navigation insets only extend the opaque part.
-                                    // 横屏底部遮罩只需罩住迷你条+缝隙；竖屏保持整段（底栏+迷你条）
-                                    val bottomMaskHeight = if (isLandscapeNow) 76.dp else navBarBottom + 128.dp
+                                    // 横屏迷你条是浮条（自带背景与边距），底部遮罩压到
+                                    // 浮条下缘以下即可——太高会从浮条两侧边距区露出色块
+                                    val bottomMaskHeight = if (isLandscapeNow) 24.dp else navBarBottom + 128.dp
                                     val bottomBarBrush = remember(color, density) {
                                         Brush.verticalGradient(
                                             0f to Color.Transparent,
