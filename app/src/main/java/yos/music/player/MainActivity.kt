@@ -81,6 +81,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -827,7 +828,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
                         // 播放条&播放界面
                         YosWrapper {
-                            if (height.intValue == 0) return@YosWrapper
+                            // 竖屏等底栏完成首次测量（translationY 需要它的真实高度）；
+                            // 横屏下 height 只有这一门槛用途——侧栏不上报、冷启动横屏
+                            // 时不能因此把整个播放层跳过（否则要先竖再横才能见迷你条）
+                            if (!isLandscapeNow && height.intValue == 0) return@YosWrapper
 
                             // 横屏让位侧栏全走绘制相位：播放层布局恒满宽，收起态由
                             // Surface 的裁剪形状左缘（railInset，随展开平滑收拢到 0）
@@ -1034,11 +1038,19 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 this.alpha =
                                                                     (1f - 4f * yosBottomSheetConfig.progress).coerceIn(0f, 1f)
                                                             }
-                                                            // 横屏静态让位侧栏（播放层布局恒满宽，靠这层
-                                                            // padding + Surface 裁剪形状呈现内容区宽度；
-                                                            // 迷你条 0.25 进度内已淡出，无需随动画变）
+                                                            // 白底不是静态矩形：左缘在绘制相位与 Surface 裁剪形状
+                                                            // 同步收拢——展开时白色卡片随窗口一起放大再淡出（竖屏
+                                                            // 同款效果）；下方 padding 只负责让内容行让位侧栏
+                                                            .drawBehind {
+                                                                val inset = if (isLandscapeNow)
+                                                                    SideNavigatorWidth.toPx() * (1f - yosBottomSheetConfig.progress) else 0f
+                                                                drawRect(
+                                                                    color = color,
+                                                                    topLeft = Offset(inset, 0f),
+                                                                    size = Size(size.width - inset, size.height)
+                                                                )
+                                                            }
                                                             .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
-                                                            .background(color)
                                                     ) {
                                                         Box(
                                                             modifier = Modifier
