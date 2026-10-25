@@ -191,7 +191,7 @@ private fun LibraryLandscape(navController: NavController) {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
                                 label = stringResource(id = R.string.page_library_playlists),
-                                selected = stack.last() is LibraryPane.Playlists
+                                selected = stack.last().matches(LibraryPane.Playlists)
                             ) { select(LibraryPane.Playlists) }
 
                             MenuRowDivider()
@@ -199,7 +199,7 @@ private fun LibraryLandscape(navController: NavController) {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_artists),
                                 label = stringResource(id = R.string.page_library_artists),
-                                selected = stack.last() is LibraryPane.Artists
+                                selected = stack.last().matches(LibraryPane.Artists)
                             ) { select(LibraryPane.Artists) }
 
                             MenuRowDivider()
@@ -207,7 +207,7 @@ private fun LibraryLandscape(navController: NavController) {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_album),
                                 label = stringResource(id = R.string.page_library_albums),
-                                selected = stack.last() is LibraryPane.Albums
+                                selected = stack.last().matches(LibraryPane.Albums)
                             ) { select(LibraryPane.Albums) }
 
                             MenuRowDivider()
@@ -215,7 +215,7 @@ private fun LibraryLandscape(navController: NavController) {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_songs),
                                 label = stringResource(id = R.string.page_library_songs),
-                                selected = stack.last() is LibraryPane.Songs
+                                selected = stack.last().matches(LibraryPane.Songs)
                             ) { select(LibraryPane.Songs) }
                         }
                     }
@@ -303,7 +303,16 @@ private fun MenuRowDivider() =
             .background(Color.Black withNight Color.White)
     )
 
-/** 与竖屏 SmallLabelItem 同款的分类菜单行，叠加选中态（红竖条 + 浅红底 + 珊瑚红文字） */
+/** 栈顶内容是否属于给定分类（含其详情层级），用于左栏菜单高亮联动 */
+private fun LibraryPane.matches(section: LibraryPane): Boolean = when (section) {
+    LibraryPane.Playlists -> this is LibraryPane.Playlists || this is LibraryPane.PlaylistSongs
+    LibraryPane.Artists -> this is LibraryPane.Artists || this is LibraryPane.Artist
+    LibraryPane.Albums -> this is LibraryPane.Albums || this is LibraryPane.Album
+    LibraryPane.Songs -> this is LibraryPane.Songs
+    else -> false
+}
+
+/** 与竖屏 SmallLabelItem 同款的分类菜单行，叠加选中态（浅红底 + 珊瑚红文字） */
 @Composable
 private fun LibraryMenuRow(
     icon: Painter,
@@ -324,15 +333,6 @@ private fun LibraryMenuRow(
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .width(3.dp)
-                .fillMaxHeight()
-                .then(
-                    if (selected) Modifier.background(MaterialTheme.colorScheme.primary)
-                    else Modifier
-                )
-        )
         Icon(
             painter = icon,
             contentDescription = null,

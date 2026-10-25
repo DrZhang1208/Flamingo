@@ -321,12 +321,6 @@ private fun SettingsMenuRow(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .width(3.dp)
-                .height(40.dp)
-                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
-        )
         Text(
             text = title,
             fontSize = 16.5.sp,
