@@ -826,10 +826,13 @@ fun NowPlaying(
                                     lyricState = { lyricState.value }, weightLambda = { false },
                                     onViewportInsetChanged = {}, compactWindow = true, splitWindow = true, insetsHandled = true,
                                     translationLambda = { translationVisible }, romajiLambda = { romajiVisible }, seekPreviewState = lyricSeekPreview,
-                                    // 收起时销毁歌词控件（重开=全新状态，入场淡入下直接就位到
-                                    // 当前行）——常驻旧状态会在重开时带着旧锚点走波纹快进，
-                                    // 大跨度时逐行级联既难看又卡；段仓进程级借用，重建近零成本
-                                    shouldRenderContent = !showMiniPlayer(), mainViewModel = mainViewModel,
+                                    // 收起时销毁歌词控件（重开=全新状态，直接就位到当前行）
+                                    // ——常驻旧状态会在重开时带着旧锚点走波纹快进，大跨度时
+                                    // 逐行级联既难看又卡；段仓进程级借用，重建近零成本。
+                                    // 时机=展开一开始（!fullyCollapsed）而非完全展开后：
+                                    // 准备工作与上滑动画重叠，面板到位时内容已就绪，
+                                    // 不会先空一拍（展开动画纯绘制相位，不与其争主线程）
+                                    shouldRenderContent = !fullyCollapsed, mainViewModel = mainViewModel,
                                     mediaViewModel = mediaViewModel, showMiniPlayer = showMiniPlayer,
                                     userScrollEnabled = visible, renderActive = visible,
                                     onLineLongPress = { index ->
