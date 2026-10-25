@@ -9,6 +9,7 @@ import androidx.compose.runtime.SideEffect
 import yos.music.player.ui.widgets.playerWindowLayout
 import yos.music.player.ui.widgets.playerWindowPane
 import yos.music.player.ui.widgets.verticalEdgeFade
+import yos.music.player.ui.widgets.lyricPaneEdgeFade
 import yos.music.player.ui.widgets.PlayerContentVisibility
 import androidx.compose.ui.graphics.TransformOrigin
 import yos.music.player.ui.widgets.playerHeaderModifier
@@ -769,7 +770,6 @@ fun NowPlaying(
                     interactionEnabled = !showMiniPlayer() && !showLyricShare.value,
                     onClose = closeSheet,
                     modifier = Modifier.fillMaxSize().padding(landscapePadding),
-                    fullyCollapsed = fullyCollapsed,
                     artwork = {
                         BoxWithConstraints(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
                             Spacer(Modifier.size(minOf(maxWidth, maxHeight))
@@ -819,7 +819,7 @@ fun NowPlaying(
                     },
                     lyrics = { visible ->
                         // 歌词滚出分栏边缘时渐隐，与竖屏 clipPlayerLyrics 的顶/底过渡一致
-                        Box(Modifier.fillMaxSize().clipToBounds().verticalEdgeFade()) {
+                        Box(Modifier.fillMaxSize().clipToBounds().lyricPaneEdgeFade()) {
                             CompositionLocalProvider(LocalNativeLyricRenderCache provides lyricRenderCache,
             LocalNativeLyricWarmup provides lyricWarmupHandle) {
                                 Lyric(

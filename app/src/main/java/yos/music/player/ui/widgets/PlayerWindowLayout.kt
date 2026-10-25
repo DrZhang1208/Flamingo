@@ -2,10 +2,12 @@ package yos.music.player.ui.widgets
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.Dp
@@ -49,6 +51,40 @@ internal fun Modifier.verticalEdgeFade(topFade: Dp = 24.dp, bottomFade: Dp = 24.
                 drawRect(brush, blendMode = BlendMode.DstIn)
             }
         }
+
+/** 横屏歌词面板顶/底渐变（saveLayer+DstIn，与竖屏 clipPlayerLyrics 同机制——
+ *  Offscreen 图层变体在该面板上不生效）。顶部先让过 Lyric 的 16dp 固定垫高
+ *  （insetsHandled），渐变从内容真实顶缘起 32dp 淡入；底部在面板底缘上方
+ *  48dp 淡出，与竖屏底缘过渡同宽。 */
+internal fun Modifier.lyricPaneEdgeFade(
+    contentTopInset: Dp = 16.dp,
+    topFade: Dp = 32.dp,
+    bottomFade: Dp = 48.dp
+): Modifier = drawWithCache {
+    val height = size.height.coerceAtLeast(1f)
+    val contentTop = contentTopInset.toPx().coerceAtMost(height * 0.5f)
+    val topEnd = (contentTop + topFade.toPx()).coerceAtMost(height)
+    val bottomStart = (height - bottomFade.toPx()).coerceAtLeast(topEnd)
+    val brush = Brush.verticalGradient(
+        0f to Color.Transparent,
+        contentTop / height to Color.Transparent,
+        topEnd / height to Color.Black,
+        bottomStart / height to Color.Black,
+        1f to Color.Transparent
+    )
+    val paint = Paint()
+    val bounds = Rect(0f, 0f, size.width, size.height)
+    onDrawWithContent {
+        val canvas = drawContext.canvas
+        canvas.saveLayer(bounds, paint)
+        try {
+            drawContent()
+            drawRect(brush, blendMode = BlendMode.DstIn)
+        } finally {
+            canvas.restore()
+        }
+    }
+}
 
 /** One fixed-coordinate mask replaces nested full-viewport offscreen passes. */
 internal fun Modifier.clipPlayerLyrics(
