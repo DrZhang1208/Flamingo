@@ -57,12 +57,7 @@ import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.PaneDivider
 import yos.music.player.ui.widgets.basic.RoundColumn
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
-import yos.music.player.ui.widgets.basic.GlassHeaderBar
-import yos.music.player.ui.widgets.basic.pinnedHeaderHeight
 import yos.music.player.ui.widgets.basic.Title
-import yos.music.player.ui.widgets.basic.TitlePinned
 import yos.music.player.ui.widgets.basic.YosWrapper
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 
@@ -175,73 +170,55 @@ private fun LibraryLandscape(navController: NavController) {
         stack.add(pane)
     }
 
-    // 分栏：各栏从屏幕顶贯穿、独立滚动；左栏顶部为玻璃标题，右栏
-    // 列表/详情自带标题从顶部开始；竖线全高（含标题区）
+    // 分栏：左栏与右栏都用原版 Title 顶栏样式（大标题随滚动收起、
+    // 上滑出现顶栏并在顶栏显示标题），各栏独立滚动；竖线全高
     Row(Modifier.fillMaxSize()) {
-        val headerHazeState = remember { HazeState() }
         Box(
             Modifier
                 .weight(0.95f)
                 .fillMaxHeight()
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .haze(headerHazeState)
+            Title(
+                title = stringResource(id = R.string.page_library_title)
             ) {
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(end = 16.dp)
-                ) {
-                    Spacer(modifier = Modifier.height(pinnedHeaderHeight() + 6.dp))
-                // 与设置左列同款：圆角矩形分组卡内的菜单行
-                RoundColumn {
-                    LibraryMenuRow(
-                        icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
-                        label = stringResource(id = R.string.page_library_playlists),
-                        selected = stack.last() is LibraryPane.Playlists
-                    ) { select(LibraryPane.Playlists) }
+                item("library_menu") {
+                    Column(Modifier.fillMaxWidth()) {
+                        Spacer(Modifier.height(6.dp))
+                        // 与设置左列同款：圆角矩形分组卡内的菜单行
+                        RoundColumn {
+                            LibraryMenuRow(
+                                icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
+                                label = stringResource(id = R.string.page_library_playlists),
+                                selected = stack.last() is LibraryPane.Playlists
+                            ) { select(LibraryPane.Playlists) }
 
-                    MenuRowDivider()
+                            MenuRowDivider()
 
-                    LibraryMenuRow(
-                        icon = painterResource(id = R.drawable.ic_library_link_icon_artists),
-                        label = stringResource(id = R.string.page_library_artists),
-                        selected = stack.last() is LibraryPane.Artists
-                    ) { select(LibraryPane.Artists) }
+                            LibraryMenuRow(
+                                icon = painterResource(id = R.drawable.ic_library_link_icon_artists),
+                                label = stringResource(id = R.string.page_library_artists),
+                                selected = stack.last() is LibraryPane.Artists
+                            ) { select(LibraryPane.Artists) }
 
-                    MenuRowDivider()
+                            MenuRowDivider()
 
-                    LibraryMenuRow(
-                        icon = painterResource(id = R.drawable.ic_library_link_icon_album),
-                        label = stringResource(id = R.string.page_library_albums),
-                        selected = stack.last() is LibraryPane.Albums
-                    ) { select(LibraryPane.Albums) }
+                            LibraryMenuRow(
+                                icon = painterResource(id = R.drawable.ic_library_link_icon_album),
+                                label = stringResource(id = R.string.page_library_albums),
+                                selected = stack.last() is LibraryPane.Albums
+                            ) { select(LibraryPane.Albums) }
 
-                    MenuRowDivider()
+                            MenuRowDivider()
 
-                    LibraryMenuRow(
-                        icon = painterResource(id = R.drawable.ic_library_link_icon_songs),
-                        label = stringResource(id = R.string.page_library_songs),
-                        selected = stack.last() is LibraryPane.Songs
-                    ) { select(LibraryPane.Songs) }
-                }
-
-                Spacer(
-                    modifier = Modifier
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .height(134.dp)
-                )
+                            LibraryMenuRow(
+                                icon = painterResource(id = R.drawable.ic_library_link_icon_songs),
+                                label = stringResource(id = R.string.page_library_songs),
+                                selected = stack.last() is LibraryPane.Songs
+                            ) { select(LibraryPane.Songs) }
+                        }
+                    }
                 }
             }
-            GlassHeaderBar(
-                title = stringResource(id = R.string.page_library_title),
-                // 横屏设置入口在侧栏，头像仅竖屏保留
-                rightIcon = null,
-                hazeState = headerHazeState
-            )
         }
         PaneDivider()
         Box(
@@ -249,63 +226,42 @@ private fun LibraryLandscape(navController: NavController) {
                 .weight(2.05f)
                 .fillMaxHeight()
         ) {
-            // 右栏顶部同款玻璃遮罩（无标题），内容滚过时与左栏一致地渐进模糊
-            val rightHazeState = remember { HazeState() }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .haze(rightHazeState)
-            ) {
             AnimatedContent(
                 targetState = stack.last(),
                 transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
                 label = "library_pane"
             ) { pane ->
-                    when (pane) {
-                        LibraryPane.Playlists -> PlayLists(
-                            navController,
-                            onOpenPlaylist = { title, list ->
-                                LibraryObject.setTargetListWithTitle(title, list)
-                                stack.add(LibraryPane.PlaylistSongs(title))
-                            }
-                        )
-                        LibraryPane.Artists -> LocalArtists(
-                            navController,
-                            onOpenArtist = { name ->
-                                LibraryObject.setTargetArtistName(name)
-                                stack.add(LibraryPane.Artist(name))
-                            }
-                        )
-                        LibraryPane.Albums -> LocalAlbums(
-                            navController,
-                            onOpenAlbum = { name ->
-                                LibraryObject.setTargetAlbumName(name)
-                                stack.add(LibraryPane.Album(name))
-                            }
-                        )
-                        LibraryPane.Songs -> NormalMusic(navController)
-                        is LibraryPane.PlaylistSongs -> NormalMusic(navController, onBack = popPane)
-                        is LibraryPane.Artist -> ArtistInfo(navController, onBack = popPane)
-                        is LibraryPane.Album -> AlbumInfo(navController, onBack = popPane)
-                    }
+                when (pane) {
+                    LibraryPane.Playlists -> PlayLists(
+                        navController,
+                        onOpenPlaylist = { title, list ->
+                            LibraryObject.setTargetListWithTitle(title, list)
+                            stack.add(LibraryPane.PlaylistSongs(title))
+                        }
+                    )
+                    LibraryPane.Artists -> LocalArtists(
+                        navController,
+                        onOpenArtist = { name ->
+                            LibraryObject.setTargetArtistName(name)
+                            stack.add(LibraryPane.Artist(name))
+                        }
+                    )
+                    LibraryPane.Albums -> LocalAlbums(
+                        navController,
+                        onOpenAlbum = { name ->
+                            LibraryObject.setTargetAlbumName(name)
+                            stack.add(LibraryPane.Album(name))
+                        }
+                    )
+                    LibraryPane.Songs -> NormalMusic(navController)
+                    is LibraryPane.PlaylistSongs -> NormalMusic(navController, onBack = popPane)
+                    is LibraryPane.Artist -> ArtistInfo(navController, onBack = popPane)
+                    is LibraryPane.Album -> AlbumInfo(navController, onBack = popPane)
                 }
-            }
-            GlassHeaderBar(
-                // 与左栏同款带标题的玻璃顶栏：标题跟随右栏当前内容
-                title = when (val pane = stack.last()) {
-                    LibraryPane.Playlists -> stringResource(id = R.string.page_library_playlists)
-                    LibraryPane.Artists -> stringResource(id = R.string.page_library_artists)
-                    LibraryPane.Albums -> stringResource(id = R.string.page_library_albums)
-                    LibraryPane.Songs -> stringResource(id = R.string.page_library_songs)
-                    is LibraryPane.PlaylistSongs -> pane.title
-                    is LibraryPane.Artist -> pane.name
-                    is LibraryPane.Album -> pane.name
-                },
-                hazeState = rightHazeState
-            )
             }
         }
     }
+}
 
 /** 左栏菜单行之间的分割线，与设置分组内分割线同款 */
 @Composable

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -55,13 +56,8 @@ import yos.music.player.ui.pages.settings.remote.RemoteServerManagement
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.PaneDivider
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
-import yos.music.player.ui.widgets.basic.GlassHeaderBar
-import yos.music.player.ui.widgets.basic.pinnedHeaderHeight
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
-import yos.music.player.ui.widgets.basic.TitlePinned
 
 @Composable
 fun Settings(navController: NavController) =
@@ -71,40 +67,24 @@ fun Settings(navController: NavController) =
         var selectedPage by rememberSaveable { mutableStateOf<String?>(null) }
 
         if (landscape) {
-            // 分栏：各栏从屏幕顶贯穿、独立滚动；左栏顶部为玻璃标题，
-            // 右栏子页自带标题从顶部开始；竖线全高（含标题区）
+            // 分栏：左栏与右栏都用原版 Title 顶栏样式（大标题随滚动收起、
+            // 上滑出现顶栏并在顶栏显示标题），各栏独立滚动；竖线全高
             Row(Modifier.fillMaxSize()) {
-                val headerHazeState = remember { HazeState() }
                 Box(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    // 左列 = 竖屏分组列表原样，点菜单行在右栏打开子页
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .haze(headerHazeState)
+                    Title(
+                        title = stringResource(id = R.string.page_settings_title),
+                        onBack = { navController.popBackStack() }
                     ) {
-                        Column(
-                            Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            Spacer(modifier = Modifier.height(pinnedHeaderHeight()))
-                            SettingsMenu(open = { selectedPage = it })
-                            Spacer(
-                                modifier = Modifier
-                                    .windowInsetsPadding(WindowInsets.navigationBars)
-                                    .height(134.dp)
-                            )
+                        item("settings_menu") {
+                            Column(Modifier.fillMaxWidth()) {
+                                SettingsMenu(open = { selectedPage = it })
+                            }
                         }
                     }
-                    GlassHeaderBar(
-                        title = stringResource(id = R.string.page_settings_title),
-                        onBack = { navController.popBackStack() },
-                        hazeState = headerHazeState
-                    )
                 }
                 PaneDivider()
                 Box(
@@ -112,16 +92,9 @@ fun Settings(navController: NavController) =
                         .weight(1.6f)
                         .fillMaxHeight()
                 ) {
-                    // 右栏顶部同款玻璃遮罩（无标题），子页滚过时与左栏一致地渐进模糊
-                    val rightHazeState = remember { HazeState() }
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .haze(rightHazeState)
-                            .padding(start = 16.dp)
-                    ) {
-                        val page = selectedPage
-                        if (page == null) {
+                    val page = selectedPage
+                    if (page == null) {
+                        Box(Modifier.fillMaxSize()) {
                             Text(
                                 text = stringResource(id = R.string.settings_pane_empty_hint),
                                 fontSize = 15.sp,
@@ -129,37 +102,22 @@ fun Settings(navController: NavController) =
                                     .align(Alignment.Center)
                                     .alpha(0.4f)
                             )
-                        } else {
-                            key(page) {
-                                val closePane: () -> Unit = { selectedPage = null }
-                                when (page) {
-                                    UI.Settings.LibraryOverview -> LibraryOverview(navController, onBack = closePane)
-                                    UI.Settings.RemoteServerManagement -> RemoteServerManagement(navController, onBack = closePane)
-                                    UI.Settings.LyricSetting -> LyricSetting(navController, onBack = closePane)
-                                    UI.Settings.UserInterfaceSetting -> UserInterfaceSetting(navController, onBack = closePane)
-                                    UI.Settings.NotificationSetting -> NotificationSetting(navController, onBack = closePane)
-                                    UI.Settings.ExoplayerSetting -> ExoPlayerSettings(navController, onBack = closePane)
-                                    UI.Settings.LyricGetter -> LyricGetter(navController, onBack = closePane)
-                                    UI.Settings.About -> About(navController, onBack = closePane)
-                                }
+                        }
+                    } else {
+                        key(page) {
+                            val closePane: () -> Unit = { selectedPage = null }
+                            when (page) {
+                                UI.Settings.LibraryOverview -> LibraryOverview(navController, onBack = closePane)
+                                UI.Settings.RemoteServerManagement -> RemoteServerManagement(navController, onBack = closePane)
+                                UI.Settings.LyricSetting -> LyricSetting(navController, onBack = closePane)
+                                UI.Settings.UserInterfaceSetting -> UserInterfaceSetting(navController, onBack = closePane)
+                                UI.Settings.NotificationSetting -> NotificationSetting(navController, onBack = closePane)
+                                UI.Settings.ExoplayerSetting -> ExoPlayerSettings(navController, onBack = closePane)
+                                UI.Settings.LyricGetter -> LyricGetter(navController, onBack = closePane)
+                                UI.Settings.About -> About(navController, onBack = closePane)
                             }
                         }
                     }
-                    GlassHeaderBar(
-                        // 与左栏同款带标题的玻璃顶栏：标题跟随右栏当前子页
-                        title = when (selectedPage) {
-                            UI.Settings.LibraryOverview -> stringResource(id = R.string.settings_library_overview)
-                            UI.Settings.RemoteServerManagement -> stringResource(id = R.string.settings_remote_server_management)
-                            UI.Settings.LyricSetting -> stringResource(id = R.string.settings_performance_lyric_title)
-                            UI.Settings.UserInterfaceSetting -> stringResource(id = R.string.settings_performance_ui_title)
-                            UI.Settings.NotificationSetting -> stringResource(id = R.string.settings_performance_notification_title)
-                            UI.Settings.ExoplayerSetting -> stringResource(id = R.string.settings_audio_exoplayer)
-                            UI.Settings.LyricGetter -> stringResource(id = R.string.settings_extend_statusbarlyric)
-                            UI.Settings.About -> stringResource(id = R.string.settings_others_about)
-                            else -> ""
-                        },
-                        hazeState = rightHazeState
-                    )
                 }
             }
         } else {
