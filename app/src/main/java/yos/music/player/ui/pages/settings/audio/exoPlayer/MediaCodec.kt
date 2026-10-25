@@ -9,20 +9,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import yos.music.player.R
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.ui.pages.settings.DefaultItem
 import yos.music.player.ui.pages.settings.SettingBackground
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.yosRoundColumn
 
 @Composable
-fun MediaCodec(navController: NavController) =
+fun MediaCodec(navController: NavController, onBack: (() -> Unit)? = null) =
     SettingBackground {
         val codecInfos = remember("MediaCodec_codecInfos") {
             mutableStateOf(MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.filter { !it.isEncoder })
         }
         Title(title = stringResource(id = R.string.settings_audio_exoplayer_support_mediacodec),
             onBack = {
-                navController.popBackStack()
+                navController.backOr(onBack)
             },
             content = {
                 yosRoundColumn {

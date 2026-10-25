@@ -77,7 +77,12 @@ import yos.music.player.ui.pages.settings.backOr
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RemoteServerManagement(navController: NavController, onBack: (() -> Unit)? = null) {
+fun RemoteServerManagement(
+    navController: NavController,
+    onBack: (() -> Unit)? = null,
+    // 横屏设置右栏内打开文件夹选择器：非空时传 serverId 不走路由
+    onOpenFolderPicker: ((String) -> Unit)? = null
+) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var refreshKey by remember { mutableStateOf(0) }
@@ -128,7 +133,7 @@ fun RemoteServerManagement(navController: NavController, onBack: (() -> Unit)? =
                                         val ok = if (connected) true else RemoteServerManager.connect(sid)
                                         withContext(Dispatchers.Main) {
                                             if (ok) {
-                                                navController.navigate("RemoteFolderPicker/$sid")
+                                                if (onOpenFolderPicker != null) onOpenFolderPicker(sid) else navController.navigate("RemoteFolderPicker/$sid")
                                             } else {
                                                 val msg = RemoteServerManager.getConnectionError(sid) ?: "连接失败"
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()

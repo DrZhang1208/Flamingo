@@ -53,19 +53,20 @@ import yos.music.player.data.remote.RemoteFile
 import yos.music.player.data.remote.RemoteMetadataScanner
 import yos.music.player.data.remote.RemoteServerManager
 import yos.music.player.data.remote.ServerConfig
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.ui.pages.settings.GroupSpacer
 import yos.music.player.ui.pages.settings.SettingBackground
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun RemoteFolderPicker(navController: NavController, serverId: String?) {
+fun RemoteFolderPicker(navController: NavController, serverId: String?, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    if (serverId == null) { navController.popBackStack(); return }
+    if (serverId == null) { navController.backOr(onBack); return }
 
-    val config = RemoteServerManager.getServer(serverId) ?: run { navController.popBackStack(); return }
+    val config = RemoteServerManager.getServer(serverId) ?: run { navController.backOr(onBack); return }
     var currentPath by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<List<RemoteFile>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -99,7 +100,7 @@ fun RemoteFolderPicker(navController: NavController, serverId: String?) {
 
     fun goToParent() {
         if (currentPath.isEmpty()) {
-            navController.popBackStack()
+            navController.backOr(onBack)
         } else if (!currentPath.contains('/')) {
             // 单层目录 → 返回根
             pathStack = listOf("")

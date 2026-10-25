@@ -96,6 +96,7 @@ import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.PlayerArtworkBridge
 import yos.music.player.ui.widgets.PlayerArtworkBridgeOverlay
 import yos.music.player.ui.widgets.MINI_ARTWORK_ENDPOINT
+import yos.music.player.data.objects.LibraryObject
 import yos.music.player.data.libraries.artistsName
 import yos.music.player.ui.widgets.rememberNowPlayingArtwork
 import androidx.compose.ui.platform.LocalContext
@@ -144,6 +145,7 @@ import yos.music.player.ui.pages.ListenStatsPage
 import yos.music.player.ui.pages.NowPlaying
 import yos.music.player.ui.pages.NowPlayingPage.Album
 import yos.music.player.ui.pages.library.Library
+import yos.music.player.ui.pages.library.LibrarySectionPane
 import yos.music.player.ui.pages.library.NormalMusic
 import yos.music.player.ui.pages.library.albums.AlbumInfo
 import yos.music.player.ui.pages.library.albums.LocalAlbums
@@ -482,14 +484,31 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 )
                                             }
 
+                                            // 横屏下这些整页路由统一渲染为资料库分栏（带初始分栏映射），
+                                            // 竖屏时保持原整页行为
                                             composable(UI.PlayLists) {
-                                                PlayLists(navController, onBack = { navController.popBackStack() })
+                                                if (isLandscapeNow) Library(
+                                                    navController,
+                                                    initialPane = LibrarySectionPane.Playlists
+                                                ) else PlayLists(navController, onBack = { navController.popBackStack() })
                                             }
                                             composable(UI.NormalMusic) {
-                                                NormalMusic(navController, onBack = { navController.popBackStack() })
+                                                if (isLandscapeNow) {
+                                                    // 歌曲页=歌曲分栏；歌单详情=播放列表分栏压歌单
+                                                    val target = LibraryObject.getTargetListWithTitle()
+                                                    val songsLabel = context.getString(R.string.page_library_songs)
+                                                    if (target.first == songsLabel) Library(navController) else Library(
+                                                        navController,
+                                                        initialPane = LibrarySectionPane.Playlists,
+                                                        initialDetail = target.first
+                                                    )
+                                                } else NormalMusic(navController, onBack = { navController.popBackStack() })
                                             }
                                             composable(UI.LocalAlbums) {
-                                                LocalAlbums(
+                                                if (isLandscapeNow) Library(
+                                                    navController,
+                                                    initialPane = LibrarySectionPane.Albums
+                                                ) else LocalAlbums(
                                                     navController,
                                                     this@SharedTransitionLayout,
                                                     this@composable,
@@ -497,10 +516,17 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 )
                                             }
                                             composable(UI.LocalArtists) {
-                                                LocalArtists(navController, onBack = { navController.popBackStack() })
+                                                if (isLandscapeNow) Library(
+                                                    navController,
+                                                    initialPane = LibrarySectionPane.Artists
+                                                ) else LocalArtists(navController, onBack = { navController.popBackStack() })
                                             }
                                             composable(UI.ArtistInfo) {
-                                                ArtistInfo(navController, onBack = { navController.popBackStack() })
+                                                if (isLandscapeNow) Library(
+                                                    navController,
+                                                    initialPane = LibrarySectionPane.Artists,
+                                                    initialDetail = LibraryObject.getTargetArtistName()
+                                                ) else ArtistInfo(navController, onBack = { navController.popBackStack() })
                                             }
 
                                             composable(UI.ListenStats) {
@@ -508,7 +534,11 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             }
 
                                             composable(UI.AlbumInfo) {
-                                                AlbumInfo(
+                                                if (isLandscapeNow) Library(
+                                                    navController,
+                                                    initialPane = LibrarySectionPane.Albums,
+                                                    initialDetail = LibraryObject.getTargetAlbumName()
+                                                ) else AlbumInfo(
                                                     navController,
                                                     this@SharedTransitionLayout,
                                                     this@composable,
@@ -522,34 +552,42 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 )
                                             }
                                             composable(UI.Settings.LibraryOverview) {
-                                                LibraryOverview(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.LibraryOverview)
+                                                else LibraryOverview(navController)
                                             }
                                             composable(UI.Settings.LyricGetter) {
-                                                LyricGetter(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.LyricGetter)
+                                                else LyricGetter(navController)
                                             }
                                             composable(ExoplayerSetting) {
                                                 ExoPlayerSettings(navController)
                                             }
                                             composable(UI.Settings.About) {
-                                                About(
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.About)
+                                                else About(
                                                     navController
                                                 )
                                             }
                                             composable(UI.Settings.MediaCodec) {
-                                                MediaCodec(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.MediaCodec)
+                                                else MediaCodec(navController)
                                             }
 
                                             composable(UI.Settings.LyricSetting) {
-                                                LyricSetting(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.LyricSetting)
+                                                else LyricSetting(navController)
                                             }
                                             composable(UI.Settings.UserInterfaceSetting) {
-                                                UserInterfaceSetting(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.UserInterfaceSetting)
+                                                else UserInterfaceSetting(navController)
                                             }
                                             composable(UI.Settings.NotificationSetting) {
-                                                NotificationSetting(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.NotificationSetting)
+                                                else NotificationSetting(navController)
                                             }
                                             composable(UI.Settings.RemoteServerManagement) {
-                                                yos.music.player.ui.pages.settings.remote.RemoteServerManagement(navController)
+                                                if (isLandscapeNow) Settings(navController, initialPage = UI.Settings.RemoteServerManagement)
+                                                else yos.music.player.ui.pages.settings.remote.RemoteServerManagement(navController)
                                             }
                                             composable(
                                                 UI.Settings.RemoteFolderPicker,

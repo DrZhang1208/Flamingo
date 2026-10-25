@@ -22,7 +22,12 @@ import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun ExoPlayerSettings(navController: NavController, onBack: (() -> Unit)? = null) =
+fun ExoPlayerSettings(
+    navController: NavController,
+    onBack: (() -> Unit)? = null,
+    // 横屏设置右栏内打开编解码器选择：非空时不走路由
+    onOpenMediaCodec: (() -> Unit)? = null
+) =
     SettingBackground {
         Title(title = stringResource(id = R.string.settings_audio_exoplayer),
             subTitle = stringResource(id = R.string.settings_audio_exoplayer_sub),
@@ -69,7 +74,7 @@ fun ExoPlayerSettings(navController: NavController, onBack: (() -> Unit)? = null
                             Divider()
 
                             LabelItem(title = stringResource(id = R.string.settings_audio_exoplayer_support_mediacodec)) {
-                                navController.navigate(UI.Settings.MediaCodec)
+                                if (onOpenMediaCodec != null) onOpenMediaCodec() else navController.navigate(UI.Settings.MediaCodec)
                             }
 
                             Divider()

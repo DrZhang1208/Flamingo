@@ -78,7 +78,12 @@ import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
-fun LibraryOverview(navController: NavController, onBack: (() -> Unit)? = null) =
+fun LibraryOverview(
+    navController: NavController,
+    onBack: (() -> Unit)? = null,
+    // 横屏设置右栏内打开文件夹歌曲列表：非空时点击不走路由
+    onOpenFolderSongs: (() -> Unit)? = null
+) =
     SettingBackground {
     // 观察 folderListVersion 确保远程文件夹变更时重组
     @Suppress("UNUSED_VARIABLE") val fv = MusicLibrary.folderListVersion
@@ -103,7 +108,7 @@ fun LibraryOverview(navController: NavController, onBack: (() -> Unit)? = null) 
                                 isLast = index == folders.size - 1
                             ) {
                                 LibraryObject.setTargetListWithTitle(folder.name, folder.songs)
-                                navController.toUI(UI.NormalMusic)
+                                    if (onOpenFolderSongs != null) onOpenFolderSongs() else navController.toUI(UI.NormalMusic)
                             }
                         }
                     }

@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -69,11 +71,22 @@ import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun Settings(navController: NavController) =
+fun Settings(
+    navController: NavController,
+    // 横屏从整页子页路由进入时的预选页
+    initialPage: String? = null
+) =
     SettingBackground {
         val landscape = isLandscape()
-        // 横屏右栏当前子页（路由名）；竖屏不使用
-        var selectedPage by rememberSaveable { mutableStateOf<String?>(null) }
+        // 横屏右栏页面栈（一级子页在底，二级页面压栈、左栏不隐藏）；竖屏不使用
+        val paneStack = remember { mutableStateListOf(initialPage ?: UI.Settings.Main) }
+        val selectedPage: String? = paneStack.lastOrNull().takeIf { it != UI.Settings.Main }
+        val popPane: () -> Unit = { if (paneStack.size > 1) paneStack.removeAt(paneStack.lastIndex) }
+        val openPane: (String) -> Unit = { route ->
+            paneStack.clear()
+            paneStack.add(route)
+        }
+        BackHandler(enabled = paneStack.size > 1, onBack = popPane)
 
         if (landscape) {
             // 分栏：左栏与右栏都用原版 Title 顶栏样式（大标题随滚动收起、
@@ -92,7 +105,7 @@ fun Settings(navController: NavController) =
                         item("settings_menu") {
                             Column(Modifier.fillMaxWidth()) {
                                 SettingsMenu(
-                                    open = { selectedPage = it },
+                                    open = { openPane(it) },
                                     selectedPage = selectedPage
                                 )
                             }
@@ -118,16 +131,49 @@ fun Settings(navController: NavController) =
                         }
                     } else {
                         key(page) {
-                            // 横屏右栏子页不放返回键
+                            // 横屏右栏子页不放返回键；二级页面在右栏内压栈打开
                             when (page) {
-                                UI.Settings.LibraryOverview -> LibraryOverview(navController)
-                                UI.Settings.RemoteServerManagement -> RemoteServerManagement(navController)
+                                UI.Settings.LibraryOverview -> LibraryOverview(
+                                    navController,
+                                    onOpenFolderSongs = {
+                                        paneStack.add(UI.NormalMusic)
+                                    }
+                                )
+                                UI.Settings.RemoteServerManagement -> RemoteServerManagement(
+                                    navController,
+                                    onOpenFolderPicker = { sid ->
+                                        paneStack.add("${UI.Settings.RemoteFolderPicker}/$sid")
+                                    }
+                                )
                                 UI.Settings.LyricSetting -> LyricSetting(navController)
                                 UI.Settings.UserInterfaceSetting -> UserInterfaceSetting(navController)
                                 UI.Settings.NotificationSetting -> NotificationSetting(navController)
-                                UI.Settings.ExoplayerSetting -> ExoPlayerSettings(navController)
+                                UI.Settings.ExoplayerSetting -> ExoPlayerSettings(
+                                    navController,
+                                    onOpenMediaCodec = {
+                                        paneStack.add(UI.Settings.MediaCodec)
+                                    }
+                                )
                                 UI.Settings.LyricGetter -> LyricGetter(navController)
                                 UI.Settings.About -> About(navController)
+                                // 概览里的文件夹歌曲列表：右栏内打开
+                                UI.NormalMusic -> yos.music.player.ui.pages.library.NormalMusic(
+                                    navController,
+                                    onBack = popPane
+                                )
+                                // 编解码器选择：右栏内打开
+                                UI.Settings.MediaCodec -> yos.music.player.ui.pages.settings.audio.exoPlayer.MediaCodec(
+                                    navController,
+                                    onBack = popPane
+                                )
+                                // 远程文件夹选择器：右栏内打开
+                                else -> if (page.startsWith("${UI.Settings.RemoteFolderPicker}/")) {
+                                    yos.music.player.ui.pages.settings.remote.RemoteFolderPicker(
+                                        navController,
+                                        page.substringAfterLast('/'),
+                                        onBack = popPane
+                                    )
+                                }
                             }
                         }
                     }

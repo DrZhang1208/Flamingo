@@ -64,6 +64,9 @@ import yos.music.player.ui.widgets.basic.YosWrapper
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 
 /** 横屏右栏导航栈的层级：分类列表在栈底，详情页压栈、右栏内切换 */
+/** 横屏从整页路由进入分栏时的初始分栏（用于路由→分栏形态映射） */
+enum class LibrarySectionPane { Playlists, Artists, Albums, Songs }
+
 private sealed interface LibraryPane {
     data object Playlists : LibraryPane
     data object Artists : LibraryPane
@@ -75,14 +78,18 @@ private sealed interface LibraryPane {
 }
 
 @Composable
-fun Library(navController: NavController) {
+fun Library(
+    navController: NavController,
+    initialPane: LibrarySectionPane = LibrarySectionPane.Songs,
+    // 从专辑/艺人/歌单整页路由进入时的详情名（压在初始分栏之上）
+    initialDetail: String? = null
+) {
     if (isLandscape()) {
-        LibraryLandscape(navController)
+        LibraryLandscape(navController, initialPane, initialDetail)
     } else {
         LibraryPortrait(navController)
     }
 }
-
 /** 竖屏：原有入口列表，逐项 push 路由 */
 @Composable
 private fun LibraryPortrait(navController: NavController) =
@@ -154,12 +161,32 @@ private fun LibraryPortrait(navController: NavController) =
  *  点专辑/艺人/歌单在右栏内切换，各栏独立滚动互不带动 */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun LibraryLandscape(navController: NavController) {
+private fun LibraryLandscape(
+    navController: NavController,
+    initialPane: LibrarySectionPane = LibrarySectionPane.Songs,
+    initialDetail: String? = null
+) {
     val songsTitle = stringResource(id = R.string.page_library_songs)
     val stack = remember {
-        // 默认打开歌曲分类；数据源在事件期设置，避免组合期副作用
-        LibraryObject.setTargetListWithTitle(songsTitle, songs)
-        mutableStateListOf<LibraryPane>(LibraryPane.Songs)
+        // 数据源在事件期/初始化期设置，避免组合期副作用
+        if (initialPane == LibrarySectionPane.Songs) {
+            LibraryObject.setTargetListWithTitle(songsTitle, songs)
+        }
+        mutableStateListOf(
+            when (initialPane) {
+                LibrarySectionPane.Playlists -> LibraryPane.Playlists
+                LibrarySectionPane.Artists -> LibraryPane.Artists
+                LibrarySectionPane.Albums -> LibraryPane.Albums
+                LibrarySectionPane.Songs -> LibraryPane.Songs
+            }
+        ).also { st ->
+            when (initialPane) {
+                LibrarySectionPane.Artists -> initialDetail?.let { st.add(LibraryPane.Artist(it)) }
+                LibrarySectionPane.Albums -> initialDetail?.let { st.add(LibraryPane.Album(it)) }
+                LibrarySectionPane.Playlists -> initialDetail?.let { st.add(LibraryPane.PlaylistSongs(it)) }
+                LibrarySectionPane.Songs -> {}
+            }
+        }
     }
     val popPane: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
     BackHandler(enabled = stack.size > 1, onBack = popPane)
