@@ -86,7 +86,8 @@ fun Settings(navController: NavController) =
                 ) {
                     Title(
                         title = stringResource(id = R.string.page_settings_title),
-                        onBack = { navController.popBackStack() }
+                        // 横屏从侧栏进入，顶栏不再放返回键；竖屏保留
+                        onBack = if (isLandscape()) null else ({ navController.popBackStack() })
                     ) {
                         item("settings_menu") {
                             Column(Modifier.fillMaxWidth()) {

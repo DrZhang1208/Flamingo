@@ -788,17 +788,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         YosWrapper {
                             if (height.intValue == 0) return@YosWrapper
 
-                            // 横屏收起态给侧栏让位：内容区左缘从侧栏右缘开始，
-                            // 展开过程随 progress 归零恢复全宽
-                            val railInset by remember(isLandscapeNow) {
-                                derivedStateOf {
-                                    if (isLandscapeNow) SideNavigatorWidth * (1f - yosBottomSheetConfig.progress) else 0.dp
-                                }
-                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(start = railInset)
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height
@@ -976,6 +968,15 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             }
                                         }
 
+                                        // 横屏收起态给侧栏让位：只对迷你条内容做动态
+                                        // start 让位（62dp 小条重排便宜），播放层 Box 不用
+                                        // 动态 padding——否则展开/收起动画每帧都会重新
+                                        // 测量整棵播放页（歌词渲染树），横屏明显掉帧
+                                        val miniRailInset by remember(isLandscapeNow) {
+                                            derivedStateOf {
+                                                if (isLandscapeNow) SideNavigatorWidth * (1f - yosBottomSheetConfig.progress) else 0.dp
+                                            }
+                                        }
                                         // 迷你播放状态
                                         YosWrapper {
                                             //println("变换：菜单透明度 $menuAlpha")
@@ -1013,6 +1014,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 Modifier
                                                                     .height(miniPlayerHeight)
                                                                     .fillMaxWidth()
+                                                                    .padding(start = miniRailInset)
                                                                     .padding(
                                                                         horizontal = 8.dp
                                                                     )
