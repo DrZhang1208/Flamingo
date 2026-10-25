@@ -569,6 +569,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     val color =
                                         Color(0xFFF5F5F5) withNight /*Color(0xFF111111)*/ Color.Black
                                     // Keep the fade above the tabs; navigation insets only extend the opaque part.
+                                    // 横屏底部遮罩只需罩住迷你条+缝隙；竖屏保持整段（底栏+迷你条）
+                                    val bottomMaskHeight = if (isLandscapeNow) 76.dp else navBarBottom + 128.dp
                                     val bottomBarBrush = remember(color, density) {
                                         Brush.verticalGradient(
                                             0f to Color.Transparent,
@@ -684,7 +686,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         Spacer(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(navBarBottom + 128.dp)
+                                                .height(bottomMaskHeight)
                                                 .background(bottomBarBrush)
                                         )
                                         if (SettingsLibrary.BarBlurEffect) {
@@ -700,7 +702,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 Spacer(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .height(navBarBottom + 128.dp)
+                                                        .height(bottomMaskHeight)
                                                         .graphicsLayer {
                                                             alpha = blurAlpha.value
                                                             compositingStrategy =
@@ -819,10 +821,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         this.scaleX = 0.93f + plus
                                         this.scaleY = 0.93f + plus
                                         // 收起态整体上移给底栏腾位——竖屏专用；
-                                        // 横屏底栏在侧边，上移会让迷你条悬空，归零
-                                        this.translationY = -(height.intValue + 10) *
-                                                (yosBottomSheetConfig.menuAlpha) *
-                                                (if (isLandscapeNow) 0f else 1f)
+                                        // 横屏底栏在侧边，仅保留一小段缝隙不贴死
+                                        this.translationY =
+                                            if (isLandscapeNow)
+                                                -10.dp.toPx() * (yosBottomSheetConfig.menuAlpha)
+                                            else
+                                                -(height.intValue + 10) * (yosBottomSheetConfig.menuAlpha)
                                         this.transformOrigin = TransformOrigin(0.5f, 1f)
                                     },
                                 contentAlignment = Alignment.BottomCenter

@@ -146,7 +146,18 @@ fun Settings(navController: NavController) =
                         }
                     }
                     GlassHeaderBar(
-                        title = "",
+                        // 与左栏同款带标题的玻璃顶栏：标题跟随右栏当前子页
+                        title = when (selectedPage) {
+                            UI.Settings.LibraryOverview -> stringResource(id = R.string.settings_library_overview)
+                            UI.Settings.RemoteServerManagement -> stringResource(id = R.string.settings_remote_server_management)
+                            UI.Settings.LyricSetting -> stringResource(id = R.string.settings_performance_lyric_title)
+                            UI.Settings.UserInterfaceSetting -> stringResource(id = R.string.settings_performance_ui_title)
+                            UI.Settings.NotificationSetting -> stringResource(id = R.string.settings_performance_notification_title)
+                            UI.Settings.ExoplayerSetting -> stringResource(id = R.string.settings_audio_exoplayer)
+                            UI.Settings.LyricGetter -> stringResource(id = R.string.settings_extend_statusbarlyric)
+                            UI.Settings.About -> stringResource(id = R.string.settings_others_about)
+                            else -> ""
+                        },
                         hazeState = rightHazeState
                     )
                 }

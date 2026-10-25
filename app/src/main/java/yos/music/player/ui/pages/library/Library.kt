@@ -291,7 +291,16 @@ private fun LibraryLandscape(navController: NavController) {
                 }
             }
             GlassHeaderBar(
-                title = "",
+                // 与左栏同款带标题的玻璃顶栏：标题跟随右栏当前内容
+                title = when (val pane = stack.last()) {
+                    LibraryPane.Playlists -> stringResource(id = R.string.page_library_playlists)
+                    LibraryPane.Artists -> stringResource(id = R.string.page_library_artists)
+                    LibraryPane.Albums -> stringResource(id = R.string.page_library_albums)
+                    LibraryPane.Songs -> stringResource(id = R.string.page_library_songs)
+                    is LibraryPane.PlaylistSongs -> pane.title
+                    is LibraryPane.Artist -> pane.name
+                    is LibraryPane.Album -> pane.name
+                },
                 hazeState = rightHazeState
             )
             }

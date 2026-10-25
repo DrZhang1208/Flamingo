@@ -204,9 +204,9 @@ def uploadReleaseToWebDav = tasks.register('uploadReleaseToWebDav', Exec) {
         }
     }
 }
-tasks.matching { it.name == 'assembleRelease' }.configureEach {
-    dependsOn uploadReleaseToWebDav
-}
+// 2026-10-25 起不再随构建上传 WebDAV，仅保留 GitHub 私有仓库分发；
+// 需要时手动执行 uploadReleaseToWebDav 即可
+
 
 // GitHub 私有仓库分发：WebDAV 单连接限速 ~0.07MB/s，Release asset 下载全速。
 // gh 不存在/未登录/网络失败只警告，不丢弃本地 APK，与 WebDAV 任务同语义。
