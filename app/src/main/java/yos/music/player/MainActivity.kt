@@ -726,9 +726,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(bottomMaskHeight)
-                                                // 横屏底部遮罩不能横穿侧栏（侧栏只保留自己的
-                                                // 纵向渐变），从分割线处开始
-                                                .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
+                                                // 横屏遮罩与浮条同宽同位（浮条正下方的窄渐变），
+                                                // 不越过浮条两侧边距、不横穿侧栏
+                                                .padding(
+                                                    start = if (isLandscapeNow) SideNavigatorWidth + 12.dp else 0.dp,
+                                                    end = if (isLandscapeNow) 12.dp else 0.dp
+                                                )
                                                 .background(bottomBarBrush)
                                         )
                                         if (SettingsLibrary.BarBlurEffect) {
@@ -745,7 +748,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .height(bottomMaskHeight)
-                                                        .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
+                                                        .padding(
+                                                            start = if (isLandscapeNow) SideNavigatorWidth + 12.dp else 0.dp,
+                                                            end = if (isLandscapeNow) 12.dp else 0.dp
+                                                        )
                                                         .graphicsLayer {
                                                             alpha = blurAlpha.value
                                                             compositingStrategy =
