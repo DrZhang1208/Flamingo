@@ -69,6 +69,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -785,9 +786,17 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         YosWrapper {
                             if (height.intValue == 0) return@YosWrapper
 
+                            // 横屏收起态给侧栏让位：内容区左缘从侧栏右缘开始，
+                            // 展开过程随 progress 归零恢复全宽
+                            val railInset by remember(isLandscapeNow) {
+                                derivedStateOf {
+                                    if (isLandscapeNow) SideNavigatorWidth * (1f - yosBottomSheetConfig.progress) else 0.dp
+                                }
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .padding(start = railInset)
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height
@@ -809,8 +818,11 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             0.07f * yosBottomSheetConfig.progress
                                         this.scaleX = 0.93f + plus
                                         this.scaleY = 0.93f + plus
-                                        this.translationY =
-                                            -(height.intValue + 10) * (yosBottomSheetConfig.menuAlpha)
+                                        // 收起态整体上移给底栏腾位——竖屏专用；
+                                        // 横屏底栏在侧边，上移会让迷你条悬空，归零
+                                        this.translationY = -(height.intValue + 10) *
+                                                (yosBottomSheetConfig.menuAlpha) *
+                                                (if (isLandscapeNow) 0f else 1f)
                                         this.transformOrigin = TransformOrigin(0.5f, 1f)
                                     },
                                 contentAlignment = Alignment.BottomCenter
@@ -860,14 +872,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             translationY =
                                                 ((parentHeight.intValue - miniPlayerHeightPx) * (1 - yosBottomSheetConfig.progress))
 
-                                            if (isLandscapeNow) {
-                                                translationX =
-                                                    SideNavigatorWidth.toPx() * (1 - yosBottomSheetConfig.progress)
-                                                // 迷你条容器底部渐变带竖屏被底栏遮挡、横屏无底栏
-                                                // 会露出，整体下移贴到屏幕底，随展开衰减归零
-                                                // （真机实测 12dp 仍有 2-3% 屏高缝隙，取 22dp）
-                                                translationY += 22.dp.toPx() * (1 - yosBottomSheetConfig.progress)
-                                            }
+
 
                                             if (yosBottomSheetConfig.barShowCorner) {
                                                 shape = YosRoundedCornerShape(

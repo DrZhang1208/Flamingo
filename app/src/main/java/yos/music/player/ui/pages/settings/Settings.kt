@@ -111,8 +111,15 @@ fun Settings(navController: NavController) =
                     Modifier
                         .weight(1.6f)
                         .fillMaxHeight()
-                        .padding(start = 16.dp)
                 ) {
+                    // 右栏顶部同款玻璃遮罩（无标题），子页滚过时与左栏一致地渐进模糊
+                    val rightHazeState = remember { HazeState() }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .haze(rightHazeState)
+                            .padding(start = 16.dp)
+                    ) {
                         val page = selectedPage
                         if (page == null) {
                             Text(
@@ -138,7 +145,12 @@ fun Settings(navController: NavController) =
                             }
                         }
                     }
+                    GlassHeaderBar(
+                        title = "",
+                        hazeState = rightHazeState
+                    )
                 }
+            }
         } else {
             Title(title = stringResource(id = R.string.page_settings_title),
                 onBack = {

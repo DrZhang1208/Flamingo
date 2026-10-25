@@ -40,7 +40,8 @@ fun Home(
         // 区块原样复用，整页独立滚动
         TitlePinned(
             title = stringResource(id = R.string.page_home_title),
-            rightIcon = CupertinoIcons.Default.PersonCropCircle,
+            // 横屏设置入口在侧栏，右上角头像仅竖屏保留
+            rightIcon = if (isLandscape()) null else CupertinoIcons.Default.PersonCropCircle,
             onRightIcon = {
                 navController.toUI(UI.Settings.Main)
             },
