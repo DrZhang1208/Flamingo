@@ -65,19 +65,24 @@ internal fun toolButtonHazeStyle(hazeState: HazeState): Modifier {
 /** 圆角白形 BitmapShader：haze RenderEffect 链的 SRC_IN 遮罩，白=保留 */
 private class RoundedMaskBrush(private val shape: Shape, private val density: Density) : ShaderBrush() {
 
-    private var cached: Pair<Size, Shader>? = null
+    // 放大动画每帧尺寸滚动：按像素尺寸缓存，往返复用小位图
+    private val cache = HashMap<Int, Shader>()
 
     override fun createShader(size: Size): Shader {
-        cached?.let { (s, shader) -> if (s == size) return shader }
-        val w = size.width.toInt().coerceAtLeast(1)
-        val h = size.height.toInt().coerceAtLeast(1)
+        val w = kotlin.math.ceil(size.width).toInt().coerceAtLeast(1)
+        val h = kotlin.math.ceil(size.height).toInt().coerceAtLeast(1)
+        val key = w shl 16 or h
+        cache[key]?.let { return it }
+        // 圆角路径必须画满整个位图（用整数像素尺寸生成 outline）：
+        // 若按传入的 float 尺寸画，右/下边会留 <1px 透明缝，SRC_IN 把它当
+        // "裁掉"，放大动画中尺寸小数滚动，边缘就持续闪裁切细线
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
         val paint = android.graphics.Paint().apply {
             color = android.graphics.Color.WHITE
             isAntiAlias = true
         }
-        when (val outline = shape.createOutline(size, LayoutDirection.Ltr, density)) {
+        when (val outline = shape.createOutline(Size(w.toFloat(), h.toFloat()), LayoutDirection.Ltr, density)) {
             is Outline.Generic -> canvas.drawPath(outline.path.asAndroidPath(), paint)
             is Outline.Rounded -> {
                 val r = outline.roundRect
@@ -86,7 +91,10 @@ private class RoundedMaskBrush(private val shape: Shape, private val density: De
             else -> canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
         }
         return BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-            .also { cached = size to it }
+            .also {
+                if (cache.size > 8) cache.clear()
+                cache[key] = it
+            }
     }
 }
 
