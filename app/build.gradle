@@ -207,3 +207,23 @@ def uploadReleaseToWebDav = tasks.register('uploadReleaseToWebDav', Exec) {
 tasks.matching { it.name == 'assembleRelease' }.configureEach {
     dependsOn uploadReleaseToWebDav
 }
+
+// GitHub 私有仓库分发：WebDAV 单连接限速 ~0.07MB/s，Release asset 下载全速。
+// gh 不存在/未登录/网络失败只警告，不丢弃本地 APK，与 WebDAV 任务同语义。
+def releaseUploadGitHubScript = rootProject.file('scripts/upload_release_github.py').absolutePath
+def uploadReleaseToGitHub = tasks.register('uploadReleaseToGitHub', Exec) {
+    group = 'distribution'
+    description = 'Upload the packaged Release APK to the private GitHub releases repository.'
+    dependsOn 'packageRelease'
+    onlyIf('Upload script exists') { new File(releaseUploadGitHubScript).isFile() }
+    commandLine 'python3', releaseUploadGitHubScript, '--metadata', releaseOutputMetadata
+    ignoreExitValue = true
+    doLast {
+        if (executionResult.get().exitValue != 0) {
+            logger.warn('GitHub release upload FAILED. Run scripts/upload_release_github.py to retry.')
+        }
+    }
+}
+tasks.matching { it.name == 'assembleRelease' }.configureEach {
+    dependsOn uploadReleaseToGitHub
+}

@@ -33,8 +33,9 @@ internal fun toolButtonHazeStyle(hazeState: HazeState) =
     Modifier.hazeChild(
         hazeState,
         HazeStyle(
-            // haze 的 RenderEffect 路径要求垫底色（blur 采样边缘扩展用），中心区域被模糊内容覆盖
-            backgroundColor = Color.White withNight Color.Black,
+            // haze 的 RenderEffect 路径要求垫底色非 Unspecified，否则首绘崩溃；
+            // 必须透明：不透明垫底会把 blur 采样超界的小按钮填成直角实色块，圆角消失
+            backgroundColor = Color.Transparent,
             blurRadius = 20.dp,
             tint = (Color.White withNight Color.Black).copy(alpha = 0.10f),
             noiseFactor = 0f
