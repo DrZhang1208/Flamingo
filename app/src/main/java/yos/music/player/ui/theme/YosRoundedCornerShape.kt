@@ -3,6 +3,7 @@ package yos.music.player.ui.theme
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.runtime.Stable
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.Outline
@@ -24,8 +25,17 @@ fun YosRoundedCornerShape(
 fun YosRoundedCornerShape(
     roundSize: Dp,
     n: Float = 0.5f,
-    mSize: Size? = null
-) = YosRoundedCornerShape(CornerSize(roundSize), n, mSize)
+    mSize: Size? = null,
+    mOffset: Offset = Offset.Zero
+) = YosRoundedCornerShape(
+    topStart = CornerSize(roundSize),
+    topEnd = CornerSize(roundSize),
+    bottomEnd = CornerSize(roundSize),
+    bottomStart = CornerSize(roundSize),
+    n = n,
+    mSize = mSize,
+    mOffset = mOffset
+)
 
 fun YosRoundedCornerShape(
     corner: CornerSize,
@@ -56,7 +66,8 @@ class YosRoundedCornerShape(
     bottomEnd: CornerSize,
     bottomStart: CornerSize,
     private val n: Float = 0.5f,
-    private val mSize: Size? = null
+    private val mSize: Size? = null,
+    private val mOffset: Offset = Offset.Zero
 ) : CornerBasedShape(
     topStart = topStart,
     topEnd = topEnd,
@@ -70,7 +81,8 @@ class YosRoundedCornerShape(
         bottomEnd: Float,
         bottomStart: Float,
         layoutDirection: LayoutDirection
-    ) = if (topStart + topEnd + bottomEnd + bottomStart == 0f) Outline.Rectangle(size.toRect())
+    ) = if (topStart + topEnd + bottomEnd + bottomStart == 0f)
+        Outline.Rectangle(size.toRect().translate(mOffset))
     else Outline.Generic(
         Path().apply {
             val width = mSize?.width ?: size.width
@@ -121,6 +133,7 @@ class YosRoundedCornerShape(
             }
             lineTo(aa1, 0f)
             close()
+            translate(mOffset)
         }
     )
 

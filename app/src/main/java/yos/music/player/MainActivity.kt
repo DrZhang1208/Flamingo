@@ -82,6 +82,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -828,19 +829,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         YosWrapper {
                             if (height.intValue == 0) return@YosWrapper
 
-                            // 横屏收起态让位侧栏；展开过半切到全屏宽。宽度只在动画
-                            // 中点变一次（单帧重排，非每帧——歌词打开时的卡顿根源是
-                            // 每帧重排，这里避开），切换发生在半屏运动中视觉不可察
-                            val landscapeRailPad by remember(isLandscapeNow) {
-                                derivedStateOf {
-                                    if (isLandscapeNow && yosBottomSheetConfig.progress <= 0.5f)
-                                        SideNavigatorWidth else 0.dp
-                                }
-                            }
+                            // 横屏让位侧栏全走绘制相位：播放层布局恒满宽，收起态由
+                            // Surface 的裁剪形状左缘（railInset，随展开平滑收拢到 0）
+                            // 与迷你条内容的静态 start padding 共同呈现；动画期零重排，
+                            // 也没有中点切宽的单帧跳变
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(start = landscapeRailPad)
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height
@@ -918,15 +913,19 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             translationY =
                                                 ((parentHeight.intValue - miniPlayerHeightPx) * (1 - yosBottomSheetConfig.progress))
 
-
+                                            // 横屏让位侧栏：形状左缘随展开从侧栏宽平滑收拢到 0，
+                                            // 与竖屏共用同一套逐帧变形形状（纯绘制相位，零重排）
+                                            val railInset = if (isLandscapeNow)
+                                                SideNavigatorWidth.toPx() * (1f - yosBottomSheetConfig.progress) else 0f
 
                                             if (yosBottomSheetConfig.barShowCorner) {
                                                 shape = YosRoundedCornerShape(
                                                     roundSize = yosBottomSheetConfig.barShapeValue.dp,
                                                     mSize = Size(
-                                                        width = size.width,
+                                                        width = size.width - railInset,
                                                         height = (miniPlayerHeightPx + (parentHeight.intValue - miniPlayerHeightPx) * yosBottomSheetConfig.progress)
-                                                    )
+                                                    ),
+                                                    mOffset = Offset(railInset, 0f)
                                                 )
                                                 shadowElevation = miniPlayerShadow
                                                 spotShadowColor = Color.Black.copy(alpha = 0.2f)
@@ -938,12 +937,15 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 if (yosBottomSheetConfig.barShowCorner) {
                                                     compositingStrategy = CompositingStrategy.Offscreen
                                                     clip = true
+                                                    val railInset = if (isLandscapeNow)
+                                                        SideNavigatorWidth.toPx() * (1f - yosBottomSheetConfig.progress) else 0f
                                                     shape = YosRoundedCornerShape(
                                                         roundSize = yosBottomSheetConfig.barShapeValue.dp,
                                                         mSize = Size(
-                                                            width = size.width,
+                                                            width = size.width - railInset,
                                                             height = (miniPlayerHeightPx + (parentHeight.intValue - miniPlayerHeightPx) * yosBottomSheetConfig.progress)
-                                                        )
+                                                        ),
+                                                        mOffset = Offset(railInset, 0f)
                                                     )
                                                 } else {
                                                     compositingStrategy = CompositingStrategy.ModulateAlpha
@@ -1032,6 +1034,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 this.alpha =
                                                                     (1f - 4f * yosBottomSheetConfig.progress).coerceIn(0f, 1f)
                                                             }
+                                                            // 横屏静态让位侧栏（播放层布局恒满宽，靠这层
+                                                            // padding + Surface 裁剪形状呈现内容区宽度；
+                                                            // 迷你条 0.25 进度内已淡出，无需随动画变）
+                                                            .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
                                                             .background(color)
                                                     ) {
                                                         Box(
