@@ -26,6 +26,7 @@ import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.TitlePinned
+import yos.music.player.ui.widgets.basic.pinnedHeaderHeight
 
 @Composable
 fun Home(
@@ -49,6 +50,8 @@ fun Home(
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                 ) {
+                    // 内容贯穿到屏幕顶，首部让出玻璃标题栏
+                    Spacer(modifier = Modifier.height(pinnedHeaderHeight()))
                     if (songs.isNotEmpty() || (SettingsLibrary.ListenHistory && listenStats != null)) {
                         Row {
                             if (songs.isNotEmpty()) {

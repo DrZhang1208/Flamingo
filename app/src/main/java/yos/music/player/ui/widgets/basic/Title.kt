@@ -659,9 +659,10 @@ private fun TitleItem(
 }
 
 /**
- * 横屏分栏页骨架：大标题固定在顶部（不随滚动收起、无顶栏模糊条），
- * 内容区占满剩余高度，由各分栏自行滚动、互不带动。
- * 视觉与竖屏 TitleItem 同源（35sp Bold、20dp 边距、primary 右上角图标）。
+ * 横屏分栏/双栏页骨架：内容区全高贯穿（自行从屏幕顶部开始滚动），
+ * 顶部为渐变模糊玻璃标题浮层——滚动内容从标题后面穿过，越向上
+ * 模糊越强、向下渐弱到清晰，标题文字保持清晰。
+ * 内容首部应加 [pinnedHeaderHeight] 的留白，使初始内容位于标题下方。
  */
 @Composable
 fun TitlePinned(
@@ -671,9 +672,39 @@ fun TitlePinned(
     onRightIcon: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    // 渐变模糊顶栏：与底栏渐变模糊同源镜像——越向上模糊越强，向下渐弱到清晰；
-    // 标题行叠在最上层保持清晰，滚动内容经过遮罩带时被渐进模糊盖住
     val hazeState = remember { HazeState() }
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .haze(hazeState)
+        ) {
+            content()
+        }
+        GlassHeaderBar(
+            title = title,
+            onBack = onBack,
+            rightIcon = rightIcon,
+            onRightIcon = onRightIcon,
+            hazeState = hazeState
+        )
+    }
+}
+
+/**
+ * 渐变模糊玻璃标题浮层：静态色渐变兜底 + haze 层（32dp）经垂直 DstIn
+ * 渐变裁剪（顶部不透明、向下透明），与底栏渐变模糊同源镜像。
+ * 分栏页的左栏可单独使用（haze 源挂在对应的滚动内容上）。
+ */
+@Composable
+fun GlassHeaderBar(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    rightIcon: ImageVector? = null,
+    onRightIcon: (() -> Unit)? = null,
+    hazeState: HazeState,
+    modifier: Modifier = Modifier
+) {
     val bgColor = Color.White withNight Color.Black
     val density = LocalDensity.current
     // 该机型上 accompanist 状态栏值在隐藏/旋转后不可靠，读 foundation 实时值
@@ -695,25 +726,8 @@ fun TitlePinned(
         )
     }
 
-    Box(Modifier.fillMaxSize()) {
-        // 内容层：haze 模糊源，顶部让出标题区
-        Column(
-            Modifier
-                .fillMaxSize()
-                .haze(hazeState)
-        ) {
-            Spacer(modifier = Modifier.height(headerHeight))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                content()
-            }
-        }
-
+    Box(modifier) {
         // 遮罩带：静态色渐变兜底；开启模糊时叠 haze 层并用垂直 DstIn 渐变裁剪
-        // （顶部完全不透明、向下透明），使模糊强度随高度衰减
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
@@ -802,3 +816,11 @@ fun TitlePinned(
         }
     }
 }
+
+/**
+ * 横屏玻璃标题栏的占位高度（状态栏 + 54dp）：贯穿式内容的首部留白用，
+ * 使初始内容位于标题下方、滚动时再滑入标题后面。
+ */
+@Composable
+fun pinnedHeaderHeight(): Dp =
+    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 54.dp

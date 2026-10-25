@@ -863,9 +863,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             if (isLandscapeNow) {
                                                 translationX =
                                                     SideNavigatorWidth.toPx() * (1 - yosBottomSheetConfig.progress)
-                                                // 迷你条容器底部的空白竖屏被底栏遮挡、横屏无底栏
-                                                // 会露出，整体下移让它视觉贴底，随展开衰减归零
-                                                translationY += 12.dp.toPx() * (1 - yosBottomSheetConfig.progress)
+                                                // 迷你条容器底部渐变带竖屏被底栏遮挡、横屏无底栏
+                                                // 会露出，整体下移贴到屏幕底，随展开衰减归零
+                                                // （真机实测 12dp 仍有 2-3% 屏高缝隙，取 22dp）
+                                                translationY += 22.dp.toPx() * (1 - yosBottomSheetConfig.progress)
                                             }
 
                                             if (yosBottomSheetConfig.barShowCorner) {

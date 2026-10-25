@@ -47,6 +47,7 @@ import androidx.compose.foundation.verticalScroll
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.widgets.basic.PaneDivider
 import yos.music.player.ui.widgets.basic.TitlePinned
+import yos.music.player.ui.widgets.basic.pinnedHeaderHeight
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -402,6 +403,8 @@ fun ListenStatsPage(navController: NavController) {
                             .verticalScroll(rememberScrollState())
                             .padding(end = 16.dp)
                     ) {
+                        // 内容贯穿到屏幕顶，首部让出玻璃标题栏
+                        Spacer(modifier = Modifier.height(pinnedHeaderHeight()))
                         ListenRangeSelector(
                             weekMode = weekMode,
                             onSelect = { weekMode = it }
@@ -423,7 +426,10 @@ fun ListenStatsPage(navController: NavController) {
                             .weight(1f)
                             .fillMaxSize()
                             .padding(start = 16.dp),
-                        contentPadding = PaddingValues(bottom = 134.dp)
+                        contentPadding = PaddingValues(
+                            top = pinnedHeaderHeight(),
+                            bottom = 134.dp
+                        )
                     ) {
                         if (weekMode) {
                             item("listen_time_of_day") {

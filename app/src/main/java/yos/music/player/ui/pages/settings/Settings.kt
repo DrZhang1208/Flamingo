@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -54,6 +55,10 @@ import yos.music.player.ui.pages.settings.remote.RemoteServerManagement
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.PaneDivider
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import yos.music.player.ui.widgets.basic.GlassHeaderBar
+import yos.music.player.ui.widgets.basic.pinnedHeaderHeight
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.TitlePinned
@@ -66,34 +71,48 @@ fun Settings(navController: NavController) =
         var selectedPage by rememberSaveable { mutableStateOf<String?>(null) }
 
         if (landscape) {
-            // 分栏页：固定标题 + 各栏独立滚动（滚一栏不带动另一栏/标题）
-            TitlePinned(title = stringResource(id = R.string.page_settings_title),
-                onBack = {
-                    navController.popBackStack()
-                }) {
-                Row(Modifier.fillMaxSize()) {
+            // 分栏：各栏从屏幕顶贯穿、独立滚动；左栏顶部为玻璃标题，
+            // 右栏子页自带标题从顶部开始；竖线全高（含标题区）
+            Row(Modifier.fillMaxSize()) {
+                val headerHazeState = remember { HazeState() }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
                     // 左列 = 竖屏分组列表原样，点菜单行在右栏打开子页
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
-                            .padding(end = 16.dp)
-                    ) {
-                        SettingsMenu(open = { selectedPage = it })
-                        Spacer(
-                            modifier = Modifier
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                                .height(134.dp)
-                        )
-                    }
-                    PaneDivider()
                     Box(
                         Modifier
-                            .weight(1.6f)
-                            .fillMaxHeight()
-                            .padding(start = 16.dp)
+                            .fillMaxSize()
+                            .haze(headerHazeState)
                     ) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            Spacer(modifier = Modifier.height(pinnedHeaderHeight()))
+                            SettingsMenu(open = { selectedPage = it })
+                            Spacer(
+                                modifier = Modifier
+                                    .windowInsetsPadding(WindowInsets.navigationBars)
+                                    .height(134.dp)
+                            )
+                        }
+                    }
+                    GlassHeaderBar(
+                        title = stringResource(id = R.string.page_settings_title),
+                        onBack = { navController.popBackStack() },
+                        hazeState = headerHazeState
+                    )
+                }
+                PaneDivider()
+                Box(
+                    Modifier
+                        .weight(1.6f)
+                        .fillMaxHeight()
+                        .padding(start = 16.dp)
+                ) {
                         val page = selectedPage
                         if (page == null) {
                             Text(
@@ -120,7 +139,6 @@ fun Settings(navController: NavController) =
                         }
                     }
                 }
-            }
         } else {
             Title(title = stringResource(id = R.string.page_settings_title),
                 onBack = {

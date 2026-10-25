@@ -55,6 +55,10 @@ import yos.music.player.ui.pages.library.playlists.PlayLists
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.basic.PaneDivider
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import yos.music.player.ui.widgets.basic.GlassHeaderBar
+import yos.music.player.ui.widgets.basic.pinnedHeaderHeight
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.TitlePinned
 import yos.music.player.ui.widgets.basic.YosWrapper
@@ -169,21 +173,27 @@ private fun LibraryLandscape(navController: NavController) {
         stack.add(pane)
     }
 
-    TitlePinned(
-        title = stringResource(id = R.string.page_library_title),
-        rightIcon = CupertinoIcons.Default.PersonCropCircle,
-        onRightIcon = {
-            navController.toUI(UI.Settings.Main)
-        }
-    ) {
-        Row(Modifier.fillMaxSize()) {
-            Column(
+    // 分栏：各栏从屏幕顶贯穿、独立滚动；左栏顶部为玻璃标题，右栏
+    // 列表/详情自带标题从顶部开始；竖线全高（含标题区）
+    Row(Modifier.fillMaxSize()) {
+        val headerHazeState = remember { HazeState() }
+        Box(
+            Modifier
+                .weight(0.95f)
+                .fillMaxHeight()
+        ) {
+            Box(
                 Modifier
-                    .weight(0.95f)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState())
-                    .padding(end = 16.dp)
+                    .fillMaxSize()
+                    .haze(headerHazeState)
             ) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(end = 16.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(pinnedHeaderHeight()))
                 LibraryMenuRow(
                     icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
                     label = stringResource(id = R.string.page_library_playlists),
@@ -219,18 +229,28 @@ private fun LibraryLandscape(navController: NavController) {
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .height(134.dp)
                 )
+                }
             }
-            PaneDivider()
-            Box(
-                Modifier
-                    .weight(2.05f)
-                    .fillMaxHeight()
-            ) {
-                AnimatedContent(
-                    targetState = stack.last(),
-                    transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
-                    label = "library_pane"
-                ) { pane ->
+            GlassHeaderBar(
+                title = stringResource(id = R.string.page_library_title),
+                rightIcon = CupertinoIcons.Default.PersonCropCircle,
+                onRightIcon = {
+                    navController.toUI(UI.Settings.Main)
+                },
+                hazeState = headerHazeState
+            )
+        }
+        PaneDivider()
+        Box(
+            Modifier
+                .weight(2.05f)
+                .fillMaxHeight()
+        ) {
+            AnimatedContent(
+                targetState = stack.last(),
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+                label = "library_pane"
+            ) { pane ->
                     when (pane) {
                         LibraryPane.Playlists -> PlayLists(
                             navController,
@@ -259,7 +279,6 @@ private fun LibraryLandscape(navController: NavController) {
                         is LibraryPane.Album -> AlbumInfo(navController, onBack = popPane)
                     }
                 }
-            }
         }
     }
 }
