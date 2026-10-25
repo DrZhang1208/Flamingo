@@ -860,9 +860,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         //compositingStrategy = CompositingStrategy.Offscreen
                                         val plus =
                                             0.07f * yosBottomSheetConfig.progress
-                                        // 横向恒 1：收起态迷你条满宽无侧缝，展开也无
-                                        // 横向放大跳变；纵向 0.93→1 的动画保留
-                                        this.scaleX = 1f
+                                        this.scaleX = 0.93f + plus
                                         this.scaleY = 0.93f + plus
                                         // 收起态整体上移给底栏腾位——竖屏专用；
                                         // 横屏底栏在侧边，仅保留一小段缝隙不贴死
