@@ -852,7 +852,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         //compositingStrategy = CompositingStrategy.Offscreen
                                         val plus =
                                             0.07f * yosBottomSheetConfig.progress
-                                        this.scaleX = 0.93f + plus
+                                        // 横屏横向不缩：收起态若横向也缩 0.93（底中心原点），
+                                        // 迷你条左端会离侧栏分割线一条缝、右端离屏缘一条缝
+                                        this.scaleX = if (isLandscapeNow) 1f else 0.93f + plus
                                         this.scaleY = 0.93f + plus
                                         // 收起态整体上移给底栏腾位——竖屏专用；
                                         // 横屏底栏在侧边，仅保留一小段缝隙不贴死

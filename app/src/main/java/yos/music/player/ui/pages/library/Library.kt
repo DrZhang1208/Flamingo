@@ -30,7 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -188,14 +191,24 @@ private fun LibraryLandscape(
             }
         }
     }
-    val popPane: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-    BackHandler(enabled = stack.size > 1, onBack = popPane)
 
+    // 右栏切换方向：push（列表→详情/切分类）从右入，pop 从左入。
+    // 不能用 indexOf 比较——pop 后旧页面已出栈会误判成前进方向
+    var panePushing by remember { mutableStateOf(true) }
+    val popWithDirection: () -> Unit = {
+        panePushing = false
+        if (stack.size > 1) stack.removeAt(stack.lastIndex)
+    }
     val select: (LibraryPane) -> Unit = { pane ->
         if (pane is LibraryPane.Songs) {
             LibraryObject.setTargetListWithTitle(songsTitle, songs)
         }
+        panePushing = true
         stack.clear()
+        stack.add(pane)
+    }
+    val pushDetail: (LibraryPane) -> Unit = { pane ->
+        panePushing = true
         stack.add(pane)
     }
 
@@ -258,11 +271,7 @@ private fun LibraryLandscape(
             AnimatedContent(
                 targetState = stack.last(),
                 transitionSpec = {
-                    // 压栈（列表→详情）新内容从右滑入；退栈/切分类从左滑回
-                    val targetIdx = stack.indexOf(targetState)
-                    val initialIdx = stack.indexOf(initialState)
-                    val forward = initialIdx < 0 || (targetIdx >= 0 && targetIdx > initialIdx)
-                    if (forward) {
+                    if (panePushing) {
                         (slideInHorizontally(tween(220)) { it / 3 } + fadeIn(tween(220))) togetherWith
                             (slideOutHorizontally(tween(220)) { -it / 3 } + fadeOut(tween(160)))
                     } else {
@@ -277,39 +286,39 @@ private fun LibraryLandscape(
                         navController,
                         onOpenPlaylist = { title, list ->
                             LibraryObject.setTargetListWithTitle(title, list)
-                            stack.add(LibraryPane.PlaylistSongs(title))
+                            pushDetail(LibraryPane.PlaylistSongs(title))
                         }
                     )
                     LibraryPane.Artists -> LocalArtists(
                         navController,
                         onOpenArtist = { name ->
                             LibraryObject.setTargetArtistName(name)
-                            stack.add(LibraryPane.Artist(name))
+                            pushDetail(LibraryPane.Artist(name))
                         }
                     )
                     LibraryPane.Albums -> LocalAlbums(
                         navController,
                         onOpenAlbum = { name ->
                             LibraryObject.setTargetAlbumName(name)
-                            stack.add(LibraryPane.Album(name))
+                            pushDetail(LibraryPane.Album(name))
                         }
                     )
                     LibraryPane.Songs -> NormalMusic(navController)
-                    is LibraryPane.PlaylistSongs -> NormalMusic(navController, onBack = popPane)
+                    is LibraryPane.PlaylistSongs -> NormalMusic(navController, onBack = popWithDirection)
                     is LibraryPane.Artist -> ArtistInfo(
                         navController,
-                        onBack = popPane,
+                        onBack = popWithDirection,
                         onOpenAlbum = { name ->
                             LibraryObject.setTargetAlbumName(name)
-                            stack.add(LibraryPane.Album(name))
+                            pushDetail(LibraryPane.Album(name))
                         }
                     )
                     is LibraryPane.Album -> AlbumInfo(
                         navController,
-                        onBack = popPane,
+                        onBack = popWithDirection,
                         onOpenArtist = { name ->
                             LibraryObject.setTargetArtistName(name)
-                            stack.add(LibraryPane.Artist(name))
+                            pushDetail(LibraryPane.Artist(name))
                         }
                     )
                 }

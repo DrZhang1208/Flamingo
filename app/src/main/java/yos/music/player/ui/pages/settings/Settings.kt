@@ -96,8 +96,18 @@ fun Settings(
         val selectedPage: String? = paneStack.lastOrNull { it in settingsMenuRoutes }
         // 右栏渲染跟随真实栈顶（含二级页面，如文件夹歌曲/编解码器/文件夹选择器）
         val activePane: String? = paneStack.lastOrNull().takeIf { it != UI.Settings.Main }
-        val popPane: () -> Unit = { if (paneStack.size > 1) paneStack.removeAt(paneStack.lastIndex) }
+        // 右栏切换方向：push 从右入、pop 从左入（indexOf 在 pop 后查不到旧页会误判）
+        var panePushing by remember { mutableStateOf(true) }
+        val popPane: () -> Unit = {
+            panePushing = false
+            if (paneStack.size > 1) paneStack.removeAt(paneStack.lastIndex)
+        }
+        val pushPane: (String) -> Unit = { route ->
+            panePushing = true
+            paneStack.add(route)
+        }
         val openPane: (String) -> Unit = { route ->
+            panePushing = true
             paneStack.clear()
             paneStack.add(route)
         }
@@ -149,10 +159,7 @@ fun Settings(
                         AnimatedContent(
                             targetState = page,
                             transitionSpec = {
-                                val targetIdx = paneStack.indexOf(targetState)
-                                val initialIdx = paneStack.indexOf(initialState)
-                                val forward = initialIdx < 0 || (targetIdx >= 0 && targetIdx > initialIdx)
-                                if (forward) {
+                                if (panePushing) {
                                     (slideInHorizontally(tween(220)) { it / 3 } + fadeIn(tween(220))) togetherWith
                                         (slideOutHorizontally(tween(220)) { -it / 3 } + fadeOut(tween(160)))
                                 } else {
@@ -166,13 +173,13 @@ fun Settings(
                                 UI.Settings.LibraryOverview -> LibraryOverview(
                                     navController,
                                     onOpenFolderSongs = {
-                                        paneStack.add(UI.NormalMusic)
+                                        pushPane(UI.NormalMusic)
                                     }
                                 )
                                 UI.Settings.RemoteServerManagement -> RemoteServerManagement(
                                     navController,
                                     onOpenFolderPicker = { sid ->
-                                        paneStack.add("${UI.Settings.RemoteFolderPicker}/$sid")
+                                        pushPane("${UI.Settings.RemoteFolderPicker}/$sid")
                                     }
                                 )
                                 UI.Settings.LyricSetting -> LyricSetting(navController)
@@ -181,7 +188,7 @@ fun Settings(
                                 UI.Settings.ExoplayerSetting -> ExoPlayerSettings(
                                     navController,
                                     onOpenMediaCodec = {
-                                        paneStack.add(UI.Settings.MediaCodec)
+                                        pushPane(UI.Settings.MediaCodec)
                                     }
                                 )
                                 UI.Settings.LyricGetter -> LyricGetter(navController)
