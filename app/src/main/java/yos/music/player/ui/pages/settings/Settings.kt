@@ -80,7 +80,13 @@ fun Settings(
         val landscape = isLandscape()
         // 横屏右栏页面栈（一级子页在底，二级页面压栈、左栏不隐藏）；竖屏不使用
         val paneStack = remember { mutableStateListOf(initialPage ?: UI.Settings.Main) }
-        val selectedPage: String? = paneStack.lastOrNull().takeIf { it != UI.Settings.Main }
+        // 左栏高亮跟随栈中最后打开的一级子页（二级页面在栈顶时不丢高亮）
+        val settingsMenuRoutes = setOf(
+            UI.Settings.LibraryOverview, UI.Settings.RemoteServerManagement, UI.Settings.LyricSetting,
+            UI.Settings.UserInterfaceSetting, UI.Settings.NotificationSetting, UI.Settings.ExoplayerSetting,
+            UI.Settings.LyricGetter, UI.Settings.About
+        )
+        val selectedPage: String? = paneStack.lastOrNull { it in settingsMenuRoutes }
         val popPane: () -> Unit = { if (paneStack.size > 1) paneStack.removeAt(paneStack.lastIndex) }
         val openPane: (String) -> Unit = { route ->
             paneStack.clear()
