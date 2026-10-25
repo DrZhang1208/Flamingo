@@ -70,6 +70,7 @@ import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
 import yos.music.player.R
 import yos.music.player.data.libraries.SettingsLibrary
+import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.theme.withNight
 
 /*@OptIn(ExperimentalCupertinoApi::class)
@@ -224,6 +225,8 @@ private fun BaseTitle(
     showLargeTitle: Boolean = true,
     content: Any
 ) {
+    // 横屏一律不显示大标题：直接进入顶栏模式（顶栏常显、标题在顶栏里）
+    val effectiveShowLargeTitle = showLargeTitle && !isLandscape()
     if (grid) {
         BaseTitleGrid(
             title = title,
@@ -234,6 +237,7 @@ private fun BaseTitle(
             rightBarIcon = rightBarIcon,
             state = gridState ?: rememberLazyGridState(),
             columns = columns,
+            showLargeTitle = effectiveShowLargeTitle,
             content = content as LazyGridScope.() -> Unit
         )
     } else {
@@ -246,7 +250,7 @@ private fun BaseTitle(
             rightBarIcon = rightBarIcon,
             state = listState ?: rememberLazyListState(),
             bottomPadding = bottomPadding,
-            showLargeTitle = showLargeTitle,
+            showLargeTitle = effectiveShowLargeTitle,
             content = content as LazyListScope.() -> Unit
         )
     }
@@ -262,9 +266,10 @@ private fun BaseTitleGrid(
     rightBarIcon: @Composable (RowScope.() -> Unit)? = null,
     columns: () -> Int = { 2 },
     state: LazyGridState,
+    showLargeTitle: Boolean = true,
     content: LazyGridScope.() -> Unit
 ) {
-    val alpha = rememberAlpha(state)
+    val alpha = rememberAlpha(state, showLargeTitle)
     val showSmallTitle = rememberShowSmallTitle(alpha, state)
 
     Box(Modifier.fillMaxSize()) {
@@ -286,19 +291,21 @@ private fun BaseTitleGrid(
                 top = 54.dp
             )
         ) {
-            item(key = "title", span = { GridItemSpan(columns()) }) {
-                Column {
-                    // 该机型上 Accompanist 的状态栏值在隐藏/旋转后不可靠；
-                    // foundation 的 statusBarsPadding 随系统真实值走（横屏隐藏后为 0）。
-                    Spacer(modifier = Modifier.statusBarsPadding())
-                    TitleItem(
-                        title,
-                        subTitle,
-                        rightIcon,
-                        onRightIcon,
-                        alpha,
-                        true
-                    )
+            if (showLargeTitle) {
+                item(key = "title", span = { GridItemSpan(columns()) }) {
+                    Column {
+                        // 该机型上 Accompanist 的状态栏值在隐藏/旋转后不可靠；
+                        // foundation 的 statusBarsPadding 随系统真实值走（横屏隐藏后为 0）。
+                        Spacer(modifier = Modifier.statusBarsPadding())
+                        TitleItem(
+                            title,
+                            subTitle,
+                            rightIcon,
+                            onRightIcon,
+                            alpha,
+                            true
+                        )
+                    }
                 }
             }
             content()
@@ -330,7 +337,7 @@ private fun BaseTitleList(
     state: LazyListState,
     content: LazyListScope.() -> Unit
 ) {
-    val alpha = rememberAlpha(state)
+    val alpha = rememberAlpha(state, showLargeTitle)
     val showSmallTitle = rememberShowSmallTitle(alpha, state)
 
     Box(Modifier.fillMaxSize()) {
@@ -379,9 +386,11 @@ private fun BaseTitleList(
 }
 
 @Composable
-private fun rememberAlpha(state: LazyListState): State<Float> {
+private fun rememberAlpha(state: LazyListState, showLargeTitle: Boolean = true): State<Float> {
     return remember("BaseTitle_alpha") {
         derivedStateOf {
+            // 无大标题（顶栏常显模式）时恒为 0，顶栏一直显示
+            if (!showLargeTitle) return@derivedStateOf 0f
             val currentOffsetY =
                 state.layoutInfo.visibleItemsInfo.find { it.index == 0 }?.offset ?: -1
             val height = state.layoutInfo.visibleItemsInfo.find { it.index == 0 }?.size ?: -1
@@ -394,9 +403,10 @@ private fun rememberAlpha(state: LazyListState): State<Float> {
 }
 
 @Composable
-private fun rememberAlpha(state: LazyGridState): State<Float> {
+private fun rememberAlpha(state: LazyGridState, showLargeTitle: Boolean = true): State<Float> {
     return remember("BaseTitle_alpha") {
         derivedStateOf {
+            if (!showLargeTitle) return@derivedStateOf 0f
             val currentOffsetY =
                 state.layoutInfo.visibleItemsInfo.find { it.index == 0 }?.offset?.y ?: -1
             val height =

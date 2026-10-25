@@ -97,8 +97,7 @@ fun AlbumInfo(
             .fillMaxSize()
         /*.statusBarsPadding()*/
     ) {
-        val landscape = isLandscape()
-        val albumName = rememberSaveable(key = "AlbumInfo_albumName") {
+            val albumName = rememberSaveable(key = "AlbumInfo_albumName") {
             mutableStateOf(LibraryObject.getTargetAlbumName())
         }
 
@@ -164,7 +163,8 @@ fun AlbumInfo(
                         ShadowImage(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 54.5.dp)
+                                // 横屏右栏更窄，加大两侧内缩让封面明显变小
+                                .padding(horizontal = if (isLandscape()) 120.dp else 54.5.dp)
                             /*.sharedElement(
                                 sharedTransitionScope.rememberSharedContentState(key = "image-$albumName"),
                                 animatedVisibilityScope = animatedContentScope
@@ -252,78 +252,36 @@ fun AlbumInfo(
                         }
                     }
                     val discSongsSorted = discSongs.sortedWith(compareBy({ it.trackNumber ?: 0 }, { it.title }))
-                    if (landscape) {
-                        // 横屏：两行一组并排，行样式与长按菜单照旧
-                        itemsIndexed(
-                            List((discSongsSorted.size + 1) / 2) { it * 2 },
-                            key = { _, first ->
-                                "disc${disc}_pair_${discSongsSorted.getOrNull(first)?.uri ?: first}"
-                            }
-                        ) { _, first ->
-                            Row(Modifier.fillMaxWidth()) {
-                                Box(Modifier.weight(1f)) {
-                                    discSongsSorted.getOrNull(first)?.let { music ->
-                                        key(music) {
-                                            AlbumSongsItem(
-                                                music = music,
-                                                mainArtists = mainArtists.value
-                                            ) {
-                                                scope.launch(Dispatchers.IO) {
-                                                    MediaController.prepare(music, songs)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Box(Modifier.weight(1f)) {
-                                    discSongsSorted.getOrNull(first + 1)?.let { music ->
-                                        key(music) {
-                                            AlbumSongsItem(
-                                                music = music,
-                                                mainArtists = mainArtists.value
-                                            ) {
-                                                scope.launch(Dispatchers.IO) {
-                                                    MediaController.prepare(music, songs)
-                                                }
-                                            }
-                                        }
-                                    }
+                    itemsIndexed(
+                        discSongsSorted,
+                        key = { idx, music -> "disc${disc}_${music.uri?.toString() ?: music.mediaId ?: "album_song_$idx"}" }
+                    ) { index, music ->
+                        key(music) {
+                            AlbumSongsItem(
+                                music = music,
+                                mainArtists = mainArtists.value
+                            ) {
+                                scope.launch(Dispatchers.IO) {
+                                    MediaController.prepare(
+                                        music,
+                                        songs
+                                    )
                                 }
                             }
                         }
-                    } else {
-                        itemsIndexed(
-                            discSongsSorted,
-                            key = { idx, music -> "disc${disc}_${music.uri?.toString() ?: music.mediaId ?: "album_song_$idx"}" }
-                        ) { index, music ->
-                            key(music) {
-                                AlbumSongsItem(
-                                    music = music,
-                                    mainArtists = mainArtists.value
-                                ) {
-                                    scope.launch(Dispatchers.IO) {
-                                        MediaController.prepare(
-                                            music,
-                                            songs
-                                        )
-                                    }
-                                }
-                            }
 
-                            key(index) {
-                                val isLastInDisc = index == discSongs.size - 1
-                                val isLastOverall = disc == discGroups.keys.last() && isLastInDisc
-                                if (!isLastOverall) {
-                                    Spacer(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 50.dp, end = 18.dp)
-                                            .alpha(0.25f)
-                                            .height(0.5.dp)
-                                            .background(Color.Black withNight Color.White)
-                                    )
-                                }
+                        key(index) {
+                            val isLastInDisc = index == discSongs.size - 1
+                            val isLastOverall = disc == discGroups.keys.last() && isLastInDisc
+                            if (!isLastOverall) {
+                                Spacer(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 50.dp, end = 18.dp)
+                                        .alpha(0.25f)
+                                        .height(0.5.dp)
+                                        .background(Color.Black withNight Color.White)
+                                )
                             }
                         }
                     }

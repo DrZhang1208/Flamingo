@@ -55,7 +55,6 @@ import yos.music.player.data.libraries.defaultArtists
 import yos.music.player.data.libraries.defaultTitle
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.pages.library.albums.NormalButton
-import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.LibrarySortDialog
 import yos.music.player.ui.widgets.basic.SearchTextField
@@ -69,7 +68,6 @@ fun NormalMusic(navController: NavController, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     // 捕获首次进入时的标题，后续 refreshTrigger 变化不改变标题
     val pageTitle = rememberSaveable { LibraryObject.getTargetListWithTitle().first }
-    val landscape = isLandscape()
 
     Column(
         Modifier
@@ -224,51 +222,6 @@ fun NormalMusic(navController: NavController, onBack: (() -> Unit)? = null) {
                         }
                     }
 
-                    if (landscape) {
-                        // 横屏：两行一组并排，行样式/长按菜单/播放高亮照旧
-                        itemsIndexed(
-                            List((list.value.size + 1) / 2) { it * 2 },
-                            key = { _, first ->
-                                "pair_${list.value.getOrNull(first)?.uri ?: list.value.getOrNull(first)?.mediaId ?: "pair_$first"}"
-                            }
-                        ) { _, first ->
-                            Row(Modifier.fillMaxWidth()) {
-                                Box(Modifier.weight(1f)) {
-                                    list.value.getOrNull(first)?.let { music ->
-                                        MusicList(
-                                            music,
-                                            navController,
-                                            showRemoveFromPlaylist = true
-                                        ) {
-                                            scope.launch(Dispatchers.IO) {
-                                                MediaController.prepare(
-                                                    music,
-                                                    list.value
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Box(Modifier.weight(1f)) {
-                                    list.value.getOrNull(first + 1)?.let { music ->
-                                        MusicList(
-                                            music,
-                                            navController,
-                                            showRemoveFromPlaylist = true
-                                        ) {
-                                            scope.launch(Dispatchers.IO) {
-                                                MediaController.prepare(
-                                                    music,
-                                                    list.value
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
                         itemsIndexed(
                             list.value,
                             key = { index, music -> music.uri?.toString() ?: music.mediaId ?: "music_$index" }
@@ -300,9 +253,8 @@ fun NormalMusic(navController: NavController, onBack: (() -> Unit)? = null) {
                                 }
                             }
                         }
-                    }
 
-                    /*item("blank") {
+                /*item("blank") {
                     Spacer(modifier = Modifier.navigationBarsHeight(15.dp))
                 }*/
                 }

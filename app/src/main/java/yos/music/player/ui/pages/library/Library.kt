@@ -5,6 +5,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -228,7 +230,19 @@ private fun LibraryLandscape(navController: NavController) {
         ) {
             AnimatedContent(
                 targetState = stack.last(),
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+                transitionSpec = {
+                    // 压栈（列表→详情）新内容从右滑入；退栈/切分类从左滑回
+                    val targetIdx = stack.indexOf(targetState)
+                    val initialIdx = stack.indexOf(initialState)
+                    val forward = initialIdx < 0 || (targetIdx >= 0 && targetIdx > initialIdx)
+                    if (forward) {
+                        (slideInHorizontally(tween(220)) { it / 3 } + fadeIn(tween(220))) togetherWith
+                            (slideOutHorizontally(tween(220)) { -it / 3 } + fadeOut(tween(160)))
+                    } else {
+                        (slideInHorizontally(tween(220)) { -it / 3 } + fadeIn(tween(220))) togetherWith
+                            (slideOutHorizontally(tween(220)) { it / 3 } + fadeOut(tween(160)))
+                    }
+                },
                 label = "library_pane"
             ) { pane ->
                 when (pane) {
