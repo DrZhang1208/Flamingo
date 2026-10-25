@@ -87,6 +87,8 @@ fun Settings(
             UI.Settings.LyricGetter, UI.Settings.About
         )
         val selectedPage: String? = paneStack.lastOrNull { it in settingsMenuRoutes }
+        // 右栏渲染跟随真实栈顶（含二级页面，如文件夹歌曲/编解码器/文件夹选择器）
+        val activePane: String? = paneStack.lastOrNull().takeIf { it != UI.Settings.Main }
         val popPane: () -> Unit = { if (paneStack.size > 1) paneStack.removeAt(paneStack.lastIndex) }
         val openPane: (String) -> Unit = { route ->
             paneStack.clear()
@@ -124,7 +126,7 @@ fun Settings(
                         .weight(1.6f)
                         .fillMaxHeight()
                 ) {
-                    val page = selectedPage
+                    val page = activePane
                     if (page == null) {
                         Box(Modifier.fillMaxSize()) {
                             Text(

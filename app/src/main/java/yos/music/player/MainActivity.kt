@@ -916,8 +916,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                         height = (miniPlayerHeightPx + (parentHeight.intValue - miniPlayerHeightPx) * yosBottomSheetConfig.progress)
                                                     )
                                                 )
-                                                shadowElevation = miniPlayerShadow
-                                                spotShadowColor = Color.Black.copy(alpha = 0.2f)
+                                                // Surface 是全宽的，横屏下这条阴影会一直铺到
+                                                // 侧栏底下（让位只缩了内容背景），横屏不画
+                                                if (!isLandscapeNow) {
+                                                    shadowElevation = miniPlayerShadow
+                                                    spotShadowColor = Color.Black.copy(alpha = 0.2f)
+                                                }
                                             }
                                         }
                                             .graphicsLayer {
