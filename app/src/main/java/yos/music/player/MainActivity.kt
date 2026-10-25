@@ -607,9 +607,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                     val color =
                                         Color(0xFFF5F5F5) withNight /*Color(0xFF111111)*/ Color.Black
                                     // Keep the fade above the tabs; navigation insets only extend the opaque part.
-                                    // 横屏迷你条是浮条（自带背景与边距），底部遮罩压到
-                                    // 浮条下缘以下即可——太高会从浮条两侧边距区露出色块
-                                    val bottomMaskHeight = if (isLandscapeNow) 24.dp else navBarBottom + 128.dp
+                                    val bottomMaskHeight = if (isLandscapeNow) 76.dp else navBarBottom + 128.dp
                                     val bottomBarBrush = remember(color, density) {
                                         Brush.verticalGradient(
                                             0f to Color.Transparent,
@@ -726,12 +724,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(bottomMaskHeight)
-                                                // 横屏遮罩与浮条同宽同位（浮条正下方的窄渐变），
-                                                // 不越过浮条两侧边距、不横穿侧栏
-                                                .padding(
-                                                    start = if (isLandscapeNow) SideNavigatorWidth + 12.dp else 0.dp,
-                                                    end = if (isLandscapeNow) 12.dp else 0.dp
-                                                )
+                                                // 横屏遮罩与通栏迷你条同区（内容区宽），不横穿侧栏
+                                                .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
                                                 .background(bottomBarBrush)
                                         )
                                         if (SettingsLibrary.BarBlurEffect) {
@@ -748,10 +742,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .height(bottomMaskHeight)
-                                                        .padding(
-                                                            start = if (isLandscapeNow) SideNavigatorWidth + 12.dp else 0.dp,
-                                                            end = if (isLandscapeNow) 12.dp else 0.dp
-                                                        )
+                                                        .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
                                                         .graphicsLayer {
                                                             alpha = blurAlpha.value
                                                             compositingStrategy =
@@ -840,6 +831,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    // 横屏播放层恒定让位侧栏（静态值，动画无重排）：
+                                    // 迷你条与播放页的样式、缩放、阴影与竖屏完全一致，
+                                    // 只是整体宽度为内容区宽
+                                    .padding(start = if (isLandscapeNow) SideNavigatorWidth else 0.dp)
                                     .onSizeChanged {
                                         val previousHeight = parentHeight.intValue
                                         val nextHeight = it.height
@@ -859,9 +854,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         //compositingStrategy = CompositingStrategy.Offscreen
                                         val plus =
                                             0.07f * yosBottomSheetConfig.progress
-                                        // 横屏横向不缩：收起态若横向也缩 0.93（底中心原点），
-                                        // 迷你条左端会离侧栏分割线一条缝、右端离屏缘一条缝
-                                        this.scaleX = if (isLandscapeNow) 1f else 0.93f + plus
+                                        this.scaleX = 0.93f + plus
                                         this.scaleY = 0.93f + plus
                                         // 收起态整体上移给底栏腾位——竖屏专用；
                                         // 横屏底栏在侧边，仅保留一小段缝隙不贴死
@@ -929,12 +922,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                         height = (miniPlayerHeightPx + (parentHeight.intValue - miniPlayerHeightPx) * yosBottomSheetConfig.progress)
                                                     )
                                                 )
-                                                // Surface 是全宽的，横屏下这条阴影会一直铺到
-                                                // 侧栏底下（让位只缩了内容背景），横屏不画
-                                                if (!isLandscapeNow) {
-                                                    shadowElevation = miniPlayerShadow
-                                                    spotShadowColor = Color.Black.copy(alpha = 0.2f)
-                                                }
+                                                shadowElevation = miniPlayerShadow
+                                                spotShadowColor = Color.Black.copy(alpha = 0.2f)
                                             }
                                         }
                                             .graphicsLayer {
@@ -1023,15 +1012,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             }
                                         }
 
-                                        // 横屏收起态给侧栏让位：只对迷你条内容做动态
-                                        // start 让位（62dp 小条重排便宜），播放层 Box 不用
-                                        // 动态 padding——否则展开/收起动画每帧都会重新
-                                        // 测量整棵播放页（歌词渲染树），横屏明显掉帧
-                                        val miniRailInset by remember(isLandscapeNow) {
-                                            derivedStateOf {
-                                                if (isLandscapeNow) SideNavigatorWidth * (1f - yosBottomSheetConfig.progress) else 0.dp
-                                            }
-                                        }
                                         // 迷你播放状态
                                         YosWrapper {
                                             //println("变换：菜单透明度 $menuAlpha")
@@ -1046,29 +1026,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                                 this.alpha =
                                                                     (1f - 4f * yosBottomSheetConfig.progress).coerceIn(0f, 1f)
                                                             }
-                                                            .then(
-                                                                // 横屏不画通栏背景——浮条自带
-                                                                // 边距与圆角背景，避免左侧
-                                                                // 延伸出一块直角色块
-                                                                if (isLandscapeNow) Modifier
-                                                                else Modifier
-                                                                    .padding(start = miniRailInset)
-                                                                    .background(color)
-                                                            )
+                                                            .background(color)
                                                     ) {
                                                         Box(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
                                                                 .height(miniPlayerHeight)
-                                                                .then(
-                                                                    if (isLandscapeNow) Modifier
-                                                                        .padding(start = miniRailInset)
-                                                                        .padding(horizontal = 12.dp)
-                                                                        .background(
-                                                                            color,
-                                                                            YosRoundedCornerShape(12.dp)
-                                                                        ) else Modifier
-                                                                )
                                                                 .clickable(
                                                                     interactionSource = remember { MutableInteractionSource() },
                                                                     indication = null,
