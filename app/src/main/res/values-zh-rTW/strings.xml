@@ -31,6 +31,7 @@
     <string name="settings_others">其它</string>
     <string name="settings_others_about">關於</string>
     <string name="settings_others_about_desc">關於 Flamingo。</string>
+    <string name="settings_pane_empty_hint">從左側選擇一項設定查看</string>
     <string name="settings_audio_fade_in_out_desc">播放 / 暫停時音量淡入 / 淡出。</string>
     <string name="tip_no_lyrics">歌詞未就緒</string>
     <string name="settings_others_statusbarlyric_basic_switch">總開關</string>

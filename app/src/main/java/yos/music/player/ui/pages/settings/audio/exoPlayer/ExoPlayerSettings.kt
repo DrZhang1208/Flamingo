@@ -16,17 +16,18 @@ import yos.music.player.ui.pages.settings.LabelItem
 import yos.music.player.ui.pages.settings.ListHeader
 import yos.music.player.ui.pages.settings.SelectItem
 import yos.music.player.ui.pages.settings.SettingBackground
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.ui.pages.settings.SwitchItem
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun ExoPlayerSettings(navController: NavController) =
+fun ExoPlayerSettings(navController: NavController, onBack: (() -> Unit)? = null) =
     SettingBackground {
         Title(title = stringResource(id = R.string.settings_audio_exoplayer),
             subTitle = stringResource(id = R.string.settings_audio_exoplayer_sub),
             onBack = {
-                navController.popBackStack()
+                navController.backOr(onBack)
             },
             content = {
                 item("settings") {

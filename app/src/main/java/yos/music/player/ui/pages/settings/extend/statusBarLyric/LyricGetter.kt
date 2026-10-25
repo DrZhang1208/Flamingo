@@ -18,6 +18,7 @@ import yos.music.player.ui.pages.settings.Divider
 import yos.music.player.ui.pages.settings.GroupSpacer
 import yos.music.player.ui.pages.settings.GroupSpacerMedium
 import yos.music.player.ui.pages.settings.LabelItem
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.ui.pages.settings.ListHeader
 import yos.music.player.ui.pages.settings.SwitchItem
 import yos.music.player.ui.widgets.basic.RoundColumn
@@ -25,7 +26,7 @@ import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
-fun LyricGetter(navController: NavController) =
+fun LyricGetter(navController: NavController, onBack: (() -> Unit)? = null) =
     YosWrapper {
         val lyricAPI by lazy { API() }
         Column(
@@ -40,7 +41,7 @@ fun LyricGetter(navController: NavController) =
             Title(title = stringResource(id = R.string.settings_extend_statusbarlyric),
                 subTitle = "Lyric Getter API ${apiVersion.intValue}",
                 onBack = {
-                    navController.popBackStack()
+                    navController.backOr(onBack)
                 },
                 content = {
                     item("settings") {

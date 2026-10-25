@@ -1,5 +1,6 @@
 package yos.music.player.ui.theme
 
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
@@ -13,6 +14,13 @@ private const val BASE_WIDTH = 360f
 
 /** 最小缩放比例，防止在极小屏幕上元素过小 */
 private const val MIN_SCALE = 0.75f
+
+/**
+ * 当前是否横屏，与 MainActivity 隐藏状态栏的判断同口径。
+ */
+@Composable
+fun isLandscape(): Boolean =
+    LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
 /**
  * 自适应 dp 值。

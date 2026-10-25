@@ -73,10 +73,11 @@ import yos.music.player.ui.pages.settings.SettingBackground
 import yos.music.player.ui.widgets.basic.OptionDialog
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
+import yos.music.player.ui.pages.settings.backOr
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RemoteServerManagement(navController: NavController) {
+fun RemoteServerManagement(navController: NavController, onBack: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var refreshKey by remember { mutableStateOf(0) }
@@ -103,7 +104,7 @@ fun RemoteServerManagement(navController: NavController) {
     val connectionStates by RemoteServerManager.connectionStates.collectAsState()
 
     SettingBackground {
-        Title(title = "远程服务器", onBack = { navController.popBackStack() }, content = {
+        Title(title = "远程服务器", onBack = { navController.backOr(onBack) }, content = {
             item("space_1") { GroupSpacer() }
 
             if (servers.isEmpty()) {

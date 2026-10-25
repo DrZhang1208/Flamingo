@@ -31,6 +31,7 @@
     <string name="settings_others">その他</string>
     <string name="settings_others_about">Flamingo について</string>
     <string name="settings_others_about_desc">Flamingo について。</string>
+    <string name="settings_pane_empty_hint">左側から設定項目を選択してください</string>
     <string name="settings_audio_fade_in_out_desc">再生 / 一時停止時に音量をフェードイン / フェードアウトします。</string>
     <string name="tip_no_lyrics">歌詞が準備できていません</string>
     <string name="settings_others_statusbarlyric_basic_switch">全体のスイッチ</string>

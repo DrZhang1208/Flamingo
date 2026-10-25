@@ -652,3 +652,81 @@ private fun TitleItem(
         }
     }
 }
+
+/**
+ * 横屏分栏页骨架：大标题固定在顶部（不随滚动收起、无顶栏模糊条），
+ * 内容区占满剩余高度，由各分栏自行滚动、互不带动。
+ * 视觉与竖屏 TitleItem 同源（35sp Bold、20dp 边距、primary 右上角图标）。
+ */
+@Composable
+fun TitlePinned(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    rightIcon: ImageVector? = null,
+    onRightIcon: (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    Column(Modifier.fillMaxSize()) {
+        Spacer(modifier = Modifier.statusBarsPadding())
+        Row(
+            Modifier
+                .padding(top = 6.dp)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 12.dp)
+        ) {
+            if (onBack != null) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_back),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.CenterVertically)
+                        .padding(end = 14.dp)
+                        .size(17.5.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onBack
+                        ),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = title,
+                fontSize = 35.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 40.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
+            if (rightIcon != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterVertically)
+                        .size(24.dp)
+                        .clickable(
+                            enabled = onRightIcon != null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onRightIcon ?: {}
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = rightIcon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            content()
+        }
+    }
+}

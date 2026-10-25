@@ -69,6 +69,7 @@ import yos.music.player.data.libraries.MusicLibrary.allFolders
 import yos.music.player.data.objects.LibraryObject
 import yos.music.player.ui.UI
 import yos.music.player.ui.pages.settings.SettingBackground
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.ui.theme.YosRoundedCornerShape
 import yos.music.player.ui.theme.isFlamingoInDarkMode
 import yos.music.player.ui.theme.withNight
@@ -77,14 +78,14 @@ import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.YosWrapper
 
 @Composable
-fun LibraryOverview(navController: NavController) =
+fun LibraryOverview(navController: NavController, onBack: (() -> Unit)? = null) =
     SettingBackground {
     // 观察 folderListVersion 确保远程文件夹变更时重组
     @Suppress("UNUSED_VARIABLE") val fv = MusicLibrary.folderListVersion
     val folders = allFolders.sortedBy { it.name }
     Title(title = stringResource(id = R.string.settings_library_overview),
         onBack = {
-            navController.popBackStack()
+            navController.backOr(onBack)
         },
         content = {
             if (folders.isNotEmpty()) {

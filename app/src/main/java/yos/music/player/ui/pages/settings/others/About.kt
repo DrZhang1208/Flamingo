@@ -16,16 +16,17 @@ import yos.music.player.ui.pages.settings.GroupSpacer
 import yos.music.player.ui.pages.settings.LabelItem
 import yos.music.player.ui.pages.settings.ListHeader
 import yos.music.player.ui.pages.settings.SettingBackground
+import yos.music.player.ui.pages.settings.backOr
 import yos.music.player.ui.pages.settings.startWeb
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
 
 @Composable
-fun About(navController: NavController) =
+fun About(navController: NavController, onBack: (() -> Unit)? = null) =
     SettingBackground {
         Title(title = stringResource(id = R.string.settings_others_about),
             onBack = {
-                navController.popBackStack()
+                navController.backOr(onBack)
             },
             content = {
                 item("settings") {
