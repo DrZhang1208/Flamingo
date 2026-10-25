@@ -537,14 +537,24 @@ private fun SelectorOption(text: String, selected: Boolean, modifier: Modifier =
     }
 }
 
-/** 2×2 渐变统计卡：时长 / 最爱专辑 / 最爱艺人 / 最爱歌曲，沿用主页入口卡的渐变语言 */
+/** 渐变统计卡（横屏一行四张 / 竖屏 2×2）：时长 / 最爱专辑 / 最爱艺人 / 最爱歌曲 */
 @Composable
 private fun ListenStatGrid(stats: ListenStatsUiData, weekMode: Boolean) {
-    val context = LocalContext.current
-    val durationMs = if (weekMode) stats.weekDurationMs else stats.totalDurationMs
-    val topSong = (if (weekMode) stats.topSongsWeek else stats.topSongsAll).firstOrNull()
-    val topArtist = (if (weekMode) stats.topArtistsWeek else stats.topArtistsAll).firstOrNull()
-    val topAlbum = (if (weekMode) stats.topAlbumsWeek else stats.topAlbumsAll).firstOrNull()
+    if (isLandscape()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max)
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ListenDurationCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+            ListenFavAlbumCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+            ListenFavArtistCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+            ListenFavSongCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+        }
+        return
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -552,63 +562,8 @@ private fun ListenStatGrid(stats: ListenStatsUiData, weekMode: Boolean) {
             .padding(horizontal = 20.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ListenGradientStatCard(
-            colors = listOf(Color(0xFFF54047), Color(0xFFFF7A6B)),
-            painter = rememberVectorPainter(CupertinoIcons.Outlined.ClockArrowCirclepath),
-            title = stringResource(id = R.string.listen_stats_listen_duration),
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        ) {
-            Text(
-                text = formatHoursMinutes(context, durationMs),
-                fontSize = 19.sp,
-                lineHeight = 24.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (weekMode && stats.lastWeekDurationMs > 0L && stats.weekDurationMs > 0L) {
-                val deltaPercent =
-                    ((stats.weekDurationMs - stats.lastWeekDurationMs) * 100L / stats.lastWeekDurationMs).toInt()
-                ListenDeltaChip(deltaPercent)
-            }
-        }
-        ListenGradientStatCard(
-            colors = listOf(Color(0xFF30B94C), Color(0xFF5ED8A6)),
-            painter = rememberVectorPainter(CupertinoIcons.Outlined.MusicNoteList),
-            title = stringResource(id = R.string.listen_stats_fav_album),
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        ) {
-            if (topAlbum != null) {
-                Text(
-                    text = topAlbum.name,
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(
-                        id = R.string.listen_stats_album_subtitle,
-                        topAlbum.representative.artistsName ?: defaultArtistsName,
-                        topAlbum.plays
-                    ),
-                    fontSize = 11.5.sp,
-                    lineHeight = 14.sp,
-                    modifier = Modifier
-                        .padding(top = 3.dp)
-                        .alpha(0.85f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            } else {
-                ListenStatCardPlaceholder()
-            }
-        }
+        ListenDurationCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+        ListenFavAlbumCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
     }
     Row(
         Modifier
@@ -617,71 +572,145 @@ private fun ListenStatGrid(stats: ListenStatsUiData, weekMode: Boolean) {
             .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ListenGradientStatCard(
-            colors = listOf(Color(0xFFFF375F), Color(0xFFFF7B9C)),
-            painter = rememberVectorPainter(CupertinoIcons.Outlined.Person2),
-            title = stringResource(id = R.string.listen_stats_fav_artist),
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        ) {
-            if (topArtist != null) {
-                Text(
-                    text = topArtist.name,
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(id = R.string.listen_stats_plays_only, topArtist.plays) +
-                        if (topArtist.durationMs > 0L)
-                            " · " + formatHoursMinutes(context, topArtist.durationMs) else "",
-                    fontSize = 11.5.sp,
-                    lineHeight = 14.sp,
-                    modifier = Modifier
-                        .padding(top = 3.dp)
-                        .alpha(0.85f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            } else {
-                ListenStatCardPlaceholder()
-            }
+        ListenFavArtistCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+        ListenFavSongCard(stats, weekMode, Modifier.weight(1f).fillMaxHeight())
+    }
+}
+
+@Composable
+private fun ListenDurationCard(stats: ListenStatsUiData, weekMode: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val durationMs = if (weekMode) stats.weekDurationMs else stats.totalDurationMs
+    ListenGradientStatCard(
+        colors = listOf(Color(0xFFF54047), Color(0xFFFF7A6B)),
+        painter = rememberVectorPainter(CupertinoIcons.Outlined.ClockArrowCirclepath),
+        title = stringResource(id = R.string.listen_stats_listen_duration),
+        modifier = modifier
+    ) {
+        Text(
+            text = formatHoursMinutes(context, durationMs),
+            fontSize = 19.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (weekMode && stats.lastWeekDurationMs > 0L && stats.weekDurationMs > 0L) {
+            val deltaPercent =
+                ((stats.weekDurationMs - stats.lastWeekDurationMs) * 100L / stats.lastWeekDurationMs).toInt()
+            ListenDeltaChip(deltaPercent)
         }
-        ListenGradientStatCard(
-            colors = listOf(Color(0xFF5E5CE6), Color(0xFF8E7CFF)),
-            painter = rememberVectorPainter(CupertinoIcons.Outlined.MusicNote),
-            title = stringResource(id = R.string.listen_stats_fav_song),
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        ) {
-            if (topSong != null) {
-                Text(
-                    text = topSong.song.title ?: defaultTitle,
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(id = R.string.listen_stats_plays_only, topSong.plays) +
-                        if (topSong.durationMs > 0L)
-                            " · " + formatHoursMinutes(context, topSong.durationMs) else "",
-                    fontSize = 11.5.sp,
-                    lineHeight = 14.sp,
-                    modifier = Modifier
-                        .padding(top = 3.dp)
-                        .alpha(0.85f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            } else {
-                ListenStatCardPlaceholder()
-            }
+    }
+}
+
+@Composable
+private fun ListenFavAlbumCard(stats: ListenStatsUiData, weekMode: Boolean, modifier: Modifier = Modifier) {
+    val topAlbum = (if (weekMode) stats.topAlbumsWeek else stats.topAlbumsAll).firstOrNull()
+    ListenGradientStatCard(
+        colors = listOf(Color(0xFF30B94C), Color(0xFF5ED8A6)),
+        painter = rememberVectorPainter(CupertinoIcons.Outlined.MusicNoteList),
+        title = stringResource(id = R.string.listen_stats_fav_album),
+        modifier = modifier
+    ) {
+        if (topAlbum != null) {
+            Text(
+                text = topAlbum.name,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(
+                    id = R.string.listen_stats_album_subtitle,
+                    topAlbum.representative.artistsName ?: defaultArtistsName,
+                    topAlbum.plays
+                ),
+                fontSize = 11.5.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .alpha(0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            ListenStatCardPlaceholder()
+        }
+    }
+}
+
+@Composable
+private fun ListenFavArtistCard(stats: ListenStatsUiData, weekMode: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val topArtist = (if (weekMode) stats.topArtistsWeek else stats.topArtistsAll).firstOrNull()
+    ListenGradientStatCard(
+        colors = listOf(Color(0xFFFF375F), Color(0xFFFF7B9C)),
+        painter = rememberVectorPainter(CupertinoIcons.Outlined.Person2),
+        title = stringResource(id = R.string.listen_stats_fav_artist),
+        modifier = modifier
+    ) {
+        if (topArtist != null) {
+            Text(
+                text = topArtist.name,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(id = R.string.listen_stats_plays_only, topArtist.plays) +
+                    if (topArtist.durationMs > 0L)
+                        " · " + formatHoursMinutes(context, topArtist.durationMs) else "",
+                fontSize = 11.5.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .alpha(0.85f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            ListenStatCardPlaceholder()
+        }
+    }
+}
+
+@Composable
+private fun ListenFavSongCard(stats: ListenStatsUiData, weekMode: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val topSong = (if (weekMode) stats.topSongsWeek else stats.topSongsAll).firstOrNull()
+    ListenGradientStatCard(
+        colors = listOf(Color(0xFF5E5CE6), Color(0xFF8E7CFF)),
+        painter = rememberVectorPainter(CupertinoIcons.Outlined.MusicNote),
+        title = stringResource(id = R.string.listen_stats_fav_song),
+        modifier = modifier
+    ) {
+        if (topSong != null) {
+            Text(
+                text = topSong.song.title ?: defaultTitle,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(id = R.string.listen_stats_plays_only, topSong.plays) +
+                    if (topSong.durationMs > 0L)
+                        " · " + formatHoursMinutes(context, topSong.durationMs) else "",
+                fontSize = 11.5.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .alpha(0.85f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            ListenStatCardPlaceholder()
         }
     }
 }
