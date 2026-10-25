@@ -1,11 +1,11 @@
 package yos.music.player.ui.pages
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -24,7 +24,6 @@ import yos.music.player.data.libraries.SettingsLibrary
 import yos.music.player.ui.UI
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
-import yos.music.player.ui.widgets.basic.PaneDivider
 import yos.music.player.ui.widgets.basic.Title
 import yos.music.player.ui.widgets.basic.TitlePinned
 
@@ -36,7 +35,8 @@ fun Home(
     val songs = MusicLibrary.songs
 
     if (isLandscape()) {
-        // 横屏双栏：入口卡+听歌统计在左，最近播放/专辑在右；区块原样复用、各栏独立滚动
+        // 横屏单列垂直流：四宫格与听歌统计并排一行，下方依次是最近播放/最近专辑；
+        // 区块原样复用，整页独立滚动
         TitlePinned(
             title = stringResource(id = R.string.page_home_title),
             rightIcon = CupertinoIcons.Default.PersonCropCircle,
@@ -44,56 +44,46 @@ fun Home(
                 navController.toUI(UI.Settings.Main)
             },
             content = {
-                Row(Modifier.fillMaxSize()) {
-                    Column(
-                        Modifier
-                            .weight(1.35f)
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(end = 16.dp)
-                    ) {
-                        if (songs.isNotEmpty()) {
-                            HomeSectionEntrance(0) {
-                                HomeQuickEntries(navController, songs, listenStats)
-                            }
-                        }
-                        if (SettingsLibrary.ListenHistory && listenStats != null) {
-                            HomeSectionEntrance(1) {
-                                HomeListenStatsCard(navController, listenStats)
-                            }
-                        }
-                        Spacer(
-                            modifier = Modifier
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                                .height(134.dp)
-                        )
-                    }
-                    PaneDivider()
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(start = 16.dp)
-                    ) {
-                        if (SettingsLibrary.ListenHistory && listenStats != null) {
-                            if (listenStats.recentSongs.isNotEmpty()) {
-                                HomeSectionEntrance(2) {
-                                    HomeRecentSongsSection(navController, listenStats)
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (songs.isNotEmpty() || (SettingsLibrary.ListenHistory && listenStats != null)) {
+                        Row {
+                            if (songs.isNotEmpty()) {
+                                Box(Modifier.weight(1.15f)) {
+                                    HomeSectionEntrance(0) {
+                                        HomeQuickEntries(navController, songs, listenStats)
+                                    }
                                 }
                             }
-                            if (listenStats.recentAlbums.isNotEmpty()) {
-                                HomeSectionEntrance(3) {
-                                    HomeRecentAlbumsSection(navController, listenStats)
+                            if (SettingsLibrary.ListenHistory && listenStats != null) {
+                                Box(Modifier.weight(1f)) {
+                                    HomeSectionEntrance(1) {
+                                        HomeListenStatsCard(navController, listenStats)
+                                    }
                                 }
                             }
                         }
-                        Spacer(
-                            modifier = Modifier
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                                .height(134.dp)
-                        )
                     }
+                    if (SettingsLibrary.ListenHistory && listenStats != null) {
+                        if (listenStats.recentSongs.isNotEmpty()) {
+                            HomeSectionEntrance(2) {
+                                HomeRecentSongsSection(navController, listenStats)
+                            }
+                        }
+                        if (listenStats.recentAlbums.isNotEmpty()) {
+                            HomeSectionEntrance(3) {
+                                HomeRecentAlbumsSection(navController, listenStats)
+                            }
+                        }
+                    }
+                    Spacer(
+                        modifier = Modifier
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .height(134.dp)
+                    )
                 }
             }
         )

@@ -91,6 +91,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
+import yos.music.player.ui.toUI
 import yos.music.player.ui.widgets.PlayerArtworkBridge
 import yos.music.player.ui.widgets.PlayerArtworkBridgeOverlay
 import yos.music.player.ui.widgets.MINI_ARTWORK_ENDPOINT
@@ -166,6 +167,7 @@ import yos.music.player.ui.theme.rememberAdaptive
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.widgets.basic.BottomNavigator
 import yos.music.player.ui.widgets.basic.SideNavigator
+import yos.music.player.ui.widgets.basic.PaneDivider
 import yos.music.player.ui.widgets.basic.SideNavigatorWidth
 import yos.music.player.ui.widgets.basic.ImageQuality
 import yos.music.player.ui.widgets.basic.NavItem
@@ -579,16 +581,25 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             .fillMaxSize(),
                                         contentAlignment = Alignment.BottomCenter
                                     ) {
-                                        val navItems = listOf(
-                                            NavItem(
-                                                stringResource(id = R.string.page_home_title),
-                                                R.drawable.flamingo_icon
-                                            ),
-                                            NavItem(
-                                                stringResource(id = R.string.page_library_title),
-                                                R.drawable.ic_uitabbar_library
+                                        val settingsLabel = stringResource(id = R.string.page_settings_title)
+                                        val navItems = buildList {
+                                            add(
+                                                NavItem(
+                                                    stringResource(id = R.string.page_home_title),
+                                                    R.drawable.flamingo_icon
+                                                )
                                             )
-                                        )
+                                            add(
+                                                NavItem(
+                                                    stringResource(id = R.string.page_library_title),
+                                                    R.drawable.ic_uitabbar_library
+                                                )
+                                            )
+                                            // 横屏侧栏多一个设置入口；竖屏底栏保持两项
+                                            if (isLandscapeNow) {
+                                                add(NavItem(settingsLabel, R.drawable.ic_tab_settings))
+                                            }
+                                        }
                                         val onTabSelected: (String) -> Unit = {
                                             nowLabel.value = it
 
@@ -596,30 +607,64 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 context.getString(R.string.page_home_title)
                                             val library =
                                                 context.getString(R.string.page_library_title)
-                                            if (route.value == UI.HomePage) {
-                                                scope.launch {
-                                                    pagerState.animateScrollToPage(
-                                                        when (it) {
-                                                            home -> 0
-                                                            library -> 1
-                                                            else -> 0
-                                                        }
+                                            when (it) {
+                                                // 设置不是 pager 页，直接整页路由
+                                                settingsLabel -> navController.toUI(UI.Settings.Main)
+
+                                                else -> if (route.value == UI.HomePage) {
+                                                    scope.launch {
+                                                        pagerState.animateScrollToPage(
+                                                            when (it) {
+                                                                home -> 0
+                                                                library -> 1
+                                                                else -> 0
+                                                            }
+                                                        )
+                                                    }
+                                                } else {
+                                                    scope.launch {
+                                                        pagerState.scrollToPage(
+                                                            when (it) {
+                                                                home -> 0
+                                                                library -> 1
+                                                                else -> 0
+                                                            }
+                                                        )
+                                                    }
+                                                    navController.popBackStack(
+                                                        UI.HomePage,
+                                                        false
                                                     )
                                                 }
-                                            } else {
-                                                scope.launch {
-                                                    pagerState.scrollToPage(
-                                                        when (it) {
-                                                            home -> 0
-                                                            library -> 1
-                                                            else -> 0
-                                                        }
-                                                    )
+                                            }
+                                        }
+
+                                        // 侧栏高亮跟随真实路由：进入设置（含其子页）时
+                                        // 高亮"设置"，返回时按 pager 当前页恢复
+                                        val settingsRoutes = remember {
+                                            setOf(
+                                                UI.Settings.Main,
+                                                UI.Settings.LibraryOverview,
+                                                UI.Settings.LyricGetter,
+                                                UI.Settings.ExoplayerSetting,
+                                                UI.Settings.About,
+                                                UI.Settings.MediaCodec,
+                                                UI.Settings.LyricSetting,
+                                                UI.Settings.UserInterfaceSetting,
+                                                UI.Settings.NotificationSetting,
+                                                UI.Settings.RemoteServerManagement
+                                            )
+                                        }
+                                        LaunchedEffect(route.value, pagerState.currentPage) {
+                                            nowLabel.value = when {
+                                                route.value in settingsRoutes ||
+                                                        route.value?.startsWith(UI.Settings.RemoteFolderPicker) == true ->
+                                                    settingsLabel
+
+                                                else -> when (pagerState.currentPage) {
+                                                    1 -> context.getString(R.string.page_library_title)
+                                                    else -> context.getString(R.string.page_home_title)
                                                 }
-                                                navController.popBackStack(
-                                                    UI.HomePage,
-                                                    false
-                                                )
                                             }
                                         }
                                         // 横屏左侧栏渐变：左缘实色向右淡出（镜像底栏"下实上淡"）
@@ -693,6 +738,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                     .width(SideNavigatorWidth)
                                                     .background(railBrush)
                                             ) {
+                                                // 侧栏与内容之间的竖线，与分栏竖线同源
+                                                PaneDivider(
+                                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                                )
                                                 SideNavigator(
                                                     nowLabel = { nowLabel.value },
                                                     onLabelChange = onTabSelected,
@@ -814,6 +863,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             if (isLandscapeNow) {
                                                 translationX =
                                                     SideNavigatorWidth.toPx() * (1 - yosBottomSheetConfig.progress)
+                                                // 迷你条容器底部的空白竖屏被底栏遮挡、横屏无底栏
+                                                // 会露出，整体下移让它视觉贴底，随展开衰减归零
+                                                translationY += 12.dp.toPx() * (1 - yosBottomSheetConfig.progress)
                                             }
 
                                             if (yosBottomSheetConfig.barShowCorner) {

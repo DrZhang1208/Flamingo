@@ -49,10 +49,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
@@ -666,20 +671,94 @@ fun TitlePinned(
     onRightIcon: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Spacer(modifier = Modifier.statusBarsPadding())
+    // 渐变模糊顶栏：与底栏渐变模糊同源镜像——越向上模糊越强，向下渐弱到清晰；
+    // 标题行叠在最上层保持清晰，滚动内容经过遮罩带时被渐进模糊盖住
+    val hazeState = remember { HazeState() }
+    val bgColor = Color.White withNight Color.Black
+    val density = LocalDensity.current
+    // 该机型上 accompanist 状态栏值在隐藏/旋转后不可靠，读 foundation 实时值
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val headerHeight = statusBarTop + 54.dp
+    val fadeExtra = 40.dp
+
+    val staticFadeBrush = remember(bgColor, density) {
+        Brush.verticalGradient(
+            0f to bgColor,
+            0.6f to bgColor.copy(alpha = 0.55f),
+            1f to bgColor.copy(alpha = 0f)
+        )
+    }
+    val revealBrush = remember(density) {
+        Brush.verticalGradient(
+            0f to Color.White,
+            1f to Color.Transparent
+        )
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        // 内容层：haze 模糊源，顶部让出标题区
+        Column(
+            Modifier
+                .fillMaxSize()
+                .haze(hazeState)
+        ) {
+            Spacer(modifier = Modifier.height(headerHeight))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                content()
+            }
+        }
+
+        // 遮罩带：静态色渐变兜底；开启模糊时叠 haze 层并用垂直 DstIn 渐变裁剪
+        // （顶部完全不透明、向下透明），使模糊强度随高度衰减
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(headerHeight + fadeExtra)
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .background(staticFadeBrush)
+                .then(
+                    if (SettingsLibrary.BarBlurEffect)
+                        Modifier.hazeChild(
+                            hazeState,
+                            HazeMaterials
+                                .thick(bgColor)
+                                .copy(
+                                    blurRadius = 32.dp,
+                                    backgroundColor = bgColor,
+                                    tint = bgColor.copy(alpha = 0.45f)
+                                )
+                        )
+                            .drawWithCache {
+                                onDrawWithContent {
+                                    drawContent()
+                                    drawRect(
+                                        brush = revealBrush,
+                                        blendMode = BlendMode.DstIn
+                                    )
+                                }
+                            }
+                    else
+                        Modifier
+                )
+        )
+
+        // 标题行：叠在遮罩之上，文字保持清晰
         Row(
             Modifier
-                .padding(top = 6.dp)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 12.dp)
+                .fillMaxWidth()
+                .height(headerHeight)
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack != null) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_back),
                     contentDescription = null,
                     modifier = Modifier
-                        .align(Alignment.CenterVertically)
                         .padding(end = 14.dp)
                         .size(17.5.dp)
                         .clickable(
@@ -720,13 +799,6 @@ fun TitlePinned(
                     )
                 }
             }
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            content()
         }
     }
 }
