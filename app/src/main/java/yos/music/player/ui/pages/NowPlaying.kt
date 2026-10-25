@@ -834,7 +834,12 @@ fun NowPlaying(
                                     // 不会先空一拍（展开动画纯绘制相位，不与其争主线程）
                                     shouldRenderContent = !fullyCollapsed, mainViewModel = mainViewModel,
                                     mediaViewModel = mediaViewModel, showMiniPlayer = showMiniPlayer,
-                                    userScrollEnabled = visible, renderActive = visible,
+                                    userScrollEnabled = visible,
+                                    // 渲染激活不等完全展开（visible 被 interactionEnabled=
+                                    // progress>=1 绑死）：竖屏 renderActive 走 progress>0，
+                                    // 展开一开始就跟随+入场淡入+行合成，全透明等待即空白；
+                                    // 交互（滚动）仍等完全展开，与竖屏一致
+                                    renderActive = !fullyCollapsed,
                                     onLineLongPress = { index ->
                                         lyricShareInitialIndex.intValue = index
                                         showLyricShare.value = true
