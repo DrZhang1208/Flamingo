@@ -2780,8 +2780,11 @@ internal fun VocalSeparationControl(
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f)
         )
     }
-    val controlHeight = (34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value).dp
-    val controlWidth = (34f + 12f * dragActive.value).dp
+    // 按压缩放走布局尺寸而非 graphicsLayer：玻璃层（haze 玻璃+圆角 mask）在
+    // 缩放层之外，graphicsLayer 放大只会让内容溢出不动的玻璃边界，边缘横切一刀；
+    // 布局驱动则玻璃/镂空/图标三层同帧同步缩放
+    val controlHeight = ((34f + 60f * expansion.value.coerceIn(0f, 1f) + 24f * dragActive.value) * controlScale).dp
+    val controlWidth = ((34f + 12f * dragActive.value) * controlScale).dp
     // The continuous corner reaches beyond its nominal radius. 10dp keeps
     // adjacent curves apart even in the 34dp square before expansion.
     val smoothShape = remember { YosRoundedCornerShape(roundSize = 10.dp) }
@@ -2797,10 +2800,7 @@ internal fun VocalSeparationControl(
                 compositingStrategy = CompositingStrategy.Offscreen
             }
             .graphicsLayer {
-                scaleX = controlScale
-                scaleY = controlScale
                 alpha = controlAlpha
-                transformOrigin = TransformOrigin(0.5f, 1f)
             }
             .drawWithCache {
                 val outline = smoothShape.createOutline(size, layoutDirection, this)
@@ -2869,7 +2869,7 @@ internal fun VocalSeparationControl(
             tint = Color.White,
             modifier = Modifier
                 .padding(bottom = 3.dp)
-                .size(28.dp)
+                .size((28f * controlScale).dp)
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
