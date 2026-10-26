@@ -215,8 +215,13 @@ private fun LibraryLandscape(
     }
 
     // 分栏：左栏与右栏都用原版 Title 顶栏样式（大标题随滚动收起、
-    // 上滑出现顶栏并在顶栏显示标题），各栏独立滚动；竖线全高
-    Row(Modifier.fillMaxSize()) {
+    // 上滑出现顶栏并在顶栏显示标题），各栏独立滚动；竖线全高。
+    // 页面底色与设置一致（secondary=浅灰/近黑），菜单卡保持默认白色容器
+    Row(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.secondary)
+    ) {
         Box(
             Modifier
                 .weight(LandscapeMenuPaneWeight)
@@ -228,11 +233,8 @@ private fun LibraryLandscape(
                 item("library_menu") {
                     Column(Modifier.fillMaxWidth()) {
                         Spacer(Modifier.height(6.dp))
-                        // 与设置左列同款：圆角矩形分组卡内的菜单行；
-                        // 底色与歌曲页"随机播放"按钮同款灰，保持 App 风格一致
-                        RoundColumn(
-                            backgroundColor = (Color.LightGray withNight Color.DarkGray).copy(alpha = 0.25f)
-                        ) {
+                        // 与设置左列同款：圆角矩形分组卡内的菜单行（默认白底容器）
+                        RoundColumn {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
                                 label = stringResource(id = R.string.page_library_playlists),
