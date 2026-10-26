@@ -21,3 +21,9 @@ fun PaneDivider(modifier: Modifier = Modifier) =
             .fillMaxHeight()
             .background((Color.Black withNight Color.White).copy(alpha = 0.12f))
     )
+
+/** 横屏分栏左栏（菜单列）宽度权重；资料库/设置共用，保证两处分割线位置一致 */
+val LandscapeMenuPaneWeight = 1f
+
+/** 横屏分栏右栏（内容列）宽度权重；资料库/设置共用 */
+val LandscapeContentPaneWeight = 1.6f

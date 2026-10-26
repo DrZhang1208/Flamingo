@@ -60,6 +60,8 @@ import yos.music.player.ui.pages.library.playlists.PlayLists
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.theme.withNight
 import yos.music.player.ui.toUI
+import yos.music.player.ui.widgets.basic.LandscapeContentPaneWeight
+import yos.music.player.ui.widgets.basic.LandscapeMenuPaneWeight
 import yos.music.player.ui.widgets.basic.PaneDivider
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
@@ -217,7 +219,7 @@ private fun LibraryLandscape(
     Row(Modifier.fillMaxSize()) {
         Box(
             Modifier
-                .weight(0.95f)
+                .weight(LandscapeMenuPaneWeight)
                 .fillMaxHeight()
         ) {
             Title(
@@ -226,8 +228,12 @@ private fun LibraryLandscape(
                 item("library_menu") {
                     Column(Modifier.fillMaxWidth()) {
                         Spacer(Modifier.height(6.dp))
-                        // 与设置左列同款：圆角矩形分组卡内的菜单行
-                        RoundColumn {
+                        // 与设置左列同款：圆角矩形分组卡内的菜单行；
+                        // 底色用明确可读的灰色（默认白/1C1C1E 在两种页面底色下
+                        // 都几乎读不出"有背景"）
+                        RoundColumn(
+                            backgroundColor = Color(0xFFE5E5EA) withNight Color(0xFF2A2A2E)
+                        ) {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
                                 label = stringResource(id = R.string.page_library_playlists),
@@ -265,7 +271,7 @@ private fun LibraryLandscape(
         PaneDivider()
         Box(
             Modifier
-                .weight(2.05f)
+                .weight(LandscapeContentPaneWeight)
                 .fillMaxHeight()
         ) {
             AnimatedContent(

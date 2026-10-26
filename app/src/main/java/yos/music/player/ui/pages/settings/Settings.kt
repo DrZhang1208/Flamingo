@@ -73,6 +73,8 @@ import yos.music.player.ui.pages.settings.performance.userinterface.UserInterfac
 import yos.music.player.ui.pages.settings.remote.RemoteServerManagement
 import yos.music.player.ui.theme.isLandscape
 import yos.music.player.ui.toUI
+import yos.music.player.ui.widgets.basic.LandscapeContentPaneWeight
+import yos.music.player.ui.widgets.basic.LandscapeMenuPaneWeight
 import yos.music.player.ui.widgets.basic.PaneDivider
 import yos.music.player.ui.widgets.basic.RoundColumn
 import yos.music.player.ui.widgets.basic.Title
@@ -119,7 +121,7 @@ fun Settings(
             Row(Modifier.fillMaxSize()) {
                 Box(
                     Modifier
-                        .weight(1f)
+                        .weight(LandscapeMenuPaneWeight)
                         .fillMaxHeight()
                 ) {
                     Title(
@@ -140,7 +142,7 @@ fun Settings(
                 PaneDivider()
                 Box(
                     Modifier
-                        .weight(1.6f)
+                        .weight(LandscapeContentPaneWeight)
                         .fillMaxHeight()
                 ) {
                     val page = activePane
