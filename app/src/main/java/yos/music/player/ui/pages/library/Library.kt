@@ -229,10 +229,9 @@ private fun LibraryLandscape(
                     Column(Modifier.fillMaxWidth()) {
                         Spacer(Modifier.height(6.dp))
                         // 与设置左列同款：圆角矩形分组卡内的菜单行；
-                        // 底色用明确可读的灰色（默认白/1C1C1E 在两种页面底色下
-                        // 都几乎读不出"有背景"）
+                        // 底色与歌曲页"随机播放"按钮同款灰，保持 App 风格一致
                         RoundColumn(
-                            backgroundColor = Color(0xFFE5E5EA) withNight Color(0xFF2A2A2E)
+                            backgroundColor = (Color.LightGray withNight Color.DarkGray).copy(alpha = 0.25f)
                         ) {
                             LibraryMenuRow(
                                 icon = painterResource(id = R.drawable.ic_library_link_icon_playlists),
