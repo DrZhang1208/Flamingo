@@ -609,7 +609,6 @@ fun NowPlaying(
         }*/
 
             val artworkPainter = artwork
-            val frostedArtwork = yos.music.player.ui.widgets.effects.rememberFrostedBackdrop { backgroundState.value }
             val artworkPauseProgress = rememberArtworkPauseProgress(isPlayingStatusLambda())
             SideEffect { artworkBridge.pauseProgress = { artworkPauseProgress.value } }
 
@@ -763,7 +762,7 @@ fun NowPlaying(
                                         if (hasTranslation.value) LyricTranslationButton(translationVisible, {
                                             SettingsLibrary.NowPlayingTranslation = it
                                             Vibrator.click(context)
-                                        }, frosted = frostedArtwork)
+                                        }, hazeState = playerHazeState)
                                         VocalSeparationControl(context = context, onSlider = {}, hazeState = playerHazeState)
                                     }
                                 }
@@ -1278,7 +1277,7 @@ fun NowPlaying(
                                         SettingsLibrary.NowPlayingTranslation = it
                                         Vibrator.click(context)
                                         lastClickTime.longValue = TimeUtils.getNowMills()
-                                    }, frosted = frostedArtwork)
+                                    }, hazeState = playerHazeState)
                                 }
                                 if (!compactWindow) VocalSeparationControl(
                                     context = context,

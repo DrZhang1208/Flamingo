@@ -3,7 +3,6 @@ package yos.music.player.ui.widgets
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Shader
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,15 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asAndroidPath
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalDensity
@@ -49,28 +43,14 @@ internal fun LyricTranslationButton(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    // 封面双重模糊色场：磨砂底（无则回退半透明白）
-    frosted: ImageBitmap? = null
+    // 播放页背景的 haze 源：未激活底与去除人声控件同款透玻璃
+    hazeState: HazeState
 ) {
     val backgroundAlpha = animateFloatAsState(if (checked) 0.92f else 0f, label = "TranslationBackground")
     val tint = animateColorAsState(if (checked) Color.Black else Color.White, label = "TranslationTint")
     val shape = remember { YosRoundedCornerShape(10.dp) }
-    // 普通混合的磨砂底：不用 Add 层（会把模糊「叠加」在背景上而非透出背景）
     Box(modifier.size(34.dp).clip(shape)
-        .drawBehind {
-            if (frosted != null) {
-                drawImage(frosted,
-                    srcOffset = IntOffset.Zero,
-                    srcSize = IntSize(frosted.width, frosted.height),
-                    dstOffset = IntOffset.Zero,
-                    dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                    alpha = 0.85f,
-                    filterQuality = FilterQuality.Medium)
-                drawRect(Color.White.copy(alpha = 0.08f))
-            } else {
-                drawRect(Color.White.copy(alpha = 0.10f))
-            }
-        }
+        .then(toolButtonHazeStyle(hazeState))
         .drawBehind { drawRect(Color.White.copy(alpha = backgroundAlpha.value)) }
         .toggleable(checked, interactionSource = remember { MutableInteractionSource() },
             indication = null, role = Role.Switch, onValueChange = onCheckedChange),
