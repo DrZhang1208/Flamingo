@@ -392,19 +392,23 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
                         // 主界面
                         YosWrapper {
-
+                            // 形状值在动画期间不变，提到层外避免每帧新建实例触发 outline 重算
+                            val mainCardShape = remember(screenCorner) {
+                                YosRoundedCornerShape(screenCorner.dp)
+                            }
                             Surface(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .graphicsLayer {
+                                        // 缩放与离屏合成必须在同一层：若缩放层包在离屏层外，
+                                        // 离屏纹理会按缩放后的尺寸逐帧重新光栅化并整屏上传
+                                        // （trace 实测 1138x2520→1264x2800 每帧变化）。
+                                        // 合入本层后记录尺寸恒为布局尺寸，缩放退化为
+                                        // 纯 GPU 变换，渲染结果逐像素不变。
                                         val thisMainContainerCardScale =
                                             yosBottomSheetConfig.mainContainerCardScale
                                         scaleX = thisMainContainerCardScale
                                         scaleY = thisMainContainerCardScale
-                                    }
-                                    .graphicsLayer {
-                                        //compositingStrategy = CompositingStrategy.Offscreen
-                                        //transformOrigin = TransformOrigin(0.5f, 1f)
 
                                         // 合成策略全程保持 Offscreen，仅在展开时追加圆角裁剪：
                                         // 收起结束帧若从 Offscreen 切回 ModulateAlpha，会连带
@@ -414,7 +418,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                             yosBottomSheetConfig.thisShowCorner && !yosBottomSheetConfig.RTCorner
                                         clip = cornered
                                         if (cornered) {
-                                            shape = YosRoundedCornerShape(screenCorner.dp)
+                                            shape = mainCardShape
                                         }
 
                                         if (!yosBottomSheetConfig.barShowCorner) {
@@ -923,6 +927,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 SideNavigatorWidth.toPx() * (1f - yosBottomSheetConfig.progress) else 0f
 
                                             if (yosBottomSheetConfig.barShowCorner) {
+                                                // 同一动态形状此前在两个叠加的 graphicsLayer 里各建一份、
+                                                // 各算一遍 outline；合并为一层后绘制结果不变，
+                                                // 每帧只重算一次。
                                                 shape = YosRoundedCornerShape(
                                                     roundSize = yosBottomSheetConfig.barShapeValue.dp,
                                                     mSize = Size(
@@ -933,29 +940,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                                 )
                                                 shadowElevation = miniPlayerShadow
                                                 spotShadowColor = Color.Black.copy(alpha = 0.2f)
+                                                compositingStrategy = CompositingStrategy.Offscreen
+                                                clip = true
+                                            } else {
+                                                compositingStrategy = CompositingStrategy.ModulateAlpha
+                                                clip = false
                                             }
                                         }
-                                            .graphicsLayer {
-                                                //translationY = ((parentHeight.intValue - miniPlayerHeightPx) * (1 - yosBottomSheetConfig.progress))
-
-                                                if (yosBottomSheetConfig.barShowCorner) {
-                                                    compositingStrategy = CompositingStrategy.Offscreen
-                                                    clip = true
-                                                    val railInset = if (isLandscapeNow)
-                                                        SideNavigatorWidth.toPx() * (1f - yosBottomSheetConfig.progress) else 0f
-                                                    shape = YosRoundedCornerShape(
-                                                        roundSize = yosBottomSheetConfig.barShapeValue.dp,
-                                                        mSize = Size(
-                                                            width = size.width - railInset,
-                                                            height = (miniPlayerHeightPx + (parentHeight.intValue - miniPlayerHeightPx) * yosBottomSheetConfig.progress)
-                                                        ),
-                                                        mOffset = Offset(railInset, 0f)
-                                                    )
-                                                } else {
-                                                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                                                    clip = false
-                                                }
-                                            }
                                             .draggable(
                                                 reverseDirection = true,
                                                 orientation = Orientation.Vertical,

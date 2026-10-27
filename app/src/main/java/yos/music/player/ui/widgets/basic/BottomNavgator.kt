@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -40,6 +41,12 @@ data class NavItem(val label: String, val iconResId: Int)
 
 /** 横屏侧栏宽度 */
 val SideNavigatorWidth = 132.dp
+
+/** 底部 tab 栏向上扩展的透明触控高度：
+ *  迷你播放条收起后与 tab 栏之间有一条 ~10px 的缝隙，两层都不消费触摸，
+ *  点击会穿透命中列表内容。把 tab 的命中区域向上延伸同等范围，
+ *  视觉不变（透明），只是让这层缝隙的点击落在 tab 切换上。 */
+val TabTouchExtensionPx = 12.dp
 
 /**
  * 横屏侧栏导航：与底栏同源的导航项竖排在左侧，
@@ -138,6 +145,30 @@ fun BottomNavigator(
         ) {
             items.forEach { item ->
                 NavigatorItem(item, nowLabel, onLabelChange)
+            }
+        }
+        // 触控扩展层：与上方 Row 等宽等分，点击等效于点击对应 tab。
+        // 用负 offset 把自身移到 Box 边界之外：Box 视觉高度与内部布局完全不变，
+        // 仅这条透明层向上探出，堵住迷你条与 tab 栏之间的穿透缝隙。
+        // 后声明的兄弟位于轴测上层，可拦截触控；无任何绘制内容。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TabTouchExtensionPx)
+                .offset(y = -TabTouchExtensionPx)
+        ) {
+            items.forEach { item ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            onLabelChange(item.label)
+                        }
+                )
             }
         }
     }
