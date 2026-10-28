@@ -81,6 +81,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -396,6 +397,17 @@ class MainActivity : androidx.activity.ComponentActivity() {
                             val mainCardShape = remember(screenCorner) {
                                 YosRoundedCornerShape(screenCorner.dp)
                             }
+                            // 圆角裁剪走绘制相（Modifier.clip 的 canvas clipPath）：
+                            // clipToOutline（graphicsLayer 的 shape+clip）在“缩放 + 离屏合成
+                            // 同一节点”时部分设备会丢失轮廓裁剪，表现为展开动画中主界面
+                            // 卡片无圆角。canvas 裁剪在所有版本走同一路径。
+                            // cornered 仅在 progress 越过 0 时翻转（每次开/关各一次），
+                            // 不会逐帧重组。
+                            val mainCardCornered by remember("MainActivity_mainCardCornered") {
+                                derivedStateOf {
+                                    yosBottomSheetConfig.thisShowCorner && !yosBottomSheetConfig.RTCorner
+                                }
+                            }
                             Surface(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -414,17 +426,15 @@ class MainActivity : androidx.activity.ComponentActivity() {
                                         // 收起结束帧若从 Offscreen 切回 ModulateAlpha，会连带
                                         // 底栏 haze 模糊层的合成结果跳变一帧（表现为底栏透明度闪没）
                                         compositingStrategy = CompositingStrategy.Offscreen
-                                        val cornered =
-                                            yosBottomSheetConfig.thisShowCorner && !yosBottomSheetConfig.RTCorner
-                                        clip = cornered
-                                        if (cornered) {
-                                            shape = mainCardShape
-                                        }
 
                                         if (!yosBottomSheetConfig.barShowCorner) {
                                             alpha = 0f
                                         }
                                     }
+                                    .then(
+                                        if (mainCardCornered) Modifier.clip(mainCardShape)
+                                        else Modifier
+                                    )
 
                                 ,
                                 color = MaterialTheme.colorScheme.background,
