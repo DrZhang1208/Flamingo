@@ -2611,9 +2611,9 @@ private fun PlayerControl(
                     Row(
                         // 不挂 overlayEffect：黑色激活态瓷砖需走普通混合才能可见
                         //（Add 混合下黑色加零=全透明，激活图标会消失）
+                        // 不再降透明度：与播放控制按钮（上一首/播放/下一首）同亮度
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .alpha(0.4f),
+                            .fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center
                     ) {
                         val dp = 32.dp
